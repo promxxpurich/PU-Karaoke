@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+qrcode[pil]
+yt-dlp
+certifi
+demucs==4.1.0
+torch>=2.4
+numpy
+requests
+mlx-whisper   # ถอดเสียงทำเนื้อเพลง (Apple Silicon)
+# --- Studio: ห้องหาเนื้อ + จับเวลาละเอียด (ไม่ใช้ในไปป์ไลน์อัตโนมัติ) ---
+ytmusicapi       # เนื้อจาก YouTube Music
+syncedlyrics     # NetEase (แหล่งอื่นในแพ็กเกจนี้หาเพลงไทยไม่เจอ)
+transformers     # forced alignment ภาษาไทย (scripts/fa_align.py, โมเดล ~1.2 GB โหลดครั้งแรก)
+pedalboard>=0.9

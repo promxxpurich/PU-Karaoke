@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8"><title>PU KARAOKE</title>
+<!-- ล็อกซูม: maximum-scale/user-scalable ครอบ Android ส่วน iOS Safari ไม่สน ต้องดัก gesture ใน JS ด้วย -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06060b">
+<meta name="apple-mobile-web-app-title" content="PU KARAOKE">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+ :root{
+   --bg:#06060b; --panel:#14141f; --panel2:#1b1b29; --fg:#f4f4f8; --dim:#8b8ba4;
+   --accent:#ff4d8d; --accent2:#7c5cff; --line:rgba(255,255,255,.09);
+   --ok:#38d39f; --wait:#ffb648; --bad:#ff6b8f; --off:#5d5d74; --info:#9c86ff;
+   --barh:130px;                     /* ความสูงแถบล่าง วัดจริงด้วย ResizeObserver */
+ }
+ *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+ body{margin:0;background:var(--bg);color:var(--fg);font-size:15px;
+   font-family:"Noto Sans Thai",-apple-system,system-ui,sans-serif;
+   padding:0 14px calc(var(--barh) + 20px);transition:opacity .2s;overflow-x:hidden}
+ body.off main{opacity:.6}
+ body:before{content:"";position:fixed;inset:0 0 auto;height:320px;z-index:-1;
+   background:radial-gradient(700px 320px at 12% -30%,rgba(124,92,255,.35),transparent 70%),
+              radial-gradient(600px 300px at 95% -20%,rgba(255,77,141,.28),transparent 70%)}
+ .hide{display:none!important}
+ input,button,select{font:inherit;font-family:inherit}
+ button{touch-action:manipulation;cursor:pointer}
+
+ /* ---------- header (ล็อกไว้บนสุด) ---------- */
+ header{position:sticky;top:0;z-index:20;margin:0 -14px;
+   padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px;
+   background:rgba(6,6,11,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+   border-bottom:1px solid var(--line)}
+ .logo{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:700;letter-spacing:.04em}
+ .logo .mk{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:16px;
+   background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 16px rgba(255,77,141,.35)}
+ .logo b{background:linear-gradient(90deg,var(--accent),#ffb8d2);
+   -webkit-background-clip:text;background-clip:text;color:transparent}
+ header .st{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);
+   padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+ header .st .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+ body.off header .st .dot{background:var(--accent);animation:blink 1s infinite}
+ @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+ h3{font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--dim);margin:20px 2px 10px;
+   display:flex;align-items:center;gap:8px}
+ .n{font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.07);letter-spacing:0}
+ h3 .sub{margin-left:auto;font-size:10px;letter-spacing:0;text-transform:none;color:var(--accent)}
+
+ /* ---------- ปุ่ม / ช่องพิมพ์ ---------- */
+ button{background:var(--panel);border:1px solid var(--line);color:var(--fg);
+   border-radius:14px;padding:12px 16px;transition:transform .08s,background .2s}
+ button:active{transform:scale(.95)}
+ button:disabled{opacity:.5}
+ .primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;
+   color:#fff;font-weight:600;box-shadow:0 6px 18px rgba(255,77,141,.28)}
+ /* 16px ขึ้นไปเท่านั้น — ต่ำกว่านี้ iOS ซูมเข้าเองทุกครั้งที่แตะช่องพิมพ์ */
+ input[type=text],input:not([type]){width:100%;font-size:16px;background:var(--panel);
+   border:1px solid var(--line);color:var(--fg);border-radius:14px;padding:12px 15px;min-width:0}
+ input::placeholder{color:#5f5f78}
+ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,77,141,.16)}
+
+ .search{display:flex;gap:8px;margin-top:16px}
+ .sbox{position:relative;flex:1;min-width:0}
+ .sbox .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.6;pointer-events:none}
+ .sbox input{padding-left:40px;padding-right:40px}
+ #qx{position:absolute;right:5px;top:50%;transform:translateY(-50%);background:none;border:none;
+   color:var(--dim);padding:8px 10px;font-size:15px}
+ #qx:active{transform:translateY(-50%) scale(.9)}
+ .tip{font-size:12px;color:var(--dim);margin-top:9px;line-height:1.6;
+   padding:10px 13px;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
+ .empty{color:var(--dim);font-size:13px;padding:16px 4px;text-align:center;line-height:1.7}
+
+ /* ---------- การ์ดเพลง ---------- */
+ .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:10px;
+   margin-bottom:9px;display:flex;gap:12px;align-items:center;transition:opacity .2s}
+ .card.pending{opacity:.45}
+ .card[data-info]{cursor:pointer}
+ .card[data-info] .t:after{content:" ›";color:var(--dim);font-weight:400}
+ .thumb{position:relative;width:92px;height:54px;flex:none;border-radius:12px;overflow:hidden;background:var(--panel2)}
+ .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+ .ph{display:none;position:absolute;inset:0;place-items:center;font-size:20px;
+   background:linear-gradient(135deg,rgba(124,92,255,.3),rgba(255,77,141,.24))}
+ .card.noart .art{display:none}
+ .card.noart .ph{display:grid}
+ .g{flex:1;min-width:0}
+ .t{font-size:14px;line-height:1.35;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;
+   -webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+ .m{font-size:11.5px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+ .chips:empty{display:none}
+ .chip{font-size:10.5px;line-height:1.5;padding:1px 8px;border-radius:999px;white-space:nowrap;
+   background:rgba(255,255,255,.07);color:#c9c9dc}
+ .chip.ok{background:rgba(56,211,159,.13);color:#8ff0cb}
+ .chip.wait,.chip.warn{background:rgba(255,182,72,.14);color:#ffd08a}
+ .chip.bad{background:rgba(255,107,143,.15);color:#ffb0c4}
+ .chip.hot{background:rgba(255,77,141,.2);color:#ffc2d8}
+ .chip.sg{background:linear-gradient(135deg,rgba(255,77,141,.3),rgba(124,92,255,.3));color:#fff;font-weight:600}
+ .add{flex:none;width:44px;height:44px;padding:0;border-radius:50%;display:grid;place-items:center;
+   font-size:22px;line-height:1;color:#fff;border:none;
+   background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 16px rgba(255,77,141,.3)}
+ .mini{padding:8px 12px;font-size:13px;border-radius:12px}
+ .rowbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+ .mini.fix,.ghost.fix{background:linear-gradient(135deg,var(--accent),var(--accent2));
+   border-color:transparent;font-weight:600;color:#fff}
+ /* ของเดิมเป็น title= tooltip ซึ่งบนมือถือไม่มีทางเห็น = พังแล้วไม่รู้ว่าพังเพราะอะไร */
+ .err{font-size:11px;color:#ff8fae;margin-top:5px;line-height:1.45;
+      max-height:2.9em;overflow:hidden;word-break:break-word}
+ .skel{height:76px;border-radius:18px;margin-bottom:9px;
+   background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 37%,var(--panel) 63%);
+   background-size:400% 100%;animation:sk 1.2s linear infinite}
+ @keyframes sk{0%{background-position:100% 0}100%{background-position:0 0}}
+
+ /* ---------- กำลังเล่น ---------- */
+ #nowbox{margin-top:14px}
+ #now{padding:12px;margin:0;border-color:rgba(255,77,141,.35);
+   background:linear-gradient(135deg,rgba(255,77,141,.17),rgba(124,92,255,.13)),var(--panel);
+   box-shadow:0 12px 32px rgba(255,77,141,.12)}
+ #now .thumb{width:108px;height:64px}
+ #now .t{font-size:15px}
+ #now .m{color:#ffc2d8;font-weight:600}
+ .nowempty{border:1px dashed rgba(255,255,255,.14);border-radius:18px;padding:18px 10px}
+ .nowempty b{display:block;color:var(--fg);font-size:14px;margin-bottom:2px}
+ .eq{display:inline-flex;align-items:flex-end;gap:2px;height:11px;margin-right:6px;vertical-align:-1px}
+ .eq i{width:3px;height:4px;background:var(--accent);border-radius:1px;animation:eq .9s ease-in-out infinite}
+ .eq i:nth-child(2){animation-delay:.2s}
+ .eq i:nth-child(3){animation-delay:.4s}
+ @keyframes eq{0%,100%{height:3px}50%{height:11px}}
+
+ /* ---------- แถบล่าง (ล็อกไว้) ---------- */
+ .dock{position:fixed;left:0;right:0;bottom:0;z-index:30;
+   padding:10px 12px calc(8px + env(safe-area-inset-bottom));
+   background:rgba(9,9,16,.94);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+   border-top:1px solid var(--line)}
+ .vol{display:flex;align-items:center;gap:10px;padding:0 2px 9px}
+ #volbtn{display:flex;flex-direction:column;align-items:center;gap:0;background:none;border:none;
+   padding:0;width:52px;flex:none;color:var(--dim);font-size:10px;line-height:1.3}
+ #volic{font-size:19px;line-height:1.2}
+ .vol b{min-width:40px;text-align:right;color:var(--accent);font-size:14px;font-variant-numeric:tabular-nums}
+ #setbtn{padding:8px 11px;border-radius:12px;font-size:17px;line-height:1}
+ #setbtn.on{background:rgba(255,77,141,.16);border-color:rgba(255,77,141,.45)}
+ .ctrls{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+ .ctrls button{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;
+   padding:7px 2px 6px;border-radius:14px;font-size:11px;color:var(--dim);background:rgba(255,255,255,.04)}
+ .ctrls button i{font-style:normal;font-size:19px;line-height:1.25;color:var(--fg)}
+ .ctrls button.on{color:#fff;background:rgba(255,77,141,.16);border-color:rgba(255,77,141,.45)}
+ #toggle{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;
+   color:#fff;font-weight:600}
+ #toggle i{color:#fff}
+ .ctrls em{position:absolute;top:3px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;
+   border-radius:9px;background:var(--accent);color:#fff;font-style:normal;font-size:10px;
+   font-weight:700;line-height:18px;text-align:center;box-shadow:0 0 0 2px rgba(9,9,16,.94)}
+ .ctrls em.zero{display:none}
+
+ input[type=range]{-webkit-appearance:none;appearance:none;flex:1;width:100%;height:28px;background:none;margin:0;min-width:0}
+ input[type=range]::-webkit-slider-runnable-track{height:9px;border-radius:999px;
+   background:linear-gradient(90deg,var(--accent) var(--p,100%),rgba(255,255,255,.12) var(--p,100%))}
+ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;
+   margin-top:-9px;border-radius:50%;background:#fff;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+ input[type=range]::-moz-range-track{height:9px;border-radius:999px;
+   background:linear-gradient(90deg,var(--accent) var(--p,100%),rgba(255,255,255,.12) var(--p,100%))}
+ input[type=range]::-moz-range-thumb{width:26px;height:26px;border:none;border-radius:50%;background:#fff}
+ input[type=range]:disabled::-webkit-slider-thumb{background:#6a6a80}
+ input[type=range]:disabled::-webkit-slider-runnable-track{background:rgba(255,255,255,.1)}
+
+ /* ---------- sheet ที่เลื่อนขึ้นจากเหนือแถบล่าง ---------- */
+ #scrim{position:fixed;inset:0;z-index:24;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;
+   transition:opacity .25s}
+ #scrim.show{opacity:1;pointer-events:auto}
+ .sheet{position:fixed;left:0;right:0;bottom:var(--barh);z-index:25;display:flex;flex-direction:column;
+   max-height:min(66vh,calc(100dvh - var(--barh) - 70px));
+   background:rgba(14,14,24,.98);border:1px solid var(--line);border-bottom:none;
+   border-radius:22px 22px 0 0;box-shadow:0 -20px 50px rgba(0,0,0,.5);
+   transform:translateY(calc(100% + var(--barh)));visibility:hidden;
+   transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s linear .28s}
+ .sheet.open{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
+ .shd{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;font-size:15px}
+ .shd:before{content:"";position:absolute;left:50%;top:6px;width:38px;height:4px;margin-left:-19px;
+   border-radius:2px;background:rgba(255,255,255,.18)}
+ .shx{margin-left:auto;background:none;border:none;color:var(--dim);font-size:18px;padding:4px 8px}
+ .sbody{overflow-y:auto;overscroll-behavior:contain;padding:2px 14px 16px}
+
+ .fld{padding:12px 0;border-top:1px solid var(--line)}
+ .fld:first-child{border-top:none;padding-top:2px}
+ .fl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:8px}
+ .fl b{margin-left:auto;color:var(--accent);font-size:14px;font-variant-numeric:tabular-nums}
+ .hint{font-size:11.5px;color:var(--dim);margin-top:7px;line-height:1.5}
+ .hint b{color:var(--fg)}
+ .mixpre{display:flex;gap:6px;margin-top:8px}
+ .mixpre button{flex:1;padding:8px 4px;font-size:12.5px;border-radius:11px}
+ .mixpre button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+ #lyrmode{display:grid;grid-template-columns:1fr 1fr}      /* 4 ปุ่ม -> 2x2 ชื่อยาวไม่โดนตัด */
+ .reptags{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 10px}
+ .reptags button{padding:10px 6px;font-size:13px;border-radius:12px}
+ .reptags button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+ #repnote{width:100%;font-size:16px;background:var(--panel);border:1px solid var(--line);color:var(--fg);
+   border-radius:12px;padding:10px 12px;resize:none;font-family:inherit}
+ #repnote:focus{outline:none;border-color:var(--accent)}
+ #repwhen{color:var(--fg);font-weight:600}
+ .mixnote{font-size:12px;color:var(--wait);margin-top:8px;padding:8px 11px;border-radius:11px;
+   background:rgba(255,182,72,.08)}
+
+ /* ---------- หน้าสถานะเต็มจอ (ตอนกดเข้าคิว / แตะการ์ด) ---------- */
+ #addov{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
+   padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+   background:rgba(4,4,10,.74);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+   opacity:0;transition:opacity .2s}
+ #addov.show{opacity:1}
+ .ovcard{width:min(440px,100%);max-height:100%;overflow-y:auto;overscroll-behavior:contain;
+   background:var(--panel);border:1px solid rgba(255,255,255,.12);border-radius:26px;
+   box-shadow:0 30px 80px rgba(0,0,0,.65);transform:scale(.94) translateY(14px);
+   transition:transform .3s cubic-bezier(.2,.9,.3,1.15)}
+ #addov.show .ovcard{transform:none}
+ .ovhero{position:relative;aspect-ratio:16/9;background:var(--panel2);border-radius:26px 26px 0 0;overflow:hidden}
+ .ovhero img{width:100%;height:100%;object-fit:cover;display:block}
+ .ovhero .ph{font-size:56px}
+ .ovhero.noart img{display:none}
+ .ovhero.noart .ph{display:grid}
+ .ovhero:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,var(--panel))}
+ .ovbadge{position:absolute;left:14px;top:14px;z-index:1;padding:6px 13px;border-radius:999px;
+   font-size:13px;font-weight:700;color:#fff;
+   background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 18px rgba(255,77,141,.4)}
+ .ovbadge.dim{background:rgba(16,16,28,.88);border:1px solid var(--line);box-shadow:none}
+ .ovbody{position:relative;padding:0 18px 18px;margin-top:-22px}
+ .ovt{font-size:19px;font-weight:700;line-height:1.35;word-break:break-word}
+ .ovsub{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-top:8px;font-size:13px;color:var(--dim)}
+ .ovsub .chip{font-size:12px;padding:2px 10px}
+ .ovrows{margin-top:14px;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+   background:rgba(255,255,255,.02)}
+ .ovrow{display:grid;grid-template-columns:22px auto 1fr;gap:9px;align-items:center;
+   padding:11px 13px;font-size:13px;border-top:1px solid var(--line)}
+ .ovrow:first-child{border-top:none}
+ .ovrow .ic{font-size:15px;text-align:center}
+ .ovrow .lb{color:var(--dim);white-space:nowrap}
+ .ovrow .v{display:flex;justify-content:flex-end;align-items:center;gap:8px;text-align:right;
+   font-weight:600;line-height:1.4}
+ /* จุดสถานะชิดขวาสุดทุกแถว = อ่านเป็นคอลัมน์เดียวกัน แม้ข้อความยาวจนขึ้นบรรทัดใหม่ */
+ .ovrow .v:after{content:"";width:8px;height:8px;border-radius:50%;background:var(--off);flex:none}
+ .ovrow.ok .v:after{background:var(--ok);box-shadow:0 0 8px rgba(56,211,159,.6)}
+ .ovrow.wait .v:after{background:var(--wait);animation:blink 1s infinite}
+ .ovrow.warn .v:after{background:var(--wait)}
+ .ovrow.bad .v:after{background:var(--bad)}
+ .ovrow.info .v:after{background:var(--info)}
+ .ovrow.bad .v{color:#ffb0c4}
+ .ovrow.off .v{color:var(--dim);font-weight:400}
+ #overr{max-height:none;margin-top:10px}
+ .ovbtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+ .ovbtns button{flex:1;padding:12px 8px;font-size:14px}
+ .ovbtns .primary{flex-basis:100%;padding:14px}
+ .ovbtns.two .primary{flex:1.6;flex-basis:0}          /* หน้าเลือก: [ออก] [＋ เพิ่มเข้าคิว] แถวเดียว */
+ .ovwarn{font-size:12.5px;color:#ffd08a;margin-top:10px;padding:9px 12px;border-radius:12px;
+   background:rgba(255,182,72,.1);line-height:1.55;white-space:pre-line}
+
+ #toast{position:fixed;left:50%;transform:translate(-50%,10px);
+   bottom:calc(var(--barh) + 14px);
+   max-width:86%;padding:11px 18px;border-radius:999px;font-size:14px;z-index:40;
+   background:rgba(22,22,36,.96);border:1px solid var(--line);color:var(--fg);
+   box-shadow:0 10px 30px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .25s,transform .25s}
+ #toast.show{opacity:1;transform:translate(-50%,0)}
+</style></head><body>
+
+<template id="tpl-card">
+  <div class="card">
+    <div class="thumb"><img class="art" alt="" loading="lazy" decoding="async"><div class="ph">🎵</div></div>
+    <div class="g">
+      <div class="t"></div>
+      <div class="m hide"></div>
+      <div class="chips"></div>
+      <div class="err hide"></div>
+      <div class="rowbtns hide"></div>
+    </div>
+    <button class="add hide" data-act="add" aria-label="เพิ่มเข้าคิว">＋</button>
+  </div>
+</template>
+
+<header>
+  <div class="logo"><span class="mk">🎤</span><span><b>PU</b> KARAOKE</span></div>
+  <span class="st"><span class="dot"></span><span id="ststr">เชื่อมต่อแล้ว</span></span>
+</header>
+
+<main>
+  <div id="nowbox"></div>
+
+  <div class="search">
+    <div class="sbox">
+      <span class="ic">🔎</span>
+      <input id="q" type="text" placeholder="ชื่อเพลง หรือ วางลิงก์ YouTube" enterkeyhint="search" autocomplete="off">
+      <button id="qx" class="hide" aria-label="ล้างคำค้น">✕</button>
+    </div>
+    <button class="primary" id="go">ค้นหา</button>
+  </div>
+  <div class="tip" id="tip">เคล็ดลับ: MV ค่ายใหญ่มักปิดการฝัง ลองเติมคำว่า <b>คาราโอเกะ</b> หรือ <b>karaoke</b> ต่อท้ายชื่อเพลง</div>
+
+  <h3 id="reshd"><span id="reshdt">⭐ เพลงที่มีอยู่แล้ว</span> <span class="n" id="rescnt">0</span>
+    <span class="sub" id="ressub">เริ่มเล่นได้ทันที</span></h3>
+  <div id="results"></div>
+</main>
+
+<div id="toast"></div>
+<div id="scrim"></div>
+
+<section class="sheet" id="sh-queue" aria-label="คิวเพลง">
+  <div class="shd"><b>📋 คิวเพลง</b> <span class="n" id="cnt2">0</span><button class="shx" data-act="shclose">✕</button></div>
+  <div class="sbody"><div id="queue"></div></div>
+</section>
+
+<section class="sheet" id="sh-hist" aria-label="ล่าสุด">
+  <div class="shd"><b>🗂 ล่าสุด · ใครร้องอะไร</b><button class="shx" data-act="shclose">✕</button></div>
+  <div class="sbody"><div id="hist"></div></div>
+</section>
+
+<section class="sheet" id="sh-set" aria-label="ตั้งค่าละเอียด">
+  <div class="shd"><b>⚙️ ตั้งค่าละเอียด</b><button class="shx" data-act="shclose">✕</button></div>
+  <div class="sbody">
+    <div class="fld">
+      <div class="fl">👤 ชื่อคนร้อง</div>
+      <input id="singer" type="text" placeholder="noname" maxlength="24" autocomplete="nickname" enterkeyhint="done">
+      <div class="hint">ใส่ครั้งเดียว เครื่องนี้จำไว้ให้ · ไม่กรอก = <b>noname</b></div>
+    </div>
+    <div class="fld">
+      <div class="fl">🎤 ไกด์เสียงร้อง <b id="vocalval">100%</b></div>
+      <input id="vocal" type="range" min="0" max="100" step="1" value="100">
+      <div class="mixpre">
+        <button data-act="pre" data-k="vocal" data-v="0">ปิดสนิท</button>
+        <button data-act="pre" data-k="vocal" data-v="25">เบาๆ</button>
+        <button data-act="pre" data-k="vocal" data-v="100">เต็ม</button>
+      </div>
+      <div class="hint">กลับเป็น 100% เองทุกครั้งที่ขึ้นเพลงใหม่</div>
+    </div>
+    <div class="fld">
+      <div class="fl">🎵 เสียงดนตรี <b id="musicval">100%</b></div>
+      <input id="music" type="range" min="0" max="100" step="1" value="100">
+      <div class="mixnote hide" id="mixnote"></div>
+    </div>
+    <div class="fld">
+      <div class="fl">🎹 คีย์เพลง <b id="keyval">0</b></div>
+      <div class="mixpre" id="keyrow">
+        <button data-act="key" data-v="-1">− ลดคีย์</button>
+        <button data-act="key" data-v="0">คีย์เดิม</button>
+        <button data-act="key" data-v="1">+ เพิ่มคีย์</button>
+      </div>
+      <div class="mixnote hide" id="keynote"></div>
+    </div>
+    <div class="fld">
+      <div class="fl">📝 เนื้อเพลงบนจอ</div>
+      <div class="mixpre" id="lyrmode">
+        <button data-act="lyr" data-v="scroll">เลื่อนขึ้น</button>
+        <button data-act="lyr" data-v="dual">2 บรรทัดคงที่</button>
+        <button data-act="lyr" data-v="karaoke">🎤 คาราโอเกะ</button>
+        <button data-act="lyr" data-v="off">ปิด</button>
+      </div>
+      <div class="mixnote hide" id="lyrnote"></div>
+    </div>
+
+  </div>
+</section>
+
+<section class="sheet" id="sh-report" aria-label="แจ้งซับไม่ตรง">
+  <div class="shd"><b>🚩 แจ้งซับไม่ตรง</b><button class="shx" data-act="shclose">✕</button></div>
+  <div class="sbody">
+    <div class="fld">
+      <div class="hint" style="margin:0 0 8px">เพลง <span id="reptitle"></span><br>ตรงช่วง <span id="repwhen"></span> ของเพลง</div>
+      <div class="reptags" id="reptags">
+        <button data-tag="late">🐢 ซับขึ้นช้า</button>
+        <button data-tag="early">🐇 ซับขึ้นเร็ว</button>
+        <button data-tag="typo">✏️ เนื้อผิด/พิมพ์ผิด</button>
+        <button data-tag="missing">🕳 ขาดบางท่อน</button>
+        <button data-tag="nolyr">🚫 ไม่มีเนื้อ</button>
+        <button data-tag="wrong">🎵 เนื้อผิดเพลง</button>
+      </div>
+      <textarea id="repnote" rows="3" maxlength="200" placeholder="รายละเอียด (ไม่บังคับ) เช่น ท่อนฮุคช้าไปนิด"></textarea>
+      <div class="hint">ส่งให้คนดูแลไปแก้ใน Studio — บนจอจะยังไม่เปลี่ยนทันที</div>
+      <button class="primary" id="repsend" style="width:100%;margin-top:10px">ส่งให้หลังบ้าน</button>
+    </div>
+  </div>
+</section>
+
+<div id="addov" class="hide" role="dialog" aria-modal="true">
+  <div class="ovcard" id="ovcard">
+    <div class="ovhero" id="ovhero">
+      <img id="ovart" alt=""><div class="ph">🎵</div>
+      <div class="ovbadge" id="ovbadge"></div>
+    </div>
+    <div class="ovbody">
+      <div class="ovt" id="ovtitle"></div>
+      <div class="ovsub" id="ovsub"></div>
+      <div class="ovrows" id="ovrows"></div>
+      <div class="ovwarn hide" id="ovwarn"></div>
+      <div class="err hide" id="overr"></div>
+      <div class="ovbtns" id="ovbtns"></div>
+    </div>
+  </div>
+</div>
+
+<nav class="dock" id="dock">
+  <div class="vol">
+    <button id="volbtn" aria-label="ปิด/เปิดเสียง"><span id="volic">🔊</span>เสียงรวม</button>
+    <input id="master" type="range" min="0" max="100" step="1" value="80" aria-label="ระดับเสียงรวม">
+    <b id="masterval">80%</b>
+    <button id="setbtn" data-act="sheet" data-v="set" aria-label="ตั้งค่าละเอียด">⚙️</button>
+  </div>
+  <div class="ctrls">
+    <button id="toggle"><i>⏸</i><span>หยุด</span></button>
+    <button id="restart"><i>↺</i><span>เริ่มใหม่</span></button>
+    <button id="skip"><i>⏭︎</i><span>ข้าม</span></button>
+    <button id="histbtn" data-act="sheet" data-v="hist"><i>🗂</i><span>ล่าสุด</span></button>
+    <button id="qbtn" data-act="sheet" data-v="queue"><i>📋</i><span>คิว</span><em id="cnt" class="zero">0</em></button>
+  </div>
+</nav>
+<script>
+// ===== 0. ล็อกซูม ====================================================
+// iOS Safari ไม่สน user-scalable=no -> ต้องกัน pinch เอง; double-tap กันด้วย touch-action ใน CSS
+for(const t of ['gesturestart','gesturechange','gestureend'])
+  document.addEventListener(t, e=>e.preventDefault(), {passive:false});
+document.addEventListener('touchmove', e=>{ if(e.touches.length > 1) e.preventDefault(); }, {passive:false});
+document.addEventListener('dblclick', e=>e.preventDefault(), {passive:false});
+document.addEventListener('wheel', e=>{ if(e.ctrlKey) e.preventDefault(); }, {passive:false});
+
+// ===== 1. util ======================================================
+const $ = s => document.querySelector(s);
+const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = d => d ? `${Math.floor(d/60)}:${String(Math.floor(d%60)).padStart(2,'0')}` : '';
+const fmtAgo = t => { if(!t) return ''; const s=Math.floor(Date.now()/1000-t);
+  if(s<60) return 'เมื่อสักครู่';
+  if(s<3600) return `${Math.floor(s/60)} นาทีที่แล้ว`;
+  if(s<86400) return `${Math.floor(s/3600)} ชม.ที่แล้ว`;
+  return `${Math.floor(s/86400)} วันก่อน`; };
+
+// เขียน DOM เฉพาะตอนค่าเปลี่ยนจริง — หัวใจของการไม่ให้จอกระพริบ
+const setText = (el,s)=>{ if(el.textContent !== s) el.textContent = s; };
+const setHTML = (el,s)=>{ if(el.innerHTML !== s) el.innerHTML = s; };
+const setCls  = (el,c,on)=>{ if(el.classList.contains(c) !== !!on) el.classList.toggle(c,!!on); };
+// ตั้ง src ซ้ำค่าเดิมทำให้เบราว์เซอร์เข้า load pipeline ใหม่ = รูปกระพริบ ต้องกันไว้
+const setSrc  = (img,url,box)=>{ if(img.getAttribute('src') !== url){ img.setAttribute('src',url);
+                                 setCls(box || img.closest('.card'),'noart',false); } };
+const artUrl = i => i.localThumb || i.thumb || (i.videoId ? '/thumb/'+i.videoId : '');
+const DEFAULT_SINGER = 'noname';                  // ต้องตรงกับ server.py DEFAULT_SINGER
+const singerName = () => $('#singer').value.trim();
+
+// ===== 2. store =====================================================
+const S = { st:null, hist:[], recs:[], results:[], sheet:null, archiveRev:-1,
+            ov:{ open:false } };
+const TAB_ID = Math.random().toString(36).slice(2,10);   // แท็บนี้ — ใช้จับคู่ event "added" ของตัวเอง
+let addSeq = 0;
+
+// ===== 3. keyed diff =================================================
+const TPL = $('#tpl-card');
+function reconcile(root, items, keyOf, patch){
+  const have = new Map();
+  // โหนดไม่มี key = skeleton / ข้อความว่าง ที่วาดไว้ก่อนหน้า — ต้องเก็บทิ้ง ไม่งั้นค้างอยู่ใต้การ์ด
+  for(const n of [...root.children]) if(n.dataset.k) have.set(n.dataset.k, n); else n.remove();
+  let prev = null;
+  for(const it of items){
+    const k = String(keyOf(it));
+    let n = have.get(k);
+    if(n) have.delete(k);
+    else { n = TPL.content.firstElementChild.cloneNode(true); n.dataset.k = k; }
+    patch(n, it);
+    const want = prev ? prev.nextSibling : root.firstChild;
+    if(n !== want) root.insertBefore(n, want);   // อยู่ถูกที่แล้ว = ไม่แตะ
+    prev = n;
+  }
+  for(const n of have.values()) n.remove();
+}
+function emptyMsg(root, html){ setHTML(root, `<div class="empty">${html}</div>`); }
+
+// รูปโหลดไม่ขึ้น -> สลับคลาส ไม่ทำลาย node (ของเดิมใช้ outerHTML ซึ่งจะพัง reconcile)
+document.addEventListener('error', e=>{
+  if(e.target.tagName === 'IMG'){ const c = e.target.closest('.card, .ovhero'); if(c) c.classList.add('noart'); }
+}, true);
+
+// ===== 4. สถานะเพลง ==================================================
+// ทุกด้านคืน {tone, short, long}: tone = ok | wait (กำลังทำ) | warn (ใช้ได้แต่ระวัง) | bad | off | info
+// short = ชิปบนการ์ด (ว่าง = ไม่ต้องขึ้นชิป), long = แถวในหน้าสถานะเต็มจอ
+const T = (tone, short, long) => ({tone, short, long});
+const chip = (tone, s) => s ? `<span class="chip ${tone}">${esc(s)}</span>` : '';
+
+const DL = {
+  queued:      T('wait','⏳ รอโหลด',     'รอคิวโหลด'),
+  downloading: T('wait','⬇️ กำลังโหลด',  'กำลังโหลด…'),
+  ready:       T('ok',  '✓ พร้อมเล่น',   'พร้อมเล่น'),
+  failed:      T('bad', '⚠️ โหลดไม่ได้', 'โหลดไม่ได้'),
+};
+const dlInfo = i => i.source!=='yt'
+  ? T('ok','📁 ไฟล์ในเครื่อง', i.audioOnly ? 'ไฟล์ในเครื่อง · เสียงอย่างเดียว' : 'ไฟล์ในเครื่อง')
+  : DL[i.dlStatus||'queued'] || DL.queued;
+
+const SEP = {
+  ready:      T('ok',  '🎤 มีไกด์',         'มี · ปรับเสียงร้องได้'),
+  queued:     T('wait','⏳ รอแยกเสียง',      'ยังไม่มี · รอคิวแยกเสียงร้อง'),
+  separating: T('wait','🎛 กำลังแยกเสียง',   'ยังไม่มี · กำลังแยกเสียงร้อง…'),
+  failed:     T('bad', '⚠️ ไม่มีไกด์',       'ไม่มี · แยกเสียงไม่สำเร็จ'),
+};
+const sepInfo = i => i.source!=='yt' ? T('off','','ไม่รองรับ (ไฟล์ในเครื่อง)')
+  : SEP[i.sepStatus] || T('off','','ไม่มี');
+
+const LYR_WAIT = {
+  queued:    T('wait','⏳ รอหาเนื้อ',       'ยังไม่มี · รอคิวหาเนื้อ'),
+  working:   T('wait','📝 กำลังหาเนื้อ',    'ยังไม่มี · กำลังหาเนื้อ…'),
+  searching: T('wait','📝 กำลังค้นเนื้อ',   'ยังไม่มี · กำลังค้นเนื้อ…'),
+  na:        T('wait','⏳ รอหาเนื้อ',       'ยังไม่มี · จะเริ่มหาหลังแยกเสียงเสร็จ'),
+  idle:      T('off', '📝 ยังไม่ได้หาเนื้อ', 'ยังไม่มี · ยังไม่ได้หาเนื้อ'),
+  nolyr:     T('bad', '🚫 ไม่มีเนื้อ',       'ไม่มี · หาไม่เจอทุกแหล่ง'),
+  failed:    T('bad', '🚫 ไม่มีเนื้อ',       'ไม่มี · หาเนื้อไม่สำเร็จ'),
+  nosep:     T('bad', '🚫 ไม่มีเนื้อ',       'ไม่มี · ต้องแยกเสียงได้ก่อนจึงหาเนื้อได้'),
+};
+// ป้ายถาวร: ความมั่นใจของเนื้อที่ใช้อยู่ = ที่มาของเนื้อ + ผลวัดเวลา (สูตรอยู่ที่ scripts/lyrics_conf.py)
+const LYR_CONF = {
+  good:    T('ok',  '✅ เนื้อตรงจังหวะ',    'ตรวจแล้ว ตรงจังหวะ'),
+  check:   T('ok',  '📝 มีเนื้อ',           'ตรวจแล้ว พอใช้ได้'),
+  bad:     T('bad', '⚠️ เนื้อไม่ตรงจังหวะ',  'ไม่ตรงจังหวะ'),
+  auto:    T('warn','🎧 เนื้ออัตโนมัติ',     'ถอดเสียงอัตโนมัติ อาจผิดบางคำ'),
+  unknown: T('ok',  '📝 มีเนื้อ',           'ยังไม่ได้ตรวจ'),
+  none:    T('ok',  '📝 มีเนื้อ',           'ตรวจไม่ได้'),
+};
+// ผลตรวจจากที่มีคนกดรายงาน — ขึ้นแทนป้ายปกติ เพราะเป็นข่าวใหม่กว่า
+const LYR_CHECK = {
+  reported: T('wait','🔍 รอตรวจเนื้อ',          'มีคนรายงาน รอตรวจ'),
+  queued:   T('wait','🔍 รอคิวตรวจเนื้อ',       'รอคิวตรวจ'),
+  failed:   T('bad', '⚠️ ตรวจเนื้อไม่สำเร็จ',    'ตรวจไม่สำเร็จ'),
+  waiting:  T('wait','🔍 รอเพลงจบก่อนตรวจ',     'รอเพลงจบก่อนตรวจ (ต้องถอดเสียง)'),
+  checking: T('wait','🔍 กำลังตรวจเนื้อ',        'กำลังตรวจ…'),
+  fixed:    T('ok',  '🔧 แก้เนื้อให้แล้ว',       'แก้เนื้อให้แล้ว'),
+};
+function lyrInfo(i){
+  if(i.source!=='yt') return T('off','','ไม่รองรับ (ไฟล์ในเครื่อง)');
+  if(i.lyrLines){ const c = LYR_CONF[i.lyrConf] || LYR_CONF.check;
+                  return {...T(c.tone, c.short, `มี · ${i.lyrLines} บรรทัด`), has:true, conf:c}; }
+  if(i.lyrStatus==='na' && i.sepStatus==='failed') return LYR_WAIT.nosep;
+  return LYR_WAIT[i.lyrStatus] || LYR_WAIT.idle;
+}
+const chkInfo = i => i.source==='yt' && LYR_CHECK[i.lyrCheck] || null;
+// งานเลือกเนื้อดีที่สุด: เทียบทุกแหล่งกับเสียงร้องจริงหลังได้เนื้อตัวแรก — เนื้ออาจเปลี่ยนเป็นตัวที่ดีกว่า
+const LYR_BEST = T('wait','✨ กำลังเทียบเนื้อ', 'กำลังเทียบเนื้อจากทุกแหล่ง · ถ้าเจอที่ดีกว่าจะเปลี่ยนให้เอง');
+const bestInfo = i => i.source==='yt' && ['queued','working'].includes(i.lyrBest) ? LYR_BEST : null;
+
+// ชิปบนการ์ดคิว/กำลังเล่น — "พร้อมเล่น" เป็นสถานะปกติ ไม่ต้องขึ้นให้รก
+function statusChips(i){
+  const dl = dlInfo(i), ly = lyrInfo(i), ck = chkInfo(i) || bestInfo(i);
+  return (i.singer ? chip('sg','🎤 '+i.singer) : '')
+       + (dl.tone!=='ok' || i.source!=='yt' ? chip(dl.tone, dl.short) : '')
+       + chip(sepInfo(i).tone, sepInfo(i).short)
+       + (ck ? chip(ck.tone, ck.short) : chip(ly.tone, ly.short));
+}
+// ข้อความที่อ่านได้จริงบนมือถือ — เอาเหตุผลแรกที่มี แล้วตัดให้พอดีการ์ด
+const errText = i => {
+  const m = i.fixWhy || (i.dlStatus==='failed' && i.dlError) || (i.sepStatus==='failed' && i.sepError)
+          || (i.lyrStatus==='failed' && i.lyrError) || '';
+  return m ? String(m).slice(0,140) : '';
+};
+// ปุ่มซ่อมโผล่เฉพาะตอนพังจริง การ์ดปกติจึงไม่รก — เซิร์ฟเวอร์เป็นคนบอกว่าขั้นไหนพัง
+const fixBtn = i => i.fix ? `<button class="mini fix" data-act="fix">🔧 ลองใหม่</button>` : '';
+
+function patchCard(n, it, o){
+  const url = artUrl(it);
+  if(url) setSrc(n.querySelector('.art'), url); else setCls(n,'noart',true);
+  setText(n.querySelector('.t'), o.title);
+  const m = n.querySelector('.m');
+  setCls(m,'hide', !o.meta); if(o.meta) setHTML(m, o.meta);
+  setHTML(n.querySelector('.chips'), o.chips || '');
+  const er = n.querySelector('.err');
+  setCls(er,'hide', !o.err); if(o.err) setText(er, o.err);
+  const rb = n.querySelector('.rowbtns');
+  setCls(rb,'hide', !o.rowbtns); if(o.rowbtns) setHTML(rb, o.rowbtns);
+  setCls(n.querySelector('.add'),'hide', !o.add);
+  if(o.info) n.dataset.info = '1'; else delete n.dataset.info;   // แตะการ์ด = เปิดหน้าสถานะ
+  setCls(n,'pending', false);
+}
+
+// ===== 5. views ======================================================
+function renderNow(st){
+  const box = $('#nowbox'), c = st.current;
+  if(!c){ setHTML(box, '<div class="empty nowempty"><b>🎶 ยังไม่มีเพลงเล่นอยู่</b>ค้นหาแล้วกด ＋ ได้เลย</div>'); return; }
+  reconcile(box, [c], i=>i.id||'cur', (n,i)=>{
+    n.id = 'now';
+    patchCard(n, i, { title: i.title, info: true,
+      meta: st.playing ? '<span class="eq"><i></i><i></i><i></i></span>กำลังเล่น' : '⏸ หยุดชั่วคราว',
+      chips: statusChips(i),
+      err: errText(i),
+      // แก้เนื้อ/โหลดเนื้อใหม่ทำได้ใน Studio เท่านั้น — แขกแค่แจ้งไว้ให้หลังบ้าน
+      rowbtns: fixBtn(i)
+             + (i.source==='yt' ? `<button class="mini" data-act="rep">🚩 แจ้งซับไม่ตรง</button>` : '') });
+  });
+}
+function renderQueue(st){
+  const box = $('#queue'), n = st.queue.length;
+  setText($('#cnt'), String(n)); setText($('#cnt2'), String(n));
+  setCls($('#cnt'),'zero', !n);
+  if(!n){ emptyMsg(box, 'คิวว่าง — ค้นหาแล้วกด ＋ เพื่อเพิ่มเพลง'); return; }
+  reconcile(box, st.queue, i=>i.id, (n,i)=>{
+    const idx = st.queue.indexOf(i)+1;
+    patchCard(n, i, { title: `${idx}. ${i.title}`, info: true,
+      chips: statusChips(i),
+      err: errText(i),
+      rowbtns: fixBtn(i)
+             + `<button class="mini" data-act="up">▲</button>`
+             + `<button class="mini" data-act="down">▼</button>`
+             + `<button class="mini" data-act="playnow">▶ เล่นเลย</button>`
+             + `<button class="mini" data-act="remove">ลบ</button>` });
+  });
+}
+function renderRecs(){
+  const box = $('#results'), list = S.recs;
+  setText($('#reshdt'), '⭐ เพลงที่มีอยู่แล้ว');
+  setText($('#rescnt'), String(list.length));
+  setText($('#ressub'), 'เริ่มเล่นได้ทันที');
+  setCls($('#reshd'),'hide', false);
+  if(!list.length){ emptyMsg(box, 'ยังไม่มีเพลงในเครื่อง — ค้นหาแล้วกด ＋ เพื่อโหลดเก็บไว้'); return; }
+  reconcile(box, list, i=>'a'+i.videoId, (n,i)=>{
+    patchCard(n, i, { title: i.title, add: true,
+      meta: `${esc(i.channel||'')}${i.duration?' · '+fmt(i.duration):''}`,
+      chips: (i.stems ? chip('ok','🎤 ไกด์') : '')
+           + (i.lyrLines ? chip('ok','📝 เนื้อ') : '')
+           + (i.plays ? chip('hot',`▶ ${i.plays} ครั้ง`) : '') });
+  });
+}
+function renderResults(){
+  const box = $('#results');
+  const have = new Set(S.recs.map(r=>r.videoId));
+  setText($('#reshdt'), '🔎 ผลค้นหา');
+  setText($('#rescnt'), String(S.results.length));
+  setText($('#ressub'), 'กด ＋ เพื่อโหลดและเข้าคิว');
+  reconcile(box, S.results, v=>'r'+v.videoId, (n,v)=>{
+    n.style.opacity = v.embeddable===false ? '.5' : '';
+    patchCard(n, v, { title: v.title, add: true,
+      meta: `${esc(v.channel||'')}${v.duration?' · '+fmt(v.duration):''}`,
+      chips: (have.has(v.videoId) ? chip('ok','⚡ มีในเครื่องแล้ว') : '')
+           + (v.embeddable===false ? chip('bad','⚠️ ปิดการฝัง') : '') });
+  });
+}
+function renderHist(){
+  if(S.sheet !== 'hist') return;               // ปิดอยู่ ไม่ต้องวาด
+  const box = $('#hist');
+  // ยุบรายการซ้ำติดกันเป็นแถวเดียว -> ประวัติอ่านง่ายขึ้นมาก
+  // key ขึ้นต้นด้วย h เสมอ — videoId ขึ้นต้นด้วย a/r/l ได้ ซึ่งจะชนกับ key ของรายการอื่นใน addByKey
+  const runs = [];
+  for(const h of S.hist){
+    const p = runs[runs.length-1];
+    if(p && p.videoId===h.videoId && p.singer===h.singer) p.n++;
+    else runs.push({...h, n:1, k:'h'+(h.videoId||h.path||'')+'@'+h.at});
+  }
+  if(!runs.length){ emptyMsg(box, 'ยังไม่มีประวัติ'); return; }
+  reconcile(box, runs, h=>h.k, (n,h)=>{
+    patchCard(n, h, { title: h.title + (h.n>1?` ×${h.n}`:''), add: true,
+      meta: fmtAgo(h.at), chips: h.singer ? chip('sg','🎤 '+h.singer) : '' });
+  });
+}
+function renderAll(st){
+  if(!st) return;
+  setHTML($('#toggle'), st.playing ? '<i>⏸</i><span>หยุด</span>' : '<i>▶</i><span>เล่น</span>');
+  renderNow(st); renderQueue(st); renderMix(st); renderHist(); renderOv();
+}
+
+// ===== 6. หน้าสถานะเต็มจอ ============================================
+// กรอบเดียว 2 โหมด:
+//   preview — กด ＋ แล้ว "ยังไม่เข้าคิว" ดูสถานะเพลงก่อน แล้วเลือก ＋ เพิ่มเข้าคิว / ออก
+//   item    — แตะการ์ดคิว/กำลังเล่น ดูสถานะสดของเพลงที่อยู่ในคิวแล้ว (อัปเดตทุก broadcast)
+function findItem(id){
+  const st = S.st; if(!st || !id) return null;
+  if(st.current && st.current.id === id) return {it:st.current, pos:0};
+  const k = st.queue.findIndex(q=>q.id===id);
+  return k < 0 ? null : {it:st.queue[k], pos:k+1};
+}
+function openOv(o){
+  S.ov = {open:true, mode:'item', id:null, snap:null, req:null, info:null, loading:false, warn:'', ...o};
+  const el = $('#addov');
+  setCls(el,'hide',false);
+  $('#ovcard').scrollTop = 0;
+  renderOv();
+  void el.offsetWidth;                               // บังคับ reflow ก่อน ไม่งั้น transition ไม่เล่น
+  setCls(el,'show',true);
+}
+function closeOv(){
+  S.ov.open = false;
+  setCls($('#addov'),'show',false);
+  setTimeout(()=>{ if(!S.ov.open) setCls($('#addov'),'hide',true); }, 220);
+}
+const EMBED_WARN = '⚠️ เจ้าของคลิปปิดการฝัง จอหลักอาจเล่นไม่ได้';
+let ovTok = 0;
+function openPreview(req, warn){
+  setSheet(null);
+  const my = ++ovTok, ask = req.source !== 'local' && !!req.videoId;
+  openOv({mode:'preview', req, warn:warn||'', loading:ask});
+  if(!ask) return;
+  fetch('/api/songinfo?videoId='+encodeURIComponent(req.videoId)).then(r=>r.json()).then(info=>{
+    const o = S.ov;
+    if(my !== ovTok || !o.open || o.mode !== 'preview') return;   // ปิด/เปิดเพลงอื่นไปแล้ว
+    o.info = info.error ? null : info; o.loading = false;
+    // วางลิงก์มาจะมีแค่ "YouTube: <id>" — ถ้าเพลงอยู่ในคลังแล้วใช้ชื่อจริงแทน (ส่งไปกับ add ด้วย)
+    if(info.title && /^YouTube: /.test(req.title||'')) req.title = info.title;
+    renderOv();
+  }).catch(()=>{ if(my === ovTok){ S.ov.loading = false; renderOv(); } });
+}
+
+const LATER = s => T('off','', s);
+function lyrExtraRows(i, ly){
+  const r = [];
+  if(ly.has){
+    r.push(['🏷','ประเภทเนื้อ', T('info','', i.lyrKind || '—')]);
+    r.push(['🎯','ความแม่นยำ', T(ly.conf.tone,'', i.lyrConfWhy || ly.conf.long)]);
+  }
+  const ck = chkInfo(i); if(ck) r.push(['🔍','ตรวจเนื้อ', ck]);
+  const bs = bestInfo(i); if(bs) r.push(['✨','เทียบเนื้อ', bs]);
+  return r;
+}
+// แถว "เนื้อร้อง" = มี/ไม่มี -> มีแล้วเขียวเสมอ ความมั่นใจแยกไปแถว "ความแม่นยำ"
+function itemRows(i){
+  const ly = lyrInfo(i);
+  return [['🎬','วิดีโอ',dlInfo(i)], ['🎤','ไกด์เสียงร้อง',sepInfo(i)],
+          ['📝','เนื้อร้อง', ly.has ? {...ly, tone:'ok'} : ly]].concat(lyrExtraRows(i, ly));
+}
+// ก่อนเพิ่ม: เพลงที่ยังไม่มีใครสั่ง ต้องบอกว่า "จะทำให้หลังกดเพิ่ม" ไม่ใช่ "รอคิว"
+function previewRows(p){
+  if(p.source === 'local' || !p.videoId) return itemRows(p);
+  const ly = lyrInfo(p), fresh = p.dlStatus === 'new';
+  const dl  = fresh ? LATER('ยังไม่มีในเครื่อง · จะโหลดหลังกดเพิ่ม') : dlInfo(p);
+  const sp  = p.sepStatus === 'new'
+    ? LATER(fresh ? 'ยังไม่มี · จะแยกเสียงให้หลังโหลดเสร็จ' : 'ยังไม่มี · จะแยกเสียงให้หลังกดเพิ่ม') : sepInfo(p);
+  const lyr = ly.has ? {...ly, tone:'ok'}
+    : p.lyrStatus === 'na' && p.sepStatus !== 'failed' ? LATER('ยังไม่มี · จะหาให้หลังแยกเสียงเสร็จ')
+    : p.lyrStatus === 'idle' ? LATER('ยังไม่มี · จะหาให้หลังกดเพิ่ม')
+    : ly;
+  return [['🎬','วิดีโอ',dl], ['🎤','ไกด์เสียงร้อง',sp], ['📝','เนื้อร้อง',lyr]].concat(lyrExtraRows(p, ly));
+}
+// เพลงเดียวกันอยู่ในคิว/กำลังเล่นแล้วหรือยัง — กันกดซ้ำโดยไม่รู้ตัว
+function dupNote(req){
+  const st = S.st; if(!st) return '';
+  const same = q => q && (req.source === 'local' ? q.path === req.path : q.videoId === req.videoId);
+  if(same(st.current)) return 'ℹ️ เพลงนี้กำลังเล่นอยู่ตอนนี้';
+  const k = st.queue.findIndex(same);
+  return k < 0 ? '' : `ℹ️ เพลงนี้อยู่ในคิวแล้ว (คิวที่ ${k+1})`;
+}
+
+function renderOv(){
+  const o = S.ov; if(!o.open) return;
+  const pre = o.mode === 'preview';
+  let i, f = null, gone = false;
+  if(pre){
+    i = {source:'yt', ...o.req, ...(o.info||{}), title:o.req.title, singer:singerName() || DEFAULT_SINGER};
+  }else{
+    f = findItem(o.id);
+    if(f) o.snap = f.it;                             // หายจาก state แล้วก็ยังโชว์ข้อมูลล่าสุดได้
+    i = o.snap || {}; gone = !f;
+  }
+  $('#ovcard').dataset.k = pre ? '' : (o.id || '');
+
+  const url = artUrl(i);
+  if(url) setSrc($('#ovart'), url, $('#ovhero')); else setCls($('#ovhero'),'noart',true);
+  const badge = pre
+    ? (o.loading ? '🔎 กำลังตรวจสอบเพลง…'
+       : i.source === 'local' ? '📁 ไฟล์ในเครื่อง'
+       : i.archived ? '⚡ มีในเครื่องแล้ว · เล่นได้ทันที' : '⬇️ ยังไม่มีในเครื่อง')
+    : gone ? 'ออกจากคิวแล้ว' : f.pos === 0 ? '▶ กำลังเล่น' : `📋 คิวที่ ${f.pos}`;
+  setText($('#ovbadge'), badge);
+  setCls($('#ovbadge'),'dim', pre ? (o.loading || !i.archived) : gone);
+  setText($('#ovtitle'), i.title || '');
+
+  const st = S.st;
+  const where = pre ? (st && st.current ? `กดเพิ่มแล้วจะอยู่คิวที่ ${st.queue.length+1}` : 'กดเพิ่มแล้วเล่นทันที')
+    : gone ? 'เล่นจบหรือถูกลบออกไปแล้ว'
+    : f.pos === 0 ? 'กำลังเล่นอยู่ตอนนี้'
+    : `คิวที่ ${f.pos} · ${f.pos === 1 ? 'เพลงถัดไป' : `รออีก ${f.pos-1} เพลง`}`;
+  setHTML($('#ovsub'), chip('sg','🎤 '+(i.singer || DEFAULT_SINGER)) + `<span>${esc(where)}</span>`);
+
+  const wait = T('wait','','กำลังตรวจสอบ…');
+  const rows = pre ? (o.loading ? [['🎬','วิดีโอ',wait],['🎤','ไกด์เสียงร้อง',wait],['📝','เนื้อร้อง',wait]]
+                                : previewRows(i))
+                   : itemRows(i);
+  setHTML($('#ovrows'), rows.map(([ic,lb,v]) =>
+    `<div class="ovrow ${v.tone}"><span class="ic">${ic}</span><span class="lb">${lb}</span>`
+    + `<span class="v">${esc(v.long)}</span></div>`).join(''));
+
+  const warn = pre ? [o.warn, dupNote(o.req)].filter(Boolean).join('\n') : '';
+  setCls($('#ovwarn'),'hide', !warn); if(warn) setText($('#ovwarn'), warn);
+  const er = pre || gone ? '' : errText(i);
+  setCls($('#overr'),'hide', !er); if(er) setText($('#overr'), er);
+
+  setCls($('#ovbtns'),'two', pre);
+  setHTML($('#ovbtns'), pre
+    ? `<button data-act="ovclose">ออก</button><button class="primary" data-act="ovadd">＋ เพิ่มเข้าคิว</button>`
+    : (f && i.fix ? `<button class="ghost fix" data-act="fix">🔧 ลองใหม่</button>` : '')
+      + (f && f.pos > 0 ? `<button data-act="ovremove">🗑 ลบออกจากคิว</button>`
+                        + `<button data-act="ovplay">▶ เล่นเลย</button>` : '')
+      + `<button class="primary" data-act="ovclose">ตกลง</button>`);
+}
+// ยืนยันจากเซิร์ฟเวอร์ว่าเพลงที่ "เครื่องนี้" เพิ่มเข้าคิวแล้ว -> บอกลำดับคิวจริง
+function onAdded(m){
+  if(!m.cid || !String(m.cid).startsWith(TAB_ID + '-')) return;
+  const f = findItem(m.id); if(!f) return;
+  toast(f.pos === 0 ? '▶ เริ่มเล่นเลย' : `✓ เพิ่มเข้าคิวแล้ว · คิวที่ ${f.pos}`);
+}
+$('#addov').addEventListener('click', e=>{ if(e.target.id === 'addov') closeOv(); });
+$('#addov').addEventListener('touchmove', e=>{ if(e.target.id === 'addov') e.preventDefault(); }, {passive:false});
+
+// ===== 7. sheets =====================================================
+function setSheet(name){
+  S.sheet = name || null;
+  for(const k of ['queue','hist','set','report']) setCls($('#sh-'+k),'open', S.sheet===k);
+  setCls($('#qbtn'),'on', S.sheet==='queue');
+  setCls($('#histbtn'),'on', S.sheet==='hist');
+  setCls($('#setbtn'),'on', S.sheet==='set');
+  setCls($('#scrim'),'show', !!S.sheet);
+  if(S.sheet!=='set' && document.activeElement === $('#singer')) $('#singer').blur();
+  if(S.sheet!=='report' && document.activeElement === $('#repnote')) $('#repnote').blur();
+  if(S.sheet==='hist'){ send({action:'history'}); renderHist(); }
+}
+$('#scrim').addEventListener('click', ()=>setSheet(null));
+$('#scrim').addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  if(S.ov.open) closeOv(); else setSheet(null);
+});
+
+// ===== 7b. แจ้งซับไม่ตรง ==============================================
+// จำตำแหน่งตอนกดเปิด (ตอนที่เห็นว่าเพี้ยน) ไม่ใช่ตอนกดส่ง ซึ่งอาจช้าไปหลายวินาที
+const fmtPos = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+function livePos(){
+  const st = S.st; if(!st) return 0;
+  return (st.position || 0) + (st.playing ? (Date.now() - (S.stAt || Date.now())) / 1000 : 0);
+}
+function openReport(){
+  const c = S.st && S.st.current;
+  if(!c || c.source !== 'yt'){ toast('ยังไม่มีเพลงที่เล่นอยู่'); return; }
+  S.rep = {pos: livePos()};
+  setText($('#reptitle'), c.title || '');
+  setText($('#repwhen'), fmtPos(S.rep.pos));
+  $('#reptags').querySelectorAll('button').forEach(b => b.classList.remove('on'));
+  $('#repnote').value = '';
+  setSheet('report');
+}
+$('#reptags').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if(b) b.classList.toggle('on'); });
+$('#repsend').onclick = () => {
+  const tags = [...$('#reptags').querySelectorAll('button.on')].map(b => b.dataset.tag);
+  const note = $('#repnote').value.trim();
+  if(!tags.length && !note){ toast('เลือกอาการ หรือพิมพ์รายละเอียดอย่างน้อย 1 อย่าง'); return; }
+  if(!send({action:'report', t: S.rep ? S.rep.pos : livePos(), tags, note, singer: singerName()})){
+    toast('⚠️ ยังไม่ต่อกับจอ ลองใหม่อีกครั้ง'); return; }
+  setSheet(null);
+  toast('✓ ส่งแล้ว คนดูแลจะไปแก้ใน Studio');
+};
+
+// ===== 8. actions (delegation) =======================================
+function addItem(o){
+  const cid = TAB_ID + '-' + (++addSeq);
+  if(!send({action:'add', singer:singerName(), cid, ...o})){
+    toast('⚠️ ยังไม่ต่อกับจอ กำลังเชื่อมต่อใหม่…'); return false;
+  }
+  toast('✓ เพิ่มเข้าคิวแล้ว');
+  return true;
+}
+// ＋ บนการ์ด = เปิดหน้าดูสถานะก่อน ยังไม่ส่งอะไรเข้าคิว
+function addByKey(k){
+  if(k[0]==='a'){ const v=S.recs.find(x=>'a'+x.videoId===k);
+                  if(v) openPreview({videoId:v.videoId, title:v.title, thumb:v.thumb}); return; }
+  if(k[0]==='r'){ const v=S.results.find(x=>'r'+x.videoId===k);
+                  if(v) openPreview({videoId:v.videoId, title:v.title, thumb:v.thumb},
+                                    v.embeddable===false ? EMBED_WARN : ''); return; }
+  if(k[0]==='h'){ const h=S.hist.find(x=>('h'+(x.videoId||x.path||'')+'@'+x.at)===k);
+                  if(h) openPreview({source:h.source, videoId:h.videoId, path:h.path, title:h.title, thumb:h.thumb}); }
+}
+const ACTIONS = {
+  up:      k => send({action:'up',      id:k}),
+  down:    k => send({action:'down',    id:k}),
+  playnow: k => send({action:'playnow', id:k}),
+  remove:  (k,_b,card) => { card && card.classList.add('pending'); send({action:'remove', id:k}); },
+  // ไม่ต้อง confirm: ไม่ทำลายอะไร และประเด็นคือกดทีเดียวจบ
+  // ห้ามตั้ง b.disabled — setHTML(rb,...) รอบหน้าล้างทิ้งอยู่แล้ว ใช้ .pending แทน
+  fix:     (k,_b,card) => { card && card.classList.add('pending');
+                            send({action:'fix', id:k}); toast('🔧 สั่งซ่อมแล้ว'); },
+  add:     k => addByKey(k),
+  pre:     (_k,b) => SL[b.dataset.k] && SL[b.dataset.k].set(+b.dataset.v),
+  key:     (_k,b) => { const cur = (S.st && S.st.mix && S.st.mix.key) || 0, d = +b.dataset.v;
+                       send({action:'mix', key: d === 0 ? 0 : Math.max(-6, Math.min(6, cur + d))}); },
+  lyr:     (_k,b) => send({action:'lyrmode', mode:b.dataset.v}),
+  rep:     () => openReport(),
+  sheet:   (_k,b) => setSheet(S.sheet===b.dataset.v ? null : b.dataset.v),
+  shclose: () => setSheet(null),
+  ovclose: () => closeOv(),
+  ovadd:   () => { if(S.ov.mode === 'preview' && addItem(S.ov.req)) closeOv(); },
+  ovplay:  k => { send({action:'playnow', id:k}); closeOv(); toast('▶ เล่นเพลงนี้เลย'); },
+  ovremove:k => { send({action:'remove',  id:k}); closeOv(); toast('🗑 ลบออกจากคิวแล้ว'); },
+};
+document.addEventListener('click', e=>{
+  const b = e.target.closest('[data-act]');
+  if(!b){                                          // แตะตัวการ์ดคิว/กำลังเล่น = ดูสถานะเต็มจอ
+    const c = e.target.closest('.card[data-info]');
+    if(c && findItem(c.dataset.k)) openOv({id:c.dataset.k});
+    return;
+  }
+  const card = b.closest('[data-k]');
+  const fn = ACTIONS[b.dataset.act];
+  if(fn) fn(card && card.dataset.k, b, card);
+});
+
+// ===== 9. mix sliders ================================================
+function makeSlider(id, key, valId, onPaint){
+  const el = $(id);
+  const s = { el, key, dragging:false, pending:null, timer:null, muteUntil:0 };
+  const paint = v => { setText($(valId), v+'%'); el.style.setProperty('--p', v+'%'); onPaint && onPaint(v); };
+  const flush = () => {
+    if(s.pending === null) return;
+    send({action:'mix', [key]: s.pending});
+    s.muteUntil = Date.now() + 600;          // กัน echo ของตัวเองเขียนทับนิ้วที่กำลังลาก
+    s.pending = null;
+  };
+  const push = v => {
+    paint(v); s.pending = v;
+    if(s.timer) return;
+    flush();                                  // ขอบขาขึ้น: ส่งทันทีครั้งแรก
+    s.timer = setTimeout(()=>{ s.timer = null; flush(); }, 120);
+  };
+  el.addEventListener('input', e=>push(+e.target.value));
+  el.addEventListener('pointerdown',  ()=>s.dragging = true);
+  el.addEventListener('pointerup',    ()=>{ s.dragging=false; flush(); });
+  el.addEventListener('pointercancel',()=>{ s.dragging=false; flush(); });
+  s.sync = v => { if(!s.dragging && Date.now() > s.muteUntil){ el.value = v; paint(v); } };
+  s.set  = v => { el.value = v; push(v); flush(); };
+  return s;
+}
+const volIcon = v => setText($('#volic'), v===0 ? '🔇' : v<34 ? '🔈' : v<67 ? '🔉' : '🔊');
+const SL = { vocal:  makeSlider('#vocal','vocal','#vocalval'),
+             music:  makeSlider('#music','music','#musicval'),
+             master: makeSlider('#master','master','#masterval', volIcon) };
+// แตะไอคอนลำโพง = ปิดเสียงทันที แตะอีกทีกลับไประดับเดิม
+let lastVol = 80;
+$('#volbtn').onclick = ()=>{
+  const v = +SL.master.el.value;
+  if(v > 0){ lastVol = v; SL.master.set(0); } else SL.master.set(lastVol || 80);
+};
+
+function renderMix(st){
+  const m = st.mix || {};
+  SL.vocal.sync(m.vocal  == null ? 100 : m.vocal);
+  SL.music.sync(m.music  == null ? 100 : m.music);
+  SL.master.sync(m.master == null ? 80  : m.master);
+  const c = st.current, sep = c ? c.sepStatus : null, on = !!c && sep === 'ready';
+  SL.vocal.el.disabled = SL.music.el.disabled = !on;      // master เปิดเสมอ คุมได้ทุกโหมด
+  const note = !c ? 'ยังไม่มีเพลง — ปรับไกด์/ดนตรีได้ตอนมีเพลงเล่นอยู่'
+    : sep==='separating' ? '⏳ กำลังแยกเสียงร้อง… ปรับไกด์/ดนตรียังไม่ได้'
+    : sep==='queued'     ? '⏳ รอแยกเสียงร้อง'
+    : sep==='failed'     ? '⚠️ แยกเสียงไม่ได้ — ปรับได้แค่เสียงรวม'
+    : sep==='na'         ? 'เพลงนี้ปรับไกด์ไม่ได้ — ปรับได้แค่เสียงรวม'
+    : '';
+  setText($('#mixnote'), note);
+  setCls($('#mixnote'),'hide', !note);
+  // 🎹 คีย์: ใช้ได้เฉพาะเพลงที่แยกเสียงแล้ว (เลื่อนคีย์ทั้งดนตรีและไกด์) — ครั้งแรกของแต่ละคีย์ต้องเตรียมไฟล์ ~10 วิ
+  const key = (st.mix && st.mix.key) || 0;
+  setText($('#keyval'), (key > 0 ? '+' : '') + key);
+  $('#keyrow').querySelectorAll('button').forEach(b => { b.disabled = !on; setCls(b, 'on', +b.dataset.v === 0 && key === 0); });
+  const kn = !on ? 'เปลี่ยนคีย์ได้เมื่อแยกเสียงเสร็จ'
+    : c.keyStatus === 'failed' ? '⚠️ เปลี่ยนคีย์ไม่ได้: ' + (c.keyError || '')
+    : c.keyStatus ? `⏳ กำลังเตรียมคีย์ ${key > 0 ? '+' : ''}${key} (ครั้งแรกใช้ ~10 วิ)…`
+    : key ? `คีย์ ${key > 0 ? '+' : ''}${key} · กลับเป็นคีย์เดิมเองตอนขึ้นเพลงใหม่` : '';
+  setText($('#keynote'), kn);
+  setCls($('#keynote'),'hide', !kn);
+  const lm = ['dual','karaoke','off'].includes(st.lyrMode) ? st.lyrMode : 'scroll';
+  $('#lyrmode').querySelectorAll('button').forEach(b => setCls(b,'on', b.dataset.v === lm));
+  // คาราโอเกะไล่สีได้เฉพาะเพลงที่ทำเวลารายคำเสร็จแล้ว — เพลงอื่นขึ้นแบบ 2 บรรทัดไปก่อน บอกให้รู้
+  const ln = lm !== 'karaoke' ? ''
+    : !c || c.lyrStatus !== 'ready' || c.wordsUrl ? ''
+    : ['queued','working'].includes(c.wordsStatus) ? '⏳ กำลังทำเวลารายคำของเพลงนี้ — ระหว่างนี้ขึ้นแบบ 2 บรรทัด'
+    : 'เพลงนี้ยังไม่มีเวลารายคำ — ขึ้นแบบ 2 บรรทัดไปก่อน';
+  setText($('#lyrnote'), ln);
+  setCls($('#lyrnote'),'hide', !ln);
+
+}
+
+// แถบล่างสูงไม่คงที่ (safe-area / ฟอนต์) -> วัดจริงแล้วยิงเข้า --barh ให้ sheet กับ toast เกาะขอบบนพอดี
+const measureBars = ()=>document.documentElement.style.setProperty('--barh', ($('#dock').offsetHeight||0)+'px');
+new ResizeObserver(measureBars).observe($('#dock'));
+measureBars();
+
+// ===== 10. search / net ==============================================
+let toastTimer=null;
+function toast(msg){
+  const el=$('#toast'); el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2500);
+}
+const skeleton = n => Array.from({length:n},()=>'<div class="skel"></div>').join('');
+
+function ytId(s){
+  const m = s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/);
+  if(m) return m[1];
+  const t = s.trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(t) && /[0-9_-]/.test(t)) return t;
+  return null;
+}
+async function loadRecs(){
+  try{
+    const r = await (await fetch('/api/archive')).json();
+    S.recs = r.results||[];
+    if(!$('#q').value.trim()) renderRecs();
+  }catch(e){}
+}
+let searchTok = 0;
+async function search(){
+  $('#q').blur();                                   // เก็บคีย์บอร์ดลง จะได้เห็นผล
+  const my = ++searchTok;
+  const raw = $('#q').value.trim();
+  if(!raw){ renderRecs(); return; }
+  const id = ytId(raw);
+  if(id){
+    emptyMsg($('#results'), 'กำลังตรวจสอบคลิป…');
+    let ok = true;
+    try{ ok = (await (await fetch('/api/embeddable?videoId='+id)).json()).embeddable; }catch(e){}
+    if(my !== searchTok) return;
+    $('#q').value=''; setCls($('#qx'),'hide',true); renderRecs();
+    openPreview({videoId:id, title:'YouTube: '+id}, ok ? '' : EMBED_WARN);
+    return;
+  }
+  $('#results').innerHTML = skeleton(4);
+  try{
+    const r = await (await fetch('/api/search?q='+encodeURIComponent(raw))).json();
+    if(my !== searchTok) return;
+    if(!(r.results || []).length){
+      emptyMsg($('#results'), `<b>ค้นหาไม่สำเร็จ</b><br>${r.error?`<span style="color:#ff8fae;word-break:break-all">${esc(r.error)}</span><br>`:'ไม่พบผลลัพธ์<br>'}`
+        + `วิธีแก้: รัน <code>./update.sh</code> เพื่ออัปเดต yt-dlp<br>หรือ copy ลิงก์จากแอป YouTube มาวางได้เลย`);
+      return;
+    }
+    S.results = r.results; renderResults();
+  }catch(e){ if(my === searchTok) emptyMsg($('#results'), 'ต่อเซิร์ฟเวอร์ไม่ได้: '+esc(String(e))); }
+}
+// พิมพ์ในช่องค้นหา = กรองเพลงในเครื่องแบบออฟไลน์ ไม่ยิงเน็ต
+$('#q').addEventListener('input', ()=>{
+  setCls($('#qx'),'hide', !$('#q').value);
+  const q = $('#q').value.trim().toLowerCase();
+  if(!q){ renderRecs(); return; }
+  const hit = S.recs.filter(v => (v.title||'').toLowerCase().includes(q)
+                              || (v.channel||'').toLowerCase().includes(q));
+  const keep = S.recs; S.recs = hit; renderRecs(); S.recs = keep;
+  setText($('#ressub'), 'กด ค้นหา เพื่อหาใน YouTube');
+});
+$('#qx').onclick = ()=>{
+  searchTok++;                                      // ผลค้นหาที่ยังไม่มา ไม่ต้องแสดงแล้ว
+  $('#q').value = ''; setCls($('#qx'),'hide',true);
+  renderRecs();
+  $('#q').focus();
+};
+
+$('#go').onclick = search;
+$('#q').addEventListener('keydown', e=>{ if(e.key==='Enter') search(); });
+$('#toggle').onclick  = ()=>send({action:'toggle'});
+$('#skip').onclick    = ()=>{ const c = S.st && S.st.current; if(c) send({action:'next', id:c.id}); };
+$('#restart').onclick = ()=>send({action:'restart'});
+
+$('#singer').value = (()=>{ try{ return localStorage.getItem('singer')||''; }catch(e){ return ''; } })();
+$('#singer').oninput = e=>{ try{ localStorage.setItem('singer', e.target.value); }catch(err){} };
+$('#singer').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#singer').blur(); });
+
+// ===== 11. websocket =================================================
+let ws=null, retry=1500;
+const send = o => { try{ if(ws && ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify(o)); return true; } }catch(e){} return false; };
+
+let rafId=0, pending=null;
+function schedule(st){                    // รวมหลาย broadcast ในเฟรมเดียว
+  pending = st;
+  if(rafId) return;
+  rafId = requestAnimationFrame(()=>{ rafId=0; renderAll(pending); });
+}
+function onMessage(ev){
+  const st = JSON.parse(ev.data);
+  if(st.type === 'history'){ S.hist = st.items||[]; renderHist(); return; }
+  if(st.type === 'added'){ onAdded(st); return; }     // ต้องดักก่อน ไม่งั้นไปทับ S.st
+  if(st.type && st.type !== 'state') return;
+  S.st = st; S.stAt = Date.now();
+  if(st.archiveRev !== S.archiveRev){ S.archiveRev = st.archiveRev; loadRecs(); }
+  schedule(st);
+}
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = onMessage;
+  ws.onopen = ()=>{ retry=1500; document.body.classList.remove('off');
+                    setText($('#ststr'),'เชื่อมต่อแล้ว');
+                    loadRecs(); if(S.sheet==='hist') send({action:'history'}); };
+  ws.onclose = ()=>{ document.body.classList.add('off'); setText($('#ststr'),'กำลังเชื่อมต่อ…');
+                     setTimeout(connect, retry); retry = Math.min(retry*1.5, 6000); };
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+}
+renderRecs(); connect();
+</script></body></html>

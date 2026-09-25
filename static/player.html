@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8"><title>PU KARAOKE</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#06060b; --fg:#f4f4f8; --dim:#8b8ba4;
+    --accent:#ff4d8d; --accent2:#7c5cff;
+    --kara:#ff6fa6;                              /* สีตัวอักษรที่ร้องไปแล้ว (โหมดคาราโอเกะ) */
+    --glass:rgba(10,10,18,.62); --line:rgba(255,255,255,.10);
+    --qrscale:1;                          /* ตั้งค่าจอจาก Studio (applyTv) — ค่าเริ่มต้น = หน้าตาเดิม */
+    --qrw:calc(clamp(96px,7vw,150px) * var(--qrscale));   /* QR มุมขวาล่าง — เนื้อเพลงเว้นขอบเท่านี้ทั้งสองข้าง */
+    --lyrcolor:#ffffff; --lyrdimc:rgba(255,255,255,.55); --lyrbga:1; --lift:0vh;
+    --logow:calc(clamp(90px,8vw,160px) * var(--logoscale,1));
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+    font-family:"Noto Sans Thai",-apple-system,system-ui,sans-serif}
+  #stage{position:relative;height:100%;background:#000}
+  #yt,#local{position:absolute;inset:0;width:100%;height:100%}
+  #local{object-fit:contain;background:#000}
+
+  /* ---------- now playing (top bar) ---------- */
+  #now{position:absolute;left:0;right:0;top:0;z-index:5;pointer-events:none;
+    padding:20px 26px 46px;display:flex;align-items:center;gap:14px;
+    background:linear-gradient(180deg,rgba(0,0,0,.82),rgba(0,0,0,.35) 55%,transparent);
+    transition:opacity .5s}
+  #now .eq{display:flex;align-items:flex-end;gap:3px;height:22px;flex:none}
+  #now .eq i{width:3px;background:var(--accent);border-radius:2px;animation:eq .9s ease-in-out infinite}
+  #now .eq i:nth-child(2){animation-delay:.15s}
+  #now .eq i:nth-child(3){animation-delay:.3s}
+  #now .eq i:nth-child(4){animation-delay:.45s}
+  @keyframes eq{0%,100%{height:6px}50%{height:22px}}
+  body.paused #now .eq i{animation-play-state:paused}
+  #now .ti{font-size:25px;font-weight:600;letter-spacing:.01em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:68vw}
+  #now .by{flex:none;font-size:17px;color:#fff;padding:6px 16px;border-radius:999px;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 20px rgba(255,77,141,.35)}
+
+  /* ---------- idle ---------- */
+  #idle{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:26px;text-align:center;padding:40px;
+    background:
+      radial-gradient(1100px 680px at 18% -10%,rgba(124,92,255,.38) 0%,transparent 62%),
+      radial-gradient(1000px 640px at 88% 112%,rgba(255,77,141,.30) 0%,transparent 58%),
+      var(--bg)}
+  #idle:before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(900px 500px at 50% 50%,transparent 40%,rgba(0,0,0,.55) 100%)}
+  #idle>*{position:relative}
+  #idle .brand{font-size:14px;letter-spacing:.5em;color:var(--dim);text-transform:uppercase}
+  #idle .brand b{background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;font-weight:700}
+  #idle h1{margin:0;font-size:46px;font-weight:300;letter-spacing:.12em}
+  #idle h1 b{font-weight:600;background:linear-gradient(90deg,#fff,#ffc2d8);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  #idle .qcard{width:290px;max-width:66vw;background:#fff;padding:16px;border-radius:26px;
+    box-shadow:0 26px 70px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08);
+    animation:float 5s ease-in-out infinite}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+  #idle .qcard img{width:100%;display:block;border-radius:12px}
+  #idleurl{padding:9px 20px;border-radius:999px;font-size:16px;color:#cfcfe4;
+    background:rgba(255,255,255,.06);border:1px solid var(--line)}
+  #idle .steps{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--dim);flex-wrap:wrap;justify-content:center}
+  #idle .steps span{padding:8px 18px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+  #idle .steps span b{color:var(--accent);font-weight:600;margin-right:6px}
+
+  /* ---------- up next ---------- */
+  #next{position:absolute;left:22px;bottom:22px;max-width:56%;z-index:5;
+    display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:16px;
+    background:var(--glass);backdrop-filter:blur(14px);border:1px solid var(--line);
+    box-shadow:0 12px 36px rgba(0,0,0,.45);pointer-events:none}   /* ข้อมูลล้วน กดไม่ได้ */
+  #next .lb{flex:none;font-size:11px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase}
+  #next .tx{min-width:0;font-size:18px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #next .sg{flex:none;font-size:13px;color:var(--accent)}
+  #next .qn{flex:none;font-size:12px;color:var(--dim);padding:4px 10px;border-radius:999px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line)}
+
+  /* ---------- floating QR: รูปอย่างเดียว อยู่ตลอดทั้งตอนขึ้นเนื้อ (เหนือแถบเนื้อ) ---------- */
+  #qrflo{position:absolute;right:22px;bottom:22px;width:var(--qrw);z-index:8;background:#fff;
+    border-radius:12px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  #qrflo img{width:100%;display:block;border-radius:4px}
+
+  /* ---------- overlays ---------- */
+  #err{position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:16px;background:rgba(6,6,11,.94);backdrop-filter:blur(6px);text-align:center;padding:40px}
+  #err .big{font-size:34px;font-weight:700}
+  #err .sub{font-size:19px;color:var(--dim);max-width:70vw}
+  #err .cd{font-size:15px;color:var(--accent)}
+  #tme{position:absolute;left:22px;bottom:14px;z-index:8;pointer-events:none;
+    font-size:15px;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:.3px;
+    color:rgba(255,255,255,.55);text-shadow:0 2px 10px rgba(0,0,0,.95)}
+  #conn{position:absolute;left:22px;top:22px;z-index:9;display:none;align-items:center;gap:8px;
+    padding:8px 16px;border-radius:999px;font-size:14px;
+    background:rgba(255,77,141,.16);border:1px solid rgba(255,77,141,.45);color:#ffc2d8}
+  #conn.show{display:flex}
+  #conn .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  #evicted{position:absolute;inset:0;z-index:11;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;cursor:pointer;text-align:center;padding:40px;
+    background:rgba(6,6,11,.96);backdrop-filter:blur(8px)}
+  #evicted .ic{font-size:66px}
+  #evicted .big{font-size:32px;font-weight:600}
+  #evicted .sub{font-size:17px;color:var(--dim);max-width:60vw}
+  #unlock{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;cursor:pointer;
+    background:rgba(6,6,11,.92);backdrop-filter:blur(8px);text-align:center;padding:40px}
+  #unlock .ic{font-size:66px}
+  #unlock .big{font-size:32px;font-weight:600}
+  #unlock .sub{font-size:17px;color:var(--dim)}
+  #now .gd{flex:none;font-size:14px;color:var(--dim);padding:5px 12px;border-radius:999px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line)}
+  #lyr{position:absolute;left:0;right:0;bottom:0;z-index:7;pointer-events:none;
+    text-align:center;padding:12vh calc(var(--qrw) + 44px) calc(5vh + var(--lift));   /* ซ้ายขวาเท่ากัน = ยังอยู่กลางจอ และไม่ทับ QR */
+    background:linear-gradient(0deg,rgba(0,0,0,calc(.9 * var(--lyrbga))),rgba(0,0,0,calc(.55 * var(--lyrbga))) 58%,transparent)}
+  #lyrcur{font-size:var(--lyrfs,4.4vw);font-weight:700;line-height:1.32;min-height:1.32em;color:var(--lyrcolor);
+    text-shadow:0 3px 20px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9)}
+  #lyrnext{margin-top:1.4vh;font-size:calc(var(--lyrfs,4.4vw)*.5);font-weight:400;
+    color:var(--lyrdimc);line-height:1.35;min-height:1.35em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* โหมด 2 บรรทัดคงที่: สองแถวขนาด/ตำแหน่งเท่ากันเป๊ะ ต่างกันแค่ความสว่าง */
+  #lyr.m-dual{padding:13vh calc(var(--qrw) + 44px) calc(4.5vh + var(--lift))}
+  #lyr.m-dual #lyrnext{margin-top:1.0vh;font-size:var(--lyrfs,4.4vw);font-weight:700;
+    line-height:1.32;min-height:1.32em;white-space:normal;text-overflow:clip;
+    text-shadow:0 3px 20px rgba(0,0,0,.95),0 0 4px rgba(0,0,0,.9)}
+  /* จาง = ท่อนที่ยังไม่ถึง, สว่าง = ท่อนที่ถึงแล้ว — ไล่สีนุ่ม ๆ ไม่มีอะไรขยับ */
+  #lyr.m-dual #lyrcur, #lyr.m-dual #lyrnext{
+    color:var(--lyrdimc);transition:color .25s ease}
+  #lyr.m-dual #lyrcur.on, #lyr.m-dual #lyrnext.on{color:var(--lyrcolor)}
+  /* โหมดคาราโอเกะ = 2 บรรทัดคงที่ + ไล่สีทีละกลุ่มอักษรตามเวลาที่ร้องจริง
+     กลุ่มอักษร (พยัญชนะ+สระบน/ล่าง+วรรณยุกต์) เปลี่ยนสีพร้อมกัน ไม่มีสระลอยแยกสี */
+  #lyr.m-kara .kara span{transition:color .12s linear}
+  #lyr.m-kara .kara span.s{color:var(--kara)}
+  body.lyrics #next{display:none!important}
+
+  /* ---------- การ์ด "เพิ่มเข้าคิว" (มีคนกด ＋ จากรีโมท) ----------
+     การ์ดเล็กมุมขวาบน โผล่แป๊บเดียว — ไม่บังวิดีโอกลางจอและเนื้อเพลงด้านล่าง */
+  #addcard{position:absolute;right:22px;top:22px;z-index:7;width:min(400px,40vw);
+    display:flex;gap:12px;align-items:center;padding:10px 14px 10px 10px;border-radius:16px;
+    background:rgba(12,12,22,.86);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 14px 40px rgba(0,0,0,.5);pointer-events:none;
+    opacity:0;transform:translateX(24px);transition:opacity .3s,transform .3s}
+  #addcard.show{opacity:1;transform:none}
+  #addcard .art{width:104px;aspect-ratio:16/9;flex:none;border-radius:10px;overflow:hidden;
+    background:linear-gradient(135deg,rgba(124,92,255,.35),rgba(255,77,141,.3));
+    display:grid;place-items:center;font-size:24px}
+  #addcard .art img{width:100%;height:100%;object-fit:cover;display:block}
+  #addcard .g{min-width:0;flex:1}
+  #addcard .lb{font-size:12px;letter-spacing:.06em;color:var(--accent);font-weight:700}
+  #addcard .ti{font-size:17px;font-weight:700;line-height:1.3;margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #addcard .ro{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+  #addcard .c{font-size:12px;padding:2px 9px;border-radius:999px;background:rgba(255,255,255,.08);color:#d6d6e8;
+    white-space:nowrap}
+  #addcard .c.ok{background:rgba(56,211,159,.16);color:#9ff5d3}
+  #addcard .c.wait{background:rgba(255,182,72,.16);color:#ffd79a}
+  #addcard .c.bad{background:rgba(255,107,143,.17);color:#ffb8ca}
+  #addcard .c.sg{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:600}
+  /* ---------- ตั้งค่าหน้าจอจาก Studio (applyTv) ---------- */
+  body.no-title #now, body.no-qr #qrflo, body.no-time #tme, body.no-next #next,
+  body.no-addcard #addcard, body.no-singer #now .by{display:none!important}
+  body.no-qr #lyr, body.no-qr #lyr.m-dual{padding-left:44px;padding-right:44px}   /* ไม่มี QR = ซับกว้างเต็มจอ */
+  #now.fade{opacity:0}
+  body.sh0 #lyrcur, body.sh0 #lyr #lyrnext{text-shadow:none}
+  body.sh1 #lyrcur, body.sh1 #lyr #lyrnext{text-shadow:0 2px 8px rgba(0,0,0,.75)}
+  body.sh3 #lyrcur, body.sh3 #lyr #lyrnext{-webkit-text-stroke:.07em rgba(0,0,0,.9);paint-order:stroke fill;
+    text-shadow:0 3px 20px rgba(0,0,0,.95),0 0 6px rgba(0,0,0,.95)}
+  /* รูปมุมขวาบน (1:1 อัปจาก Studio) — ขึ้นทั้งตอนมีเพลงและหน้าจอว่าง */
+  #logo{position:absolute;right:22px;top:22px;z-index:6;width:var(--logow);aspect-ratio:1;
+    border-radius:14px;overflow:hidden;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  #logo img{width:100%;height:100%;object-fit:cover;display:block}
+  body.logo #addcard{top:calc(22px + var(--logow) + 12px)}          /* การ์ดเพิ่มเพลงหลบไปใต้รูป */
+  body.logo #now{padding-right:calc(26px + var(--logow) + 14px)}    /* ชื่อเพลงไม่วิ่งเข้าใต้รูป */
+  #idletext{font-size:22px;font-weight:600;color:#ffd9e8;text-align:center;max-width:80vw}
+  .hide{display:none!important}
+</style></head><body>
+<div id="stage">
+  <div id="yt"></div>
+  <video id="local" class="hide" playsinline preload="metadata"></video>
+
+  <div id="idle">
+    <div class="brand">🎤 <b>PU KARAOKE</b></div>
+    <h1>สแกนเพื่อ<b>สั่งเพลง</b></h1>
+    <div id="idletext" class="hide"></div>
+    <div class="qcard"><img src="/qr.png" alt="QR"></div>
+    <div id="idleurl"></div>
+    <div class="steps">
+      <span><b>1</b>สแกน QR</span><span><b>2</b>ค้นหาเพลง</span><span><b>3</b>กดแล้วร้อง</span>
+    </div>
+  </div>
+
+  <div id="now" class="hide"></div>
+  <div id="next" class="hide"></div>
+  <!-- โหมด scroll: #lyrcur = ท่อนที่ร้องอยู่, #lyrnext = ท่อนหน้าตัวเล็ก
+       โหมด m-dual: #lyrcur = แถวบน (ท่อนดัชนีคู่), #lyrnext = แถวล่าง (ท่อนดัชนีคี่) -->
+  <div id="lyr" class="hide" lang="th"><div id="lyrcur"></div><div id="lyrnext"></div></div>
+  <div id="addcard"></div>
+  <div id="logo" class="hide"><img alt=""></div>
+  <div id="qrflo"><img src="/qr.png" alt="QR"></div>
+  <div id="tme" class="hide"></div>
+  <div id="conn"><span class="dot"></span><span>กำลังเชื่อมต่อกับเซิร์ฟเวอร์…</span></div>
+  <div id="evicted" class="hide">
+    <div class="ic">🖥️</div>
+    <div class="big">จอนี้ถูกแทนที่แล้ว</div>
+    <div class="sub">มีจอหลักเปิดอยู่ที่หน้าต่างอื่น — แตะเพื่อยึดกลับมาที่จอนี้</div>
+  </div>
+  <div id="unlock" class="hide">
+    <div class="ic">🔊</div>
+    <div class="big">แตะหน้าจอเพื่อเปิดเสียง</div>
+    <div class="sub">เบราว์เซอร์ต้องให้แตะ 1 ครั้งก่อนถึงจะเล่นเสียงได้</div>
+  </div>
+  <div id="err" class="hide"></div>
+</div>
+<script>
+let player, ready=false, curId=null, lastRestart=null, curLocal=null, ws=null;
+// id ของ "ใบคิว" ที่จอกำลังเล่นอยู่ — ended ทุกทางแนบ id นี้ไปด้วย เซิร์ฟเวอร์จะได้ทิ้ง ended ที่ค้าง/ซ้ำ
+// (เทียบแค่ URL ไม่พอ: เพลงเดียวกันต่อกันสองรอบ URL เหมือนเดิมทุกตัวอักษร)
+let curItem=null;
+const $ = s=>document.querySelector(s);
+const esc = s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const local = $('#local');
+function clog(tag, msg){
+  try{
+    console.error('['+tag+']', msg);
+    fetch('/api/clientlog', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tag, msg: String(msg && msg.stack || msg)})}).catch(()=>{});
+  }catch(e){}
+}
+window.addEventListener('error', e=> clog('onerror', e.message + ' @' + e.filename + ':' + e.lineno));
+window.addEventListener('unhandledrejection', e=> clog('unhandled', e.reason));
+
+const sendWs = o=>{ try{ if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(o)); }catch(e){} };
+
+local.addEventListener('ended', ()=>{ if(!stemMode) sendWs({action:'ended', id:curItem}); });
+local.addEventListener('error', ()=> showErr('เปิดไฟล์เพลงนี้ไม่ได้'));
+
+const tag=document.createElement('script');
+tag.src="https://www.youtube.com/iframe_api";
+document.head.appendChild(tag);
+
+window.onYouTubeIframeAPIReady = ()=>{
+  player = new YT.Player('yt',{
+    height:'100%',width:'100%',
+    playerVars:{autoplay:1,controls:0,rel:0,modestbranding:1,playsinline:1,iv_load_policy:3},
+    events:{
+      onReady:()=>{ready=true; applyMix(window._state && window._state.mix); apply(window._state);},
+      onStateChange:e=>{ if(e.data===YT.PlayerState.ENDED && curId) sendWs({action:'ended', id:curItem}); },
+      onError:e=>{
+        // 101/150 = เจ้าของปิดการฝัง, 100 = คลิปถูกลบ, 2 = id ผิด, 5 = player error
+        const why = (e.data===101||e.data===150) ? 'เจ้าของคลิปปิดการฝัง เล่นในจอนี้ไม่ได้'
+                  : (e.data===100) ? 'คลิปนี้ถูกลบหรือเป็นส่วนตัว'
+                  : 'เล่นคลิปนี้ไม่ได้ (error '+e.data+')';
+        showErr(why);
+      }
+    }
+  });
+};
+
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = ()=>{ $('#conn').classList.remove('show');
+                    if(!evicted) sendWs({action:'hello', role:'player', id:PLAYER_ID}); };
+  ws.onmessage = ev=>{
+    const st = JSON.parse(ev.data);
+    if(st.type === 'evicted'){ becomeEvicted(); return; }
+    if(st.type === 'added'){ showAdded(st.id); return; }
+    if(st.type && st.type!=='state') return;
+    if(evicted) return;                       // ถูกแทนที่แล้ว ไม่ต้องเล่นอะไรอีก
+    window._state = st;
+    $('#idleurl').textContent = st.baseUrl + '/r';
+    renderNext(st.queue);
+    apply(st);
+    renderAdded();
+  };
+  ws.onclose = ()=>{ $('#conn').classList.add('show'); setTimeout(connect,1500); };
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+}
+
+// ===== เครื่องผสมเสียงสเต็ม (Web Audio) =============================
+// <audio> สองตัวมี decoder/clock แยกกัน เหลื่อมกันหลายสิบ ms ซึ่งสำหรับสเต็มที่เป็น
+// ส่วนเติมเต็มของกันและกันจะได้ยินเป็น comb filtering ตั้งแต่ ~2ms
+// AudioBufferSourceNode สองตัวที่ start() ด้วย when เดียวกัน = ตรงกันระดับ sample
+let ctx=null, gMaster=null, gVoc=null, gInst=null, srcVoc=null, srcInst=null;
+let bufVoc=null, bufInst=null, dur=0, stemKey=null;
+let startedAt=0, startOffset=0, stemMode=false, loadToken=0;
+let driftTimer=null, preparing=false, stemGaveUp=false, needUnlock=false, lastPlaying=null;
+let badTag=null;           // ชุดสเต็ม (เพลง@คีย์) ที่โหลดไม่สำเร็จตอนสลับกลางเพลง — ไม่ลองซ้ำ แต่ยังเล่นชุดเดิมต่อ
+let gInstS=null, gVocS=null;   // gain ประจำ source ชุดที่เล่นอยู่ (ไว้ crossfade ตอนสลับคีย์/เริ่มใหม่)
+const PLAYER_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+let evicted = false;
+let attached = false;   // ยังไม่ได้ resume ไปตำแหน่งจริง -> ห้ามรายงานทับค่าบนเซิร์ฟเวอร์
+let stemErr='';
+const NOSTEMS = new URLSearchParams(location.search).has('nostems');
+let audioOp = Promise.resolve();
+const withTimeout = (p, ms, label) => Promise.race([
+  Promise.resolve(p),
+  new Promise((_, rej)=> setTimeout(()=> rej(new Error('timeout: ' + label)), ms))
+]);
+// ทุกงานมีเพดานเวลา -> chain เดินต่อได้เสมอ แม้งานใดงานหนึ่งค้างไม่ยอมจบ
+const queueOp = (fn, label='audioOp') => (audioOp = audioOp
+  .then(()=> withTimeout(fn(), 15000, label))
+  .catch(e=> clog('stem', e)));
+
+function resumeAt(st){
+  // โหลดหน้าใหม่กลางเพลง -> เล่นต่อจากตำแหน่งเดิม ไม่ใช่เด้งกลับต้น
+  const t = st && +st.position;
+  return (isFinite(t) && t > 1) ? t : 0;
+}
+
+// สเต็มที่ควรเล่นตอนนี้: คีย์ของห้อง ≠ 0 และไฟล์คีย์นั้นพร้อมแล้ว -> ชุดเลื่อนคีย์ ไม่งั้นชุดเดิม
+// tag = เพลง@คีย์ เทียบกับ stemKey ที่โหลดไว้ คีย์เปลี่ยนแล้วจึงโหลดชุดใหม่กลางเพลงได้ (enterStems live)
+function stemsOf(c){
+  if(NOSTEMS || !c) return null;
+  if(c.source!=='yt' || c.sepStatus!=='ready' || !c.stems) return null;
+  const st = window._state, k = (st && st.mix && st.mix.key) || 0;
+  if(k && c.stemsKey && c.stemsKey.key === k) return {...c.stemsKey, tag: c.videoId + '@' + k};
+  // คีย์ใหม่ยังเตรียมไม่เสร็จ -> คงชุดที่เล่นอยู่ไว้ก่อน (ของเดิมสลับกลับคีย์ 0 ทันที แล้ว ~10 วิค่อยไปคีย์ใหม่
+  // = เสียงกระโดด +1 -> 0 -> +2) — tag อย่างเดียวไม่มี URL: apply() เห็นว่าตรงกับที่โหลดไว้แล้วจึงไม่ทำอะไร
+  if(k && c.keyStatus !== 'failed' && stemMode && stemKey && stemKey.startsWith(c.videoId + '@'))
+    return {tag: stemKey};
+  return {...c.stems, tag: c.videoId + '@0'};
+}
+
+function ensureCtx(){
+  if(ctx) return ctx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  ctx = new AC();
+  gMaster = ctx.createGain(); gMaster.gain.value = 0.8; gMaster.connect(ctx.destination);
+  gInst = ctx.createGain(); gInst.gain.value = 1; gInst.connect(gMaster);
+  gVoc  = ctx.createGain(); gVoc.gain.value  = 1; gVoc.connect(gMaster);
+  return ctx;
+}
+
+// นาฬิกาหลัก: ระหว่าง ctx.suspend() ค่า currentTime ไม่เดิน ตำแหน่งจึงถูกต้องเองข้ามการพัก
+function posNow(){
+  if(stemMode && ctx) return Math.min(dur, startOffset + (ctx.currentTime - startedAt));
+  return local.currentTime;
+}
+
+const pct = (v,d)=> Math.max(0, Math.min(100, v==null ? d : v)) / 100;
+
+// ค่อยๆ ไล่ volume ของ <video> — ตั้งค่ากระโดดจะได้ยินเป็นเสียงคลิก
+let volRaf = 0, volTarget = 0.8;
+function rampEl(target){
+  volTarget = target;
+  if(volRaf) return;
+  const step = ()=>{
+    volRaf = 0;
+    const cur = local.volume;
+    const nxt = Math.abs(volTarget-cur) < 0.004 ? volTarget : cur + (volTarget-cur)*0.25;
+    try{ local.volume = nxt; }catch(e){}     // iOS ตั้ง volume ไม่ได้
+    if(nxt !== volTarget) volRaf = requestAnimationFrame(step);
+  };
+  volRaf = requestAnimationFrame(step);
+}
+
+function applyMix(m){
+  const voc = pct(m && m.vocal, 100), mus = pct(m && m.music, 100), mas = pct(m && m.master, 80);
+  if(ctx && gMaster){
+    // linear ไม่ใช่ equal-power: ที่ 100% ผลรวมต้องกลับเป็นมิกซ์เดิมเป๊ะ
+    const t = ctx.currentTime, T = 0.03;
+    gVoc.gain.setTargetAtTime(voc, t, T);
+    gInst.gain.setTargetAtTime(mus, t, T);
+    gMaster.gain.setTargetAtTime(mas, t, T);
+  }
+  // ทางสำรอง: วิดีโอเล่นเสียงตัวเอง — ตั้งเสมอ เพราะตอนใช้สเต็ม local.muted=true อยู่แล้ว
+  // ห้ามแตะ local.muted ตรงนี้ apply() เป็นเจ้าของธงนั้น
+  rampEl(mas);
+  // ทางสำรอง: YouTube iframe
+  if(ready){ try{ player.setVolume(Math.round(mas*100)); }catch(e){} }
+}
+
+async function loadStems(c){
+  const my = ++loadToken;
+  const s = stemsOf(c); if(!s || !s.vocals || !s.noVocals) return false;
+  const [a,b] = await Promise.all([
+    fetch(s.noVocals).then(r=>r.arrayBuffer()),
+    fetch(s.vocals ).then(r=>r.arrayBuffer())
+  ]);
+  const [bi,bv] = await Promise.all([ctx.decodeAudioData(a), ctx.decodeAudioData(b)]);
+  if(my !== loadToken) return false;      // เปลี่ยนเพลง/เปลี่ยนคีย์ระหว่าง decode -> ทิ้ง
+  bufInst=bi; bufVoc=bv; dur=Math.min(bi.duration,bv.duration); stemKey=s.tag;
+  return true;
+}
+
+function stopSources(){
+  // ต้องถอด onended ก่อนสั่ง stop() — มันยิงแบบ async กว่าจะถึงคิวธง stopping ถูกคืนไปแล้ว
+  // ผลคือ startStems() รอบใหม่จะยิง action:'ended' หลอกให้เซิร์ฟเวอร์ข้ามเพลง
+  for(const s of [srcInst,srcVoc]){
+    try{ if(s){ s.onended = null; s.stop(); s.disconnect(); } }catch(e){}
+  }
+  srcInst = srcVoc = null; gInstS = gVocS = null;
+}
+
+const XFADE = 0.03;
+function startStems(offset){
+  const t = ctx.currentTime + 0.06;      // เผื่อให้ทั้งคู่เริ่มใน render quantum เดียวกัน
+  // ชุดเก่า (สลับคีย์ / เริ่มเพลงใหม่กลางทาง) ค่อย ๆ เบาลงแล้วหยุดตรงจังหวะที่ชุดใหม่ดังขึ้น — ไม่มีช่องเงียบ
+  for(const [s, g] of [[srcInst, gInstS], [srcVoc, gVocS]]){
+    try{
+      if(!s) continue;
+      s.onended = null;                  // ต้องถอดก่อน stop ไม่งั้นยิง ended หลอก
+      if(g){ g.gain.setValueAtTime(1, t); g.gain.linearRampToValueAtTime(0, t + XFADE); }
+      s.stop(t + XFADE + 0.01);
+    }catch(e){}
+  }
+  const mk = (buf, bus) => {
+    const s = ctx.createBufferSource(), g = ctx.createGain();
+    s.buffer = buf; s.connect(g); g.connect(bus);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + XFADE);
+    return [s, g];
+  };
+  [srcInst, gInstS] = mk(bufInst, gInst);
+  [srcVoc, gVocS] = mk(bufVoc, gVoc);
+  srcInst.start(t, offset); srcVoc.start(t, offset);
+  startedAt = t; startOffset = offset; attached = true;
+  const myItem = curItem;
+  srcInst.onended = ()=>{ if(stemMode) sendWs({action:'ended', id:myItem}); };   // ถอด handler ตอน stop แล้ว
+  local.muted = true;
+  try{ local.currentTime = offset; }catch(e){}
+  local.play().catch(()=>{});
+  startDrift();
+}
+
+function teardownStems(){
+  stopDrift(); stopSources();
+  loadToken++;
+  stemMode=false; stemKey=null; bufVoc=bufInst=null; dur=0;
+  preparing=false; stemGaveUp=false; needUnlock=false; lastPlaying=null; stemErr=''; badTag=null;
+  attached=false;
+  local.playbackRate = 1;
+}
+
+async function pauseAll(){ stopDrift(); local.pause(); if(ctx) await ctx.suspend(); }
+async function resumeAll(){ if(ctx) await ctx.resume(); local.play().catch(()=>{}); startDrift(); }
+
+// วิดีโอถูก mute อยู่ การดุน playbackRate จึงไม่ได้ยิน
+function startDrift(){ stopDrift(); driftTimer = setInterval(driftTick, 500); }
+function stopDrift(){ clearInterval(driftTimer); driftTimer = null; }
+function driftTick(){
+  if(!stemMode || !ctx || ctx.state !== 'running') return;
+  const p = posNow(), d = local.currentTime - p;
+  if(Math.abs(d) > 0.25){ try{ local.currentTime = p + 0.02; }catch(e){} local.playbackRate = 1; }
+  else if(Math.abs(d) > 0.04){ local.playbackRate = 1 - Math.max(-0.05, Math.min(0.05, d*0.5)); }
+  else local.playbackRate = 1;
+}
+
+function becomeEvicted(){
+  evicted = true;
+  hideErr();                          // นับถอยหลังค้างอยู่ห้ามส่ง ended ไปข้ามเพลงของจอใหม่
+  try{ teardownStems(); }catch(e){}
+  try{ local.pause(); local.muted = true; }catch(e){}
+  try{ if(ready) player.pauseVideo(); }catch(e){}
+  if(ctx){ try{ ctx.suspend(); }catch(e){} }
+  $('#evicted').classList.remove('hide');
+}
+$('#evicted').addEventListener('click', ()=>{     // ยึดจอกลับมา
+  $('#evicted').classList.add('hide');
+  evicted = false; curLocal = null; lastRestart = null;
+  sendWs({action:'hello', role:'player', id:PLAYER_ID});
+});
+
+function showUnlock(){ $('#unlock').classList.remove('hide'); }
+function hideUnlock(){ $('#unlock').classList.add('hide'); }
+// จอหลักเป็นจอแสดงผลอย่างเดียว — ปลดล็อกเสียงได้เฉพาะตอน overlay ขึ้นเท่านั้น
+// ถ้าไม่กันตรงนี้ การแตะจอตอนเพลงเล่นปกติจะปลด mute วิดีโอ (เสียงซ้อนสเต็ม)
+// และสั่ง decode สเต็มใหม่จนเสียงกระโดด
+function onGesture(){
+  if(!needUnlock) return;
+  if(!ctx) ensureCtx();
+  if(!ctx) return;
+  ctx.resume().then(()=>{                 // เรียกแบบ synchronous ใน gesture -> resolve จริง
+    if(ctx.state !== 'running') return;
+    needUnlock = false; hideUnlock(); local.muted = false;
+    local.play().catch(()=>{});
+    stemGaveUp = false; stemKey = null;   // G5: ให้ apply() ลองเข้าโหมดสเต็มใหม่
+    const st = window._state;
+    if(st && st.current && !preparing && stemsOf(st.current)){
+      preparing = true;
+      queueOp(()=> enterStems(st, st.current, false), 'enterStems/gesture');
+    }
+  }).catch(e=> clog('resume', e));
+}
+// ผูกกับ overlay เอง (มันกินเต็มจอตอนขึ้นอยู่แล้ว) ไม่ผูกกับ document
+$('#unlock').addEventListener('click', onGesture, {passive:true});
+$('#unlock').addEventListener('touchstart', onGesture, {passive:true});
+// คีย์บอร์ดปลดล็อกได้ แต่ต้องผ่าน guard เดียวกัน
+document.addEventListener('keydown', onGesture, {passive:true});
+
+async function enterStems(st, c, live){
+  let swapping = false;                  // สลับชุดกลางเพลง (เปลี่ยนคีย์) ขณะที่ชุดเดิมเล่นอยู่
+  try{
+    ensureCtx();
+    // หยุดเพลงไว้ (pauseAll = ctx.suspend) แล้วเปลี่ยนเพลง -> ไม่มีใคร resume ให้ ของเดิมจึงขึ้น "แตะจอ"
+    // แล้วเพลงใหม่เงียบจนกว่าจะมีคนเดินไปแตะทีวี — จอหลักเปิดด้วย --autoplay-policy=no-user-gesture-required
+    // จึง resume เองได้ แต่ห้ามรอเปล่า ๆ: นอก gesture ในเบราว์เซอร์ปกติ promise ค้าง pending ตลอดไป -> ให้ 500ms
+    // (ห้องหยุดอยู่ + มีชุดเดิมค้าง = ไม่ resume ไม่งั้นชุดเดิมดังขึ้นมาระหว่างรอ)
+    if(ctx.state !== 'running' && (st.playing || !srcInst)){
+      try{ await withTimeout(ctx.resume(), 500, 'resume'); }catch(e){}
+    }
+    if(ctx.state !== 'running'){ needUnlock=true; showUnlock(); return false; }
+    needUnlock=false; hideUnlock();
+    if(!(await loadStems(c))) return false;
+    swapping = stemMode && !!srcInst;
+    // ตำแหน่งต้องอ่าน "หลัง" loadStems เสร็จ — fetch+decode สเต็มสองตัวกินหลายวินาที
+    // ถ้าใช้ st.position ที่จับไว้ก่อนหน้า เสียงจะเริ่มย้อนหลังเท่ากับเวลาที่ใช้ decode
+    // แล้ว startStems() ลากวิดีโอถอยตาม = อาการเสียงกระโดดตอนสเต็มมาถึงกลางเพลง
+    // สลับคีย์: ต่อจากนาฬิกาเสียงเอง (วิดีโอคลาดจากเสียงได้ 40-250ms) / เข้าโหมดสเต็มครั้งแรก: ต่อจากวิดีโอ
+    // +0.06 = lead เดียวกับที่ startStems() นัด ctx.currentTime ไว้ ให้เริ่มตรงเฟรมที่ภาพจะอยู่พอดี
+    const at = (live && swapping) ? Math.min(dur, posNow() + 0.06)
+             : (live && local.currentTime > 1 && !local.paused) ? local.currentTime + 0.06
+             : resumeAt(st);
+    stemMode = true;
+    applyMix(st.mix);
+    startStems(at);
+    lastPlaying = st.playing;
+    if(!st.playing) await pauseAll();
+    return true;
+  }catch(err){
+    clog('stem', err);                 // ส่งขึ้นเซิร์ฟเวอร์ ไม่ให้หายเงียบอีก
+    if(swapping || (stemMode && srcInst)){
+      // โหลดชุดคีย์ใหม่ไม่สำเร็จ -> เล่นชุดเดิมต่อ (ของเดิมหยุดชุดที่ดีอยู่ทิ้ง = คุมไกด์ไม่ได้ทั้งเพลง)
+      try{ badTag = (stemsOf(c) || {}).tag || null; }catch(e){}
+      return false;
+    }
+    stemErr = String(err && err.message || err);
+    stemMode = false;
+    try{ stopSources(); stopDrift(); }catch(e){}
+    return false;
+  }finally{
+    if(!c || c.id === curItem) preparing = false;   // งานของเพลงก่อนหน้าจบช้า ห้ามปลดธงของเพลงใหม่
+    setTimeout(()=>{ try{ apply(window._state); }catch(e){} }, 0);   // วาดชิปใหม่                 // ← ตัวที่ทำให้จอดำ ต้องล้างเสมอ
+    if(!stemMode && !needUnlock) local.muted = false;   // ตกกลับไปใช้เสียงวิดีโอ (ถ้าปลดล็อกแล้ว)
+  }
+}
+
+function localUrlOf(c){
+  if(!c) return null;
+  if(c.source==='local') return '/media/' + String(c.path).split('/').map(encodeURIComponent).join('/');
+  if(c.source==='yt' && c.dlStatus==='ready' && c.localUrl) return c.localUrl;
+  return null;
+}
+
+function tryPlayLocal(){
+  const p = local.play();
+  if(!p || !p.catch) return;
+  p.catch(()=>{
+    local.muted = true;
+    local.play().catch(()=>{});
+    local.addEventListener('playing', function h(){
+      local.removeEventListener('playing', h);
+      local.muted = false;
+    }, {once:true});
+  });
+}
+
+function hideYt(){ curId=null; try{ player.stopVideo(); }catch(e){} }
+
+function apply(st){
+  if(!st) return;
+  const c = st.current;
+  applyMix(st.mix);          // ทุกเส้นทาง ไม่ว่าจะโหมดไหน
+  applyTv(st.tv);
+  document.body.classList.toggle('paused', !st.playing);
+  $('#idle').classList.toggle('hide', !!c);
+  $('#qrflo').classList.toggle('hide', !c);
+  $('#now').classList.toggle('hide', !c);
+  const lurl = localUrlOf(c);
+  const stems = stemsOf(c);
+  // เนื้อเพลง: โหลดเมื่อเพลงมี และซ่อน QR/การ์ดต่อไปตอนแสดงอยู่
+  const lyHas = !!(c && c.lyricsUrl && c.lyrLines > 0);
+  if(lyHas && c.lyricsUrl !== lyUrl) loadLyrics(c.lyricsUrl);
+  if(!lyHas){ LY = null; lyUrl = null; lyIdx = null; }
+  const wu = (lyHas && c.wordsUrl) || null;          // เวลารายตัวอักษร (มีเฉพาะเพลงที่ทำแล้ว)
+  if(wu !== kwUrl) loadWords(wu);
+  // โหมด off แค่ไม่โชว์ ไม่ทิ้งเนื้อที่โหลดมาแล้ว -> สลับกลับมาแล้วขึ้นทันที ไม่ต้องโหลดใหม่
+  const lyShow = lyHas && !!LY && st.lyrMode !== 'off';
+  document.body.classList.toggle('lyrics', lyShow);     // ปิดเนื้อ = QR กับการ์ดเพลงต่อไปกลับมา
+  $('#lyr').classList.toggle('hide', !lyShow);
+  $('#lyr').classList.toggle('m-dual', st.lyrMode === 'dual' || st.lyrMode === 'karaoke');
+  $('#lyr').classList.toggle('m-kara', st.lyrMode === 'karaoke');
+  if(c){
+    const m = st.mix || {}, v = m.vocal != null ? m.vocal : 100;
+    // คำเตือนของระบบขึ้นเสมอ (ต้องทำอะไรสักอย่าง) — ที่เหลือเลือกได้จาก Studio (tv.chips)
+    const warn = stemErr ? '⚠️ สเต็มใช้ไม่ได้ — เล่นเสียงปกติ'
+             : needUnlock ? '🔊 แตะจอเพื่อเปิดไกด์เสียงร้อง'
+             : preparing ? '⏳ กำลังเตรียมเสียง…'
+             : (!stemMode && (c.sepStatus === 'separating' || c.sepStatus === 'queued')) ? '⏳ กำลังแยกเสียง…'
+             : '';
+    const nx = (st.queue || [])[0];
+    const kk = m.key || 0;                 // 🎹 คีย์: กำลังเตรียมไฟล์ = คำเตือนชั่วคราว / พร้อมแล้ว = ชิปตามที่ Studio เลือก
+    const keyWarn = kk && c.keyStatus ? (c.keyStatus === 'failed' ? '⚠️ เปลี่ยนคีย์ไม่ได้' : `🎹 กำลังเตรียมคีย์ ${kk > 0 ? '+' : ''}${kk}…`) : '';
+    const CH = {
+      guide:  () => stemMode ? (v === 0 ? '🎤 ปิดเสียงร้อง' : `🎤 ไกด์ ${v}%`) : '',
+      key:    () => kk && stemMode && stemKey === c.videoId + '@' + kk ? `🎹 คีย์ ${kk > 0 ? '+' : ''}${kk}` : '',
+      master: () => `🔊 เสียงรวม ${m.master != null ? m.master : 80}%`,
+      music:  () => stemMode ? `🎵 ดนตรี ${m.music != null ? m.music : 100}%` : '',
+      lyrsrc: () => c.lyrKind ? '📝 ' + c.lyrKind.split(' · ')[0] : '',
+      next:   () => nx ? '⏭ ' + (nx.title.length > 34 ? nx.title.slice(0, 33) + '…' : nx.title) : '',
+    };
+    const chips = ((st.tv && st.tv.chips) || ['guide']).map(k => CH[k] ? CH[k]() : '').filter(Boolean);
+    if(keyWarn) chips.unshift(keyWarn);
+    if(warn) chips.unshift(warn);
+    $('#now').innerHTML =
+      `<span class="eq"><i></i><i></i><i></i><i></i></span>`
+      + `<span class="ti">${esc(c.title)}</span>`
+      + (c.singer?`<span class="by">🎤 ${esc(c.singer)}</span>`:'')
+      + chips.map(t => `<span class="gd">${esc(t)}</span>`).join('');
+    // แถบชื่อเพลงซ่อนเอง: เริ่มเพลง (หรือเปลี่ยนค่า) -> โชว์ N วิ แล้วจางหาย
+    const hideS = (st.tv && st.tv.titleHide) || 0, fk = c.id + ':' + hideS;
+    if(fk !== nowFadeKey){
+      nowFadeKey = fk;
+      clearTimeout(nowFadeT);
+      $('#now').classList.remove('fade');
+      if(hideS > 0) nowFadeT = setTimeout(() => $('#now').classList.add('fade'), hideS * 1000);
+    }
+  }
+  const useLocal = !!lurl;
+  $('#yt').classList.toggle('hide', useLocal);
+  local.classList.toggle('hide', !useLocal);
+
+  if(useLocal){
+    if(lurl !== curLocal || c.id !== curItem){
+      curLocal = lurl; curItem = c.id; hideErr(); if(ready) hideYt();
+      teardownStems();
+      local.muted = false;
+      local.src = lurl;
+      const seek = resumeAt(st);
+      attached = !seek;
+      if(seek) local.addEventListener('loadedmetadata',
+        ()=>{ try{ local.currentTime = seek; }catch(e){} attached = true; }, {once:true});
+    }
+    // แยกเสียงเสร็จแล้วและยังไม่ได้เตรียม -> เข้าโหมดสเต็ม
+    // สลับกลางเพลงได้ (คิวถูกเลื่อนขึ้นมา สเต็มมักเสร็จหลังเพลงเริ่มแล้ว) — enterStems()
+    // อ่านตำแหน่งสดหลัง decode จึงต่อเนื่องไม่ถอยหลัง
+    // ใกล้จบแล้วค่อยได้สเต็ม -> สลับไปก็ไม่ทันร้อง มีแต่เสี่ยงเสียงสะดุด ปล่อยให้จบไปเลย
+    // (teardownStems() รีเซ็ต stemGaveUp ให้เพลงถัดไปอยู่แล้ว ธงนี้จึงไม่รั่วข้ามเพลง)
+    const tail = isFinite(local.duration) && local.duration - local.currentTime < 15;
+    // !needUnlock: รอให้คนแตะก่อน (onGesture สั่งเอง) — ของเดิมวนเข้าคิวซ้ำ ~250 ครั้ง/วิ
+    // (st.playing || !stemMode): ห้องหยุดอยู่แล้วเปลี่ยนคีย์ -> รอเล่นต่อค่อยสลับ
+    if(stems && stemKey !== stems.tag && stems.tag !== badTag && !preparing && !stemGaveUp && !needUnlock
+       && !tail && (st.playing || !stemMode)){
+      preparing = true;
+      const myItem = c.id;
+      queueOp(async()=>{
+        const ok = await enterStems(st, c, true);
+        // ธง "ยอมแพ้" เป็นของเพลงนี้เท่านั้น: งานของเพลงก่อนหน้าจบช้ากว่า teardown ห้ามตั้งธงใส่เพลงใหม่
+        if(!ok && myItem === curItem && !stemMode) stemGaveUp = !needUnlock;
+      }, 'enterStems');
+    }
+    if(lastRestart === null){
+      lastRestart = st.restartToken;     // state แรก = ตั้งฐาน ไม่ใช่คำสั่งเริ่มใหม่
+    } else if(st.restartToken !== lastRestart){
+      lastRestart = st.restartToken;
+      if(stemMode) queueOp(async()=>{ startStems(0); if(!st.playing) await pauseAll(); });
+      else local.currentTime = 0;
+    }
+    if(stemMode){
+      if(st.playing !== lastPlaying){        // สั่งเฉพาะตอนสถานะเปลี่ยนจริง
+        lastPlaying = st.playing;
+        queueOp(st.playing ? resumeAll : pauseAll);
+      }
+    } else {
+      // วิดีโอต้องเล่นเสมอ ไม่ว่าสเต็มจะเป็นยังไง — ห้ามให้เอนจินเสียงขวางภาพ
+      // ระหว่าง decode ให้ mute ไว้ก่อนกันเสียงซ้อน แล้วค่อยเปิดคืนถ้าสเต็มไม่สำเร็จ
+      // muted autoplay ไม่เคยถูกบล็อก -> ระหว่างรอ gesture ให้เล่นแบบเงียบไว้ก่อน
+      // จะได้เห็นภาพเสมอ ดีกว่าโดนบล็อกแล้วจอดำ
+      local.muted = preparing || needUnlock;
+      lastPlaying = st.playing;
+      if(st.playing) tryPlayLocal(); else local.pause();
+    }
+    return;
+  }
+  if(curLocal !== null){ curLocal = null; teardownStems(); local.muted = false;
+                         local.removeAttribute('src'); local.load(); }
+  local.pause();
+  if(!ready) return;
+  if(!c){ if(curId!==null) hideYt(); hideErr(); return; }
+  if(c.videoId !== curId || c.id !== curItem){ curId = c.videoId; curItem = c.id; hideErr(); player.loadVideoById(c.videoId); }
+  if(lastRestart === null){ lastRestart = st.restartToken; }
+  else if(st.restartToken !== lastRestart){ lastRestart = st.restartToken; player.seekTo(0); player.playVideo(); }
+  if(st.playing) player.playVideo(); else player.pauseVideo();
+}
+
+let errTimer=null;
+function showErr(msg){
+  const el=$('#err');
+  el.classList.remove('hide');
+  let n=4;
+  const paint=()=>{ el.innerHTML = `<div class="big">⚠️ ${esc(msg)}</div>
+      <div class="sub">${esc((window._state?.current?.title)||'')}</div>
+      <div class="cd">ข้ามไปเพลงถัดไปใน ${n} วิ…</div>`; };
+  paint();
+  clearInterval(errTimer);
+  const myItem = curItem;
+  errTimer = setInterval(()=>{
+    n--; paint();
+    if(n<=0){ clearInterval(errTimer); hideErr(); sendWs({action:'ended', id:myItem}); }
+  },1000);
+}
+function hideErr(){ clearInterval(errTimer); $('#err').classList.add('hide'); }
+
+function renderNext(q){
+  const n = q[0];
+  $('#next').classList.toggle('hide', !n);
+  if(!n) return;
+  $('#next').innerHTML =
+    `<span class="lb">ต่อไป</span>`
+    + `<span class="tx">${esc(n.title)}</span>`
+    + (n.singer?`<span class="sg">🎤 ${esc(n.singer)}</span>`:'')
+    + (q.length>1?`<span class="qn">+${q.length-1} ในคิว</span>`:'');
+}
+
+// ===== การ์ด "เพิ่มเข้าคิว" ===========================================
+// เซิร์ฟเวอร์ส่ง {type:"added"} หลัง broadcast เสมอ -> window._state มีเพลงนั้นแล้ว
+// ระหว่างที่การ์ดยังโชว์อยู่ วาดใหม่ทุก state จะได้เห็นไกด์/เนื้อเปลี่ยนสด
+let addId = null, addTimer = null;
+const ADD_SHOW_MS = 5000;
+function showAdded(id){
+  if(evicted || !id) return;
+  addId = id;                                // เพิ่มติดกันหลายเพลง = แทนการ์ดเดิม นับเวลาใหม่
+  renderAdded();
+  clearTimeout(addTimer);
+  addTimer = setTimeout(()=>{ $('#addcard').classList.remove('show'); addId = null; }, ADD_SHOW_MS);
+}
+function renderAdded(){
+  if(!addId) return;
+  const st = window._state || {}, q = st.queue || [];
+  let it = null, pos = -1;
+  if(st.current && st.current.id === addId){ it = st.current; pos = 0; }
+  else { const k = q.findIndex(x=>x.id===addId); if(k >= 0){ it = q[k]; pos = k+1; } }
+  if(!it) return;
+  const yt = it.source === 'yt';
+  const dl = yt && it.dlStatus !== 'ready'
+    ? (it.dlStatus === 'failed' ? ['bad','⚠️ โหลดเพลงไม่ได้'] : ['wait','⬇️ กำลังโหลดเพลง']) : null;
+  const guide = it.sepStatus === 'ready' ? ['ok','🎤 มีไกด์เสียงร้อง']
+    : yt && ['queued','separating'].includes(it.sepStatus) ? ['wait','⏳ กำลังเตรียมไกด์']
+    : ['bad','🎤 ไม่มีไกด์'];
+  const lyr = it.lyrLines ? ['ok','📝 ' + ((it.lyrKind || '').split(' · ')[0] || 'มีเนื้อร้อง')]
+    : yt && (['queued','working','searching'].includes(it.lyrStatus)
+             || (it.lyrStatus === 'na' && it.sepStatus !== 'failed')) ? ['wait','⏳ กำลังหาเนื้อร้อง']
+    : ['bad','📝 ไม่มีเนื้อร้อง'];
+  const art = it.localThumb || it.thumb || (it.videoId ? '/thumb/'+it.videoId : '');
+  const c = ([k,t]) => `<span class="c ${k}">${esc(t)}</span>`;
+  const h = `<div class="art">${art ? `<img src="${esc(art)}" alt="" onerror="this.parentNode.textContent='🎵'">` : '🎵'}</div>`
+    + `<div class="g"><div class="lb">${pos === 0 ? '▶ เริ่มเล่นเลย' : `➕ เพิ่มเข้าคิว · คิวที่ ${pos}`}</div>`
+    + `<div class="ti">${esc(it.title)}</div>`
+    + `<div class="ro">${it.singer ? c(['sg','🎤 '+it.singer]) : ''}${dl ? c(dl) : ''}${c(guide)}${c(lyr)}</div></div>`;
+  const el = $('#addcard');
+  if(el._h !== h){ el.innerHTML = h; el._h = h; }  // กันรูปกระพริบตอน state มาถี่ ๆ
+  el.classList.add('show');
+}
+
+// ===== ตั้งค่าหน้าจอจาก Studio ===========================================
+// ค่ามากับ state ทุกครั้ง (tv) — แปลงเป็น CSS variable + คลาสบน body ครั้งเดียวต่อการเปลี่ยน
+let tvSig = '', nowFadeKey = null, nowFadeT = 0;
+const tvScale = () => (((window._state && window._state.tv) || {}).lyrScale || 100) / 100;
+function applyTv(tv){
+  tv = tv || {};
+  const sig = JSON.stringify(tv);
+  if(sig === tvSig) return;
+  tvSig = sig;
+  const R = document.documentElement.style, B = document.body.classList;
+  const rgba = (hex, a) => { const n0 = parseInt(String(hex || '#ffffff').slice(1), 16), n = isFinite(n0) ? n0 : 0xffffff;
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+  const num = (k, d) => tv[k] != null ? tv[k] : d;
+  R.setProperty('--lyrcolor', tv.lyrColor || '#ffffff');
+  R.setProperty('--lyrdimc', rgba(tv.lyrColor, num('lyrDim', 55) / 100));
+  R.setProperty('--kara', tv.karaColor || '#ff6fa6');
+  R.setProperty('--lyrbga', num('lyrBg', 100) / 100);
+  R.setProperty('--lift', num('lyrLift', 0) + 'vh');
+  R.setProperty('--qrscale', num('qrSize', 100) / 100);
+  R.setProperty('--logoscale', num('logoSize', 100) / 100);
+  B.toggle('no-title', tv.title === false);
+  B.toggle('no-singer', tv.singer === false);
+  B.toggle('no-qr', tv.qr === false);
+  B.toggle('no-time', tv.time === false);
+  B.toggle('no-next', tv.next === false);
+  B.toggle('no-addcard', tv.addCard === false);
+  for(let i = 0; i < 4; i++) B.toggle('sh' + i, num('lyrShadow', 2) === i);
+  const logoOn = !!(tv.logo && tv.logoUrl);
+  B.toggle('logo', logoOn);
+  $('#logo').classList.toggle('hide', !logoOn);
+  const img = $('#logo img');
+  if(logoOn && img.getAttribute('src') !== tv.logoUrl) img.src = tv.logoUrl;
+  $('#idletext').textContent = tv.idleText || '';
+  $('#idletext').classList.toggle('hide', !tv.idleText);
+  // ขนาด/ขอบซับเปลี่ยน -> วัดใหม่ และวาดแถวใหม่รอบหน้า
+  lyIdx = null;
+  requestAnimationFrame(() => { lyFitDual(); lyIdx = null; });
+}
+
+// ===== เนื้อเพลง =====================================================
+const LYR_LEAD = 0.25;                       // ขึ้นก่อนร้องนิดหน่อยให้อ่านทัน
+const LYR_HOLD = 2.0;                        // ค้างบรรทัดเดิมได้อีกกี่วิหลังร้องจบ
+const LYR_GAP  = 6.0;                        // เว้นนานกว่านี้ถือว่าเป็นช่วงดนตรีล้วน
+const LYR_OFFSET = +(new URLSearchParams(location.search).get('lyroffset') || 0);
+// offset ประจำเพลง (ปรับสดจากรีโมท / ตั้งใน Studio) บวก = ซับขึ้นช้าลง ทิศเดียวกับ ?lyroffset=
+// หักออกจากเวลาเล่นครั้งเดียวใน lyrTick ทุกการเทียบข้างล่างจึงได้ offset ครบโดยไม่ต้องไล่แก้ทีละจุด
+const songOff = () => +((window._state && window._state.current && window._state.current.lyrOffset) || 0);
+let LY = null, lyUrl = null, lyTok = 0, lyIdx = null;
+
+async function loadLyrics(url){
+  const my = ++lyTok;
+  lyUrl = url;
+  try{
+    const j = await (await fetch(url, {cache:'no-store'})).json();
+    if(my !== lyTok) return;                 // เปลี่ยนเพลงระหว่างโหลด -> ทิ้ง
+    // oi = ลำดับบรรทัดในไฟล์ — เวลารายคำ (lyrics.words.json) อ้างตามลำดับนี้ ไม่ใช่ลำดับหลังกรอง
+    const L = (j.lines||[]).map((l, oi) => ({...l, oi})).filter(l => typeof l.t === 'number' && l.x);
+    LY = L.length ? {lines:L} : null; lyUrl = url; lyIdx = null;
+    kwAttach();
+    if(LY){
+      lyFitDual();                           // ล็อกขนาดตัวอักษรของทั้งเพลงไว้ตั้งแต่ตอนโหลด
+      // ฟอนต์ไทยมาทีหลัง -> วัดซ้ำตอนฟอนต์พร้อม ไม่งั้นได้ขนาดจากฟอนต์สำรอง
+      if(document.fonts) document.fonts.ready.then(()=>{ if(my === lyTok) lyFitDual(); });
+    }
+  }catch(e){
+    clog('lyrics', e); LY = null;
+    setTimeout(()=>{ if(my === lyTok && lyUrl === url && !LY) lyUrl = null; }, 10000);
+  }
+}
+
+function lyIndexAt(t){                        // บรรทัดสุดท้ายที่ถึงเวลาแสดงแล้ว
+  const L = LY.lines; let lo = 0, hi = L.length - 1, r = -1;
+  while(lo <= hi){ const m = (lo + hi) >> 1;
+    if(L[m].t + LYR_OFFSET - LYR_LEAD <= t){ r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+const lyW = s => [...s].filter(c => !/\p{Mn}/u.test(c)).length;
+const LYR_FS = w => w<=16?'5.0vw':w<=24?'4.4vw':w<=32?'3.8vw':'3.2vw';
+// โหมด dual: วัดความกว้างจริงของทุกท่อนด้วย canvas ครั้งเดียวต่อเพลง แล้วล็อกขนาดไว้ทั้งเพลง
+// ต้องวัดจากฟอนต์จริง ไม่ใช่นับจำนวนตัวอักษรเดาเอา เพราะสระ/วรรณยุกต์ไทยกว้างไม่เท่ากัน
+// ผลคือระหว่างเพลงไม่มีท่อนไหนย่อหรือขยายเลย เปลี่ยนแค่ความสว่าง
+let lyCtx = null;
+function lyFitDual(){
+  if(!LY) return;
+  lyCtx = lyCtx || document.createElement('canvas').getContext('2d');
+  lyCtx.font = '700 100px "Noto Sans Thai",-apple-system,system-ui,sans-serif';
+  let w = 1;
+  for(const l of LY.lines) w = Math.max(w, lyCtx.measureText(l.x).width);
+  const cs = getComputedStyle($('#lyr'));      // เนื้อเว้นขอบให้ QR — ใช้ความกว้างที่เหลือจริง
+  const avail = (innerWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) * 0.98;
+  // × ขนาดซับจาก Studio — ใหญ่กว่าที่พอดีความกว้าง = บรรทัดยาวขึ้นบรรทัดใหม่ (ตั้งใจให้ตัวใหญ่)
+  LY.fs = Math.max(innerWidth*.026, Math.min(innerWidth*.050, avail*100/w)) * tvScale() + 'px';
+  if($('#lyr').classList.contains('m-dual')) $('#lyr').style.setProperty('--lyrfs', LY.fs);
+}
+addEventListener('resize', lyFitDual);
+// ท่อนนั้นร้องจบเมื่อไหร่ — โหมดคาราโอเกะรอให้ไล่สีถึงตัวสุดท้ายก่อน ไม่งั้นท่อนถัดไปมาทับกลางคำ
+// จำนวนจุดนับถอยหลัง (3,2,1) เมื่อท่อนถัดไปจะมาภายใน 3 วิ ตอนที่จอว่างจากเนื้อ (อินโทร/ช่วงดนตรี) — 0 = ไม่แสดง
+const CD_SECS = 3;
+function countdown(t, i, gap, st){
+  if(st.tv && st.tv.countdown === false) return 0;
+  if(!(i < 0 || gap)) return 0;
+  const nx = LY.lines[i < 0 ? 0 : i + 1];
+  if(!nx) return 0;
+  const rem = nx.t + LYR_OFFSET - LYR_LEAD - t;
+  if(rem <= 0 || rem > CD_SECS) return 0;
+  return Math.min(CD_SECS, Math.ceil(rem));
+}
+const lyEnd = (j, kara) => {
+  const L = LY.lines[j];
+  let e = L.t + LYR_OFFSET + L.d;
+  if(kara && kUse(L)) e = Math.max(e, L.k[L.k.length-1][1] + LYR_OFFSET - songOff() + 0.3);
+  return e;
+};
+const lyPar = j => ((j % 2) + 2) % 2;   // ท่อนคู่ -> แถวบน, ท่อนคี่ -> แถวล่าง — ไม่มีการย้ายแถว
+
+function lyrTick(){
+  if(!LY || evicted) return;
+  const st = window._state;
+  if(!st || !st.playing) return;
+  if(st.lyrMode === 'off') return;
+  const kara = st.lyrMode === 'karaoke';
+  const dual = st.lyrMode === 'dual' || kara;
+  const t = posNow() - songOff();
+  const i = lyIndexAt(t);
+  // ช่วงดนตรีล้วน: ร้องจบไปนานแล้วและบรรทัดหน้ายังอีกไกล -> ขึ้น ♪ แทนที่จะค้างบรรทัดเดิม
+  let gap = false;
+  if(i >= 0){
+    const L = LY.lines[i], nx = LY.lines[i+1];
+    if(t > L.t + LYR_OFFSET + L.d + LYR_HOLD && (!nx || nx.t + LYR_OFFSET - LYR_LEAD - t > LYR_GAP)) gap = true;
+  }
+  // dual: ท่อนก่อนหน้ายังร้องไม่จบ -> ห้ามเอาท่อนถัดไปไปทับแถวนั้น รอให้ร้องจบก่อน
+  const held = dual && i > 0 && t < lyEnd(i-1, kara);
+  // ♪ ● ● ● นับถอยหลังก่อนเข้าท่อน (อินโทร/หลังช่วงดนตรี) — คนร้องจะได้เข้าทัน
+  const cd = countdown(t, i, gap, st);
+  const key = (kara?'k':dual?'d':'s') + i + (gap?'g':'') + (held?'h':'') + cd;
+  if(key === lyIdx) return;
+  lyIdx = key;
+  const txt = j => (LY.lines[j] || {}).x || '';
+  let top, bot, onTop, onBot, ri = [-1, -1];     // ri = ท่อนที่อยู่ในแต่ละแถว (-1 = ♪)
+  const note = '\u266a' + (cd ? ' ' + '●'.repeat(cd) : '');
+  if(!dual){
+    top = (i < 0 || gap) ? note : txt(i);
+    bot = txt(i+1);
+    onTop = true; onBot = false;         // scroll ไม่ได้ใช้คลาสนี้ แค่กันค้างตอนสลับโหมด
+  }else{
+    const r = ['', ''], on = [false, false];
+    if(i < 0){
+      r[0] = txt(0);                     // อินโทร: ขึ้นท่อนแรกรอไว้เลยให้อ่านก่อน (ยังไม่ถึง -> จาง)
+      r[1] = note;
+      ri[0] = 0;
+    }else{
+      r[lyPar(i)]  = gap ? note : txt(i);
+      on[lyPar(i)] = !gap;               // ช่วงดนตรีล้วนไม่มีใครร้อง -> ไม่ต้องสว่าง
+      ri[lyPar(i)] = gap ? -1 : i;
+      const o = held ? i-1 : i+1;        // อีกแถว: ค้างท่อนเดิมจนร้องจบ แล้วค่อยขึ้นท่อนถัดไปของตัวเอง
+      r[lyPar(o)]  = txt(o);             // lyPar(i-1) === lyPar(i+1) จึงไม่ชนกันเอง
+      on[lyPar(o)] = held;               // ท่อนก่อนหน้าที่ยังร้องไม่จบ = ถึงแล้ว -> สว่างด้วย
+      ri[lyPar(o)] = o < LY.lines.length ? o : -1;
+    }
+    [top, bot] = r; [onTop, onBot] = on;
+  }
+  const el = $('#lyrcur');
+  lyRow(el, top, kara ? ri[0] : -1);
+  el.classList.toggle('on', onTop);
+  const en = $('#lyrnext');
+  lyRow(en, bot, kara ? ri[1] : -1);
+  en.classList.toggle('on', onBot);
+  $('#lyr').style.setProperty('--lyrfs', dual ? (LY.fs || '4.0vw') : `calc(${LYR_FS(lyW(top))} * ${tvScale()})`);
+}
+setInterval(lyrTick, 100);
+
+// ===== โหมดคาราโอเกะ: ไล่สีตามเวลาที่ร้องจริง =============================
+// เวลารายตัวอักษรมาจาก FA (lyrics.words.json) เป็นเวลาจริงในเสียง ไม่ได้อิงเวลาบรรทัด
+// จึงบวกแค่ ?lyroffset= ของจอ ไม่บวก offset ประจำเพลง (อันนั้นแก้เวลาบรรทัดที่เพี้ยน)
+// ท่อนที่ไม่มีเวลารายคำ (FA ไม่มั่นใจ / เนื้อถูกแก้แล้วยังทำใหม่ไม่เสร็จ) แสดงแบบ 2 บรรทัดปกติ
+const KARA_LEAD = 0.06;     // เปลี่ยนสีก่อนเสียงนิดเดียว ชดเชยเวลาที่ตาเห็นสีเปลี่ยน
+const KARA_GAP = 3.0;       // k ตัวแรกห่างจากเวลาบรรทัดเกินนี้ = วางผิดรอบ ไม่ใช้ (ตรงกับ WORDS_MAX_GAP)
+let KW = null, kwUrl = null, kwTok = 0;
+const kSeg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter('th', {granularity:'grapheme'}) : null;
+
+async function loadWords(url){
+  const my = ++kwTok;
+  kwUrl = url;                               // จำไว้ก่อนโหลดเสร็จ state ที่มาถี่ ๆ จะได้ไม่สั่งซ้ำ
+  if(!url){ KW = null; kwAttach(); return; }
+  try{
+    const j = await (await fetch(url, {cache:'no-store'})).json();
+    if(my !== kwTok) return;
+    KW = j;
+  }catch(e){ clog('words', e); if(my === kwTok) KW = null; }
+  kwAttach();
+}
+function kwAttach(){                         // ผูก k เข้ากับบรรทัด — ข้อความต้องตรงกันทุกตัวถึงใช้
+  if(LY) for(const l of LY.lines){
+    const k = KW && KW.texts && KW.texts[l.oi] === l.x ? (KW.k || [])[l.oi] : null;
+    l.k = (k && k.length) ? k : null;
+    l.kc = null;
+  }
+  lyIdx = null;                              // วาดแถวใหม่รอบหน้า
+  for(const el of [$('#lyrcur'), $('#lyrnext')]) el._sig = null;
+}
+const kUse = l => !!(l && l.k && Math.abs(l.k[0][1] - (l.t + songOff())) <= KARA_GAP);
+
+// กลุ่มอักษร + เวลาที่ต้องเปลี่ยนสี (เวลาในเสียง) — k อ้างตำแหน่ง code point ของข้อความ NFC
+function kClusters(l){
+  if(l.kc) return l.kc;
+  const s = l.x.normalize('NFC');
+  const segs = kSeg ? Array.from(kSeg.segment(s), g => g.segment) : [...s];
+  const kt = new Map(l.k.map(([p, t]) => [p, t]));
+  let cp = 0;
+  const out = segs.map(g => {
+    const n = [...g].length;
+    let t = null;
+    for(let q = cp; q < cp + n; q++) if(kt.has(q)){ t = kt.get(q); break; }
+    cp += n;
+    return {g, t};
+  });
+  // กลุ่มที่โมเดลไม่รู้จัก (อังกฤษ/ตัวเลข/เว้นวรรค) -> เกลี่ยเวลาระหว่างตัวที่รู้ข้างหน้า-ข้างหลัง
+  let prev = -1;
+  for(let i = 0; i <= out.length; i++){
+    if(i < out.length && out[i].t == null) continue;
+    const a = prev >= 0 ? out[prev].t : null, b = i < out.length ? out[i].t : null;
+    for(let j = prev + 1; j < i; j++)
+      out[j].t = a == null ? b : b == null ? a + 0.12 * (j - prev) : a + (b - a) * (j - prev) / (i - prev);
+    prev = i;
+  }
+  for(let i = 1; i < out.length; i++) if(out[i].t < out[i-1].t) out[i].t = out[i-1].t;
+  return l.kc = out.some(c => c.t == null) ? [] : out;
+}
+
+// วาดแถว: ข้อความเปล่า หรือ (โหมดคาราโอเกะ + ท่อนนั้นมีเวลารายคำ) แตกเป็น span ทีละกลุ่มอักษร
+function lyRow(el, text, j){
+  const l = j >= 0 && LY ? LY.lines[j] : null;
+  const kc = l && kUse(l) ? kClusters(l) : null;
+  const sig = kc && kc.length ? 'k' + j + ':' + l.x : 't' + text;
+  if(el._sig === sig) return;
+  el._sig = sig;
+  if(!kc || !kc.length){
+    el._k = null;
+    el.classList.remove('kara');
+    el.textContent = text;
+    return;
+  }
+  el.textContent = '';
+  const spans = kc.map(c => { const s = document.createElement('span'); s.textContent = c.g; return s; });
+  el.append(...spans);
+  el._k = {spans, ts: kc.map(c => c.t), n: 0};
+  el.classList.add('kara');
+  karaPaint(el, posNow());
+}
+// โหมดสเต็ม: ctx.currentTime คือตำแหน่งที่ "ส่งออก" ไม่ใช่ที่ "ได้ยิน" — ลำโพง/ทีวี/บลูทูธหน่วงเพิ่มอีก
+// ระดับบรรทัดไม่รู้สึก แต่ไล่สีทีละตัวจะวิ่งนำเสียง -> หักความหน่วงที่เบราว์เซอร์รายงานออก
+const outLat = () => stemMode && ctx ? Math.min(0.5, (ctx.outputLatency || 0) + (ctx.baseLatency || 0)) : 0;
+function karaPaint(el, pn){
+  const K = el._k;
+  if(!K) return;
+  const tt = pn - outLat() - LYR_OFFSET + KARA_LEAD;
+  let n = 0;
+  while(n < K.ts.length && K.ts[n] <= tt) n++;
+  if(n === K.n) return;
+  for(let q = Math.min(n, K.n); q < Math.max(n, K.n); q++) K.spans[q].classList.toggle('s', q < n);
+  K.n = n;                                   // ถอยหลังได้ด้วย (กรอเพลงย้อน)
+}
+const kRows = [$('#lyrcur'), $('#lyrnext')];
+function karaLoop(){
+  requestAnimationFrame(karaLoop);
+  if(!LY || evicted) return;
+  const st = window._state;
+  if(!st || st.lyrMode !== 'karaoke' || !(kRows[0]._k || kRows[1]._k)) return;
+  const pn = posNow();
+  karaPaint(kRows[0], pn);
+  karaPaint(kRows[1], pn);
+}
+requestAnimationFrame(karaLoop);
+
+// ===== เวลาเพลงมุมซ้ายล่าง =============================================
+// posNow() ใช้ไม่ได้กับทางยูทูบ (มันคืน currentTime ของ <video> ที่ว่างอยู่)
+// เลยต้องแยกตามแหล่งที่กำลังเล่นจริง ๆ
+function playPos(){
+  if(stemMode && ctx) return [posNow(), dur];
+  if(curLocal !== null) return [local.currentTime, local.duration];
+  if(curId && ready){ try{ return [player.getCurrentTime(), player.getDuration()]; }catch(e){} }
+  return [0, 0];
+}
+const mmss = v => { v = Math.max(0, Math.round(v)); return (v/60|0) + ':' + String(v%60).padStart(2,'0'); };
+
+function tmeTick(){
+  const el = $('#tme');
+  const st = window._state;
+  if(evicted || !st || !st.current){ el.classList.add('hide'); return; }
+  const [p, d] = playPos();
+  const txt = isFinite(d) && d > 0 ? `${mmss(p)} / ${mmss(d)}` : mmss(isFinite(p) ? p : 0);
+  el.classList.remove('hide');
+  if(el.textContent !== txt) el.textContent = txt;
+}
+setInterval(tmeTick, 250);
+
+// รายงานตำแหน่งเพลง เพื่อให้โหลดหน้าใหม่แล้วเล่นต่อจากเดิม ไม่เด้งกลับต้น
+setInterval(()=>{
+  if(evicted) return;
+  const st = window._state;
+  if(!st || !st.current || !st.playing || !attached) return;
+  const t = posNow();
+  if(isFinite(t) && t >= 0) sendWs({action:'pos', t:+t.toFixed(2)});
+}, 2000);
+
+connect();   // ท้ายสุด ให้ let ของเครื่องผสมเสียงถูกประกาศครบก่อน
+</script></body></html>

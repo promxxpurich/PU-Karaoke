@@ -1,0 +1,24 @@
+# ---- ใหญ่ / สร้างใหม่ได้ — ไม่เก็บใน git ----
+# วิดีโอ/เสียงที่โหลดจาก YouTube (หลาย GB มีลิขสิทธิ์) — โหลดใหม่ได้จาก videoId
+songs/
+# โมเดล AI (~10 GB) — โหลดใหม่ได้เอง
+.cache/
+# สร้างใหม่ได้จาก requirements.txt (run.sh ทำให้เอง)
+.venv/
+# แคชถอดเสียง / FA
+lyrics-preview/
+__pycache__/
+*.pyc
+
+# ---- ความลับ / ข้อมูลส่วนตัว ----
+# โปรไฟล์ Chrome ของจอหลัก (มีคุกกี้)
+.chrome-player/
+# PIN + secret ของ Studio
+.studio.json
+# ประวัติเพลงที่เคยสั่ง + ชื่อคนร้อง (เปลี่ยนทุกครั้งที่มีคนเพิ่มเพลง)
+history.json
+# ตั้งค่า Claude Code ของเครื่องนี้
+.claude/settings.local.json
+
+# ---- macOS ----
+.DS_Store

@@ -1,0 +1,4421 @@
+"""Karaoke MVP - Mode A (YouTube IFrame player).
+Player:  http://<host>:8080/
+Remote:  http://<host>:8080/r   (scan QR on the player screen)
+"""
+from contextlib import asynccontextmanager
+import asyncio, json, math, re, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
+import hashlib, hmac, secrets, threading
+from pathlib import Path
+from typing import Any
+
+# --- macOS: Python มักไม่มี root certificate ทำให้ SSL ล้มเหลว -------
+# ชี้ไปที่ CA bundle ของ certifi ก่อน import อย่างอื่นที่ใช้ network
+try:
+    import certifi
+    _CA = certifi.where()
+    os.environ.setdefault("SSL_CERT_FILE", _CA)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", _CA)
+    import ssl
+    ssl._create_default_https_context = lambda *a, **k: ssl.create_default_context(cafile=_CA)
+except Exception as _e:  # pragma: no cover
+    _CA = f"certifi not available ({_e})"
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+import qrcode
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+import lyrics_sources as LS      # ตัวเลือก track ของ auto-caption ต้องใช้ร่วมกับ gen_lyrics
+import lyrics_conf as LC        # สูตรป้ายความมั่นใจ ใช้ร่วมกับ verify_lyrics
+
+BASE = Path(__file__).parent
+# แคชโมเดล HuggingFace ที่เดียวกับ scripts/gen_lyrics.py + fa_align.py (ครบทุกโมเดลอยู่แล้วใน .cache/hf)
+# ต้องตั้งตั้งแต่ต้น: ของเดิมปล่อยให้ import gen_lyrics/fa_align ตั้งให้กลางทาง (import ครั้งแรกตอน broadcast แรก)
+# demucs ที่ spawn ก่อน/หลังจึงใช้แคชคนละที่ -> HTDemucs ถูกโหลดซ้ำไว้ทั้งใน ~/.cache และในโปรเจกต์
+os.environ.setdefault("HF_HOME", str(BASE / ".cache" / "hf"))
+os.environ.setdefault("HF_HUB_CACHE", str(BASE / ".cache" / "hf" / "hub"))
+os.environ.setdefault("XDG_CACHE_HOME", str(BASE / ".cache"))
+SONGS = BASE / "songs"
+SONGS.mkdir(exist_ok=True)
+DL_DIR = SONGS / "yt"   # อาร์ไคฟ์เพลงที่โหลดจาก YouTube (1 โฟลเดอร์/เพลง)
+DL_DIR.mkdir(exist_ok=True)
+THUMB_CACHE = SONGS / ".thumbs"   # แคชภาพปก ดึงมาไว้ในเครื่อง (กันภาพคิวไม่ขึ้น)
+THUMB_CACHE.mkdir(exist_ok=True)
+LYRICS_IN = BASE / "lyrics-in"   # ไฟล์เนื้อที่คนวาง/แก้เอง — gen_lyrics ให้สิทธิ์ก่อนทุกแหล่ง
+STUDIO_FILE = BASE / ".studio.json"   # PIN + secret ของหน้า /studio (ไม่เข้า git)
+# --- ชื่อโฟลเดอร์เพลง: "<ชื่อเพลง> [<videoId>]" -------------------
+_VID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_SUF_RE = re.compile(r"\[([A-Za-z0-9_-]{11})\]$")      # ยึดท้ายสุด ชื่อเพลงที่มี [..] เองไม่หลอก
+_BAD_CH = str.maketrans({c: "-" for c in '/\\:*?"<>|'})
+_VTT_NAME = re.compile(r"^(sub|auto)\.[a-z]{2,3}\.vtt$")   # ซับ/คำบรรยายอัตโนมัติ ภาษาไหนก็ได้
+_KEY_NAME = re.compile(r"^(vocals|no_vocals)\.k[+-]\d\.m4a$")  # สเต็มที่เลื่อนคีย์แล้ว (vocals.k+2.m4a)
+_SONG_FILES = frozenset({"video.mp4", "audio.m4a", "vocals.m4a",
+                         "no_vocals.m4a", "cover.jpg", "info.json",
+                         "lyrics.json", "sub.th.vtt", "sub.en.vtt",
+                         "auto.th.vtt",        # auto-caption ของ YouTube
+                         "lyrics.words.json"})  # เวลารายตัวอักษร (โหมดคาราโอเกะไล่สี)
+
+
+def _safe_name(title: str, vid: str, max_bytes: int = 180) -> str:
+    t = unicodedata.normalize("NFC", title or "")
+    # ตัด control + format char (U+200B ฯลฯ) — ภาษาไทยบางชื่อมีติดมาจริง
+    t = "".join(c for c in t
+                if ord(c) >= 32 and ord(c) != 127 and unicodedata.category(c) != "Cf")
+    t = t.translate(_BAD_CH)
+    t = " ".join(t.split())
+    # ตัดเป็น "ไบต์" ไม่ใช่ตัวอักษร — ไทย 3 ไบต์/ตัว ขีดจำกัดจริงของ APFS คือ 255 ไบต์
+    while len(t.encode("utf-8")) > max_bytes:
+        t = t[:-1]
+    t = t.strip(" .").lstrip(".")           # ท้ายมีจุด/ช่องว่าง = พังบน SMB, หน้ามีจุด = โฟลเดอร์ซ่อน
+    return f"{t} [{vid}]" if t else vid
+
+
+def _vid_ok(v: Any) -> bool:
+    """videoId ที่มาจากภายนอก — ต้องเป็นสตริง 11 ตัวตามรูปแบบ YouTube เป๊ะ ๆ
+    ใช้ fullmatch เพราะ `$` ของ re.match ยอมให้มี \\n ต่อท้าย
+    ห้ามปล่อยค่าที่ไม่ผ่านไปถึง _song_dir: "../../x" หรือ "/abs" กลายเป็นโฟลเดอร์นอกคลัง
+    แล้ว _dl_scrub จะลบรูป .png/.webp ในนั้น ส่วนค่าที่ไม่ใช่สตริงทำ room.state() พังทั้งห้อง"""
+    return isinstance(v, str) and _VID_RE.fullmatch(v) is not None
+
+
+_dir_cache: dict[str, Path] = {}
+_dir_scan_at = 0.0
+
+
+def _vid_of_dir(p: Path) -> str | None:
+    if not p.is_dir() or p.name.startswith("."):
+        return None
+    m = _SUF_RE.search(p.name)
+    if m:
+        return m.group(1)
+    return p.name if _VID_RE.match(p.name) else None
+
+
+def _rescan_dirs() -> None:
+    global _dir_cache, _dir_scan_at
+    idx: dict[str, Path] = {}
+    for p in sorted(DL_DIR.iterdir()):
+        vid = _vid_of_dir(p)
+        if not vid:
+            continue
+        old = idx.get(vid)
+        if old is None or (((p / "video.mp4").is_file(), bool(_SUF_RE.search(p.name)))
+                           > ((old / "video.mp4").is_file(), bool(_SUF_RE.search(old.name)))):
+            idx[vid] = p
+    # สลับทั้งก้อนทีเดียว ห้าม clear()+update() dict เดิม: worker (to_thread) กับ endpoint แบบ sync
+    # อ่าน/วนลูป dict นี้พร้อมกัน จะเห็นมันว่างชั่วขณะ (ได้ path สำรองผิดโฟลเดอร์)
+    # หรือเจอ "dictionary changed size during iteration" — dict ที่แจกออกไปแล้วต้องไม่ถูกแก้อีก
+    _dir_cache = idx
+    _dir_scan_at = time.monotonic()
+
+
+def _invalidate_dirs() -> None:
+    global _dir_scan_at
+    _dir_scan_at = 0.0
+
+
+def _dir_index() -> dict[str, Path]:
+    if time.monotonic() - _dir_scan_at > 2.0:
+        _rescan_dirs()
+    return _dir_cache
+
+
+def _song_dir(vid: str) -> Path:
+    """videoId -> โฟลเดอร์จริง (ยังไม่มี -> คืนชื่อแบบเก่าไว้เป็นที่พัก)
+    จำกัดการสแกนซ้ำไว้ 2 วิ เพราะฟังก์ชันนี้ถูกเรียกทุก item ทุก broadcast"""
+    if not _vid_ok(vid):
+        # ด่านสุดท้าย: ห้าม raise (ถูกเรียกทุก broadcast) — คืนที่ที่ไม่มีอยู่จริงและอยู่ในคลังเสมอ
+        return DL_DIR / ".invalid"
+    p = _dir_cache.get(vid)
+    if p is not None and p.is_dir():
+        return p
+    if p is not None or time.monotonic() - _dir_scan_at > 2.0:
+        _rescan_dirs()
+        p = _dir_cache.get(vid)
+        if p is not None:
+            return p
+    return DL_DIR / vid
+
+
+HISTORY_FILE = BASE / "history.json"   # ประวัติเพลงที่เคยเพิ่ม (ทุกมือถือในห้อง)
+TV_FILE = BASE / "tv.json"             # ตั้งค่าหน้าจอหลัก (ตั้งจาก Studio เท่านั้น)
+TV_DIR = BASE / ".tv"                  # รูปมุมขวาบนของจอหลัก (logo.png)
+HISTORY_MAX = 200
+
+
+def _migrate_song_dirs(dry: bool = False) -> list[tuple[str, str]]:
+    """เปลี่ยนชื่อโฟลเดอร์เก่า <videoId>/ -> <ชื่อเพลง> [<videoId>]/
+    ปลอดภัย: rename อย่างเดียว ไม่ลบ ไม่ copy, ข้ามโฟลเดอร์ที่โหลดไม่ครบ
+    idempotent: รันซ้ำได้ ครั้งที่สองเป็น no-op"""
+    hist_title: dict[str, str] = {}
+    for e in reversed(_load_history()):
+        if e.get("videoId") and e.get("title"):
+            hist_title[e["videoId"]] = e["title"]
+
+    done: list[tuple[str, str]] = []
+    for d in sorted(DL_DIR.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        if _SUF_RE.search(d.name):
+            continue                                   # ทำไปแล้ว
+        if not _VID_RE.match(d.name):
+            print(f"[migrate] ข้าม (ชื่อไม่รู้จัก): {d.name}")
+            continue
+        vid = d.name
+        if not (d / "video.mp4").is_file():
+            print(f"[migrate] ข้าม (โหลดไม่ครบ): {vid}")
+            continue                                   # กำลังโหลดค้างอยู่ ห้ามแตะ
+        title = ""
+        ij = d / "info.json"
+        if not ij.is_file():
+            ij = next(iter(d.glob("*.info.json")), None)
+        if ij:
+            try:
+                title = json.loads(ij.read_text("utf-8")).get("title") or ""
+            except Exception:
+                pass
+        title = title or hist_title.get(vid, "")
+        if not title:
+            print(f"[migrate] ข้าม (ไม่รู้ชื่อเพลง): {vid}")
+            continue
+        tgt = DL_DIR / _safe_name(title, vid)
+        if tgt == d:
+            continue
+        if tgt.exists():
+            print(f"[migrate] ข้าม (ปลายทางมีอยู่แล้ว): {tgt.name}")
+            continue
+        done.append((d.name, tgt.name))
+        if not dry:
+            try:
+                d.rename(tgt)
+            except OSError as exc:
+                print(f"[migrate] {vid} ล้มเหลว: {exc}")
+                done.pop()
+    if done and not dry:
+        _invalidate_dirs()
+    print(f"[migrate] {'จะเปลี่ยน' if dry else 'เปลี่ยน'}ชื่อ {len(done)} โฟลเดอร์")
+    return done
+
+
+def _load_history() -> list[dict[str, Any]]:
+    try:
+        return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+# --- ตั้งค่าหน้าจอหลัก (ทีวี) ------------------------------------------
+# ค่าเริ่มต้น = หน้าตาเดิมทุกอย่าง / ตั้งจาก Studio แล้ว broadcast ไปกับ state ให้จอเปลี่ยนสด
+# แต่ละค่ามีชนิด + ช่วงของมัน ค่าที่ส่งมาผิดชนิดทิ้ง ค่าเกินช่วงบีบเข้าขอบ (จอไม่พังเพราะค่าแปลก ๆ)
+TV_CHIPS = ("guide", "master", "music", "key", "lyrsrc", "next")
+TV_SCHEMA: dict[str, tuple] = {
+    "title": (bool, True),           # แถบชื่อเพลงด้านบน
+    "titleHide": (int, 0, 0, 60),    # 0 = โชว์ตลอด / N = เริ่มเพลงแล้วโชว์ N วิ แล้วจางหาย
+    "singer": (bool, True),          # ชิปชื่อคนร้อง
+    "chips": (list, ["guide"]),      # สถานะหลังชื่อเพลง (เลือกจาก TV_CHIPS)
+    "lyrScale": (int, 100, 60, 160),  # ขนาดซับ %
+    "lyrColor": (str, "#ffffff"),    # สีตัวอักษรซับ
+    "lyrDim": (int, 55, 15, 100),    # ความสว่างบรรทัดที่ยังไม่ถึง %
+    "karaColor": (str, "#ff6fa6"),   # สีที่ร้องไปแล้ว (โหมดคาราโอเกะ)
+    "lyrBg": (int, 100, 0, 100),     # ความเข้มพื้นไล่เฉดใต้ซับ %
+    "lyrShadow": (int, 2, 0, 3),     # เงาตัวอักษร: 0 ไม่มี / 1 บาง / 2 ปกติ / 3 ขอบหนา
+    "lyrLift": (int, 0, 0, 20),      # ยกซับขึ้นจากขอบล่าง (vh)
+    "qr": (bool, True),
+    "qrSize": (int, 100, 60, 200),
+    "time": (bool, True),            # เวลาเพลงมุมซ้ายล่าง
+    "next": (bool, True),            # การ์ดเพลงถัดไป (ตอนไม่มีเนื้อ)
+    "addCard": (bool, True),         # การ์ด "เพิ่มเข้าคิว" ที่เด้งตอนมีคนสั่งเพลง
+    "logo": (bool, False),           # รูปมุมขวาบน (อัปจาก Studio)
+    "logoSize": (int, 100, 60, 200),
+    "idleText": (str, ""),           # ข้อความหน้าจอว่าง (ตอนไม่มีเพลง)
+    "countdown": (bool, True),       # ♪ ● ● ● นับถอยหลังก่อนเข้าท่อนแรก/หลังช่วงดนตรี
+}
+_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _clean_tv(raw: Any, base: dict | None = None) -> dict:
+    out = dict(base) if base else {k: (list(v[1]) if isinstance(v[1], list) else v[1]) for k, v in TV_SCHEMA.items()}
+    if not isinstance(raw, dict):
+        return out
+    for k, v in raw.items():
+        spec = TV_SCHEMA.get(k)
+        if not spec:
+            continue
+        typ = spec[0]
+        if typ is bool and isinstance(v, bool):
+            out[k] = v
+        elif typ is int and isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[k] = int(max(spec[2], min(spec[3], round(v))))
+        elif typ is list and isinstance(v, list):
+            out[k] = [c for c in TV_CHIPS if c in v]          # เรียงตามลำดับมาตรฐาน ตัดของแปลกทิ้ง
+        elif typ is str and isinstance(v, str):
+            if k.endswith("Color"):
+                if _HEX_RE.match(v):
+                    out[k] = v.lower()
+            else:
+                out[k] = " ".join(v.split())[:80]
+    return out
+
+
+def _load_tv() -> dict:
+    try:
+        return _clean_tv(json.loads(TV_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        return _clean_tv({})
+
+
+def _tv_logo() -> Path:
+    return TV_DIR / "logo.png"
+
+
+def _tv_public(tv: dict) -> dict:
+    out = dict(tv)
+    f = _tv_logo()
+    if f.is_file():
+        out["logoUrl"] = f"/tv/logo.png?v={int(f.stat().st_mtime * 1000)}"
+    return out
+
+
+def _save_history() -> None:
+    try:
+        # atomic: ปิดเครื่อง/โปรเซสตายกลางเขียน ไฟล์ครึ่ง ๆ อ่านไม่ออก = _load_history คืน [] ประวัติหายหมด
+        _write_json_atomic(HISTORY_FILE, room.history)
+    except Exception as _e:
+        print(f"[history] save failed: {_e}")
+MIX_RANGE = {"vocal": (0, 100), "music": (0, 100), "master": (0, 100), "key": (-6, 6)}
+MIX_DEFAULT = {"vocal": 100, "music": 100, "master": 80, "key": 0}
+DEFAULT_SINGER = "noname"              # คนที่ไม่ได้กรอกชื่อในตั้งค่าละเอียดของรีโมท
+LYR_MODES = ("scroll", "dual", "karaoke", "off")   # เลื่อนขึ้นแบบเดิม / 2 บรรทัดคงที่ / 2 บรรทัด+ไล่สีตามเสียงร้อง / ไม่ขึ้นเนื้อ
+MEDIA_EXT = {".mp4", ".m4v", ".mkv", ".webm", ".mp3", ".m4a", ".wav", ".flac", ".ogg"}
+PORT = 8080
+WATCHDOG_EVERY = 10.0   # วินาที — รอบกวาดงานตกหล่น/ประเมินลำดับคิวใหม่
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """เพลงเก่าที่โหลดไว้ก่อนมีฟีเจอร์นี้ -> ทยอยแยกเสียงตอนว่าง (ไม่แย่งคิวเพลงที่เพิ่งสั่ง)"""
+    _migrate_song_dirs()            # ทำก่อน backfill และก่อน client ต่อเข้ามา
+
+    async def run() -> None:
+        await asyncio.sleep(5)          # ให้เซิร์ฟเวอร์ตั้งตัว/จอต่อเข้ามาก่อน
+        n = m = w = b = 0
+        for vid, d in sorted(_dir_index().items()):
+            if (d / "audio.m4a").is_file() and not _has_stems(vid):
+                await _enqueue_sep(vid)
+                n += 1
+            elif _lyr_meta(vid)[1] <= 0:
+                await _enqueue_lyr(vid)
+                m += 1
+            elif await _enqueue_best(vid):         # เลือกเนื้อดีที่สุดก่อน เสร็จแล้วมันสั่งเวลารายคำต่อเอง
+                b += 1
+            elif await _enqueue_words(vid):
+                w += 1
+            elif _chk_info(vid).get("measuredBy") != "fa" and _song_lang(vid)[0] in LS.FA_LANGS \
+                    and _fa_scriptable(vid) and _audio_for(vid):
+                await _enqueue_verify(vid)     # ป้ายความมั่นใจของเพลงเก่ายังมาจาก whisper -> วัดใหม่ด้วย FA
+        if n:
+            print(f"[sep] backfill: เข้าคิวแยกเสียงเพลงเก่า {n} เพลง")
+        if m:
+            print(f"[lyr] backfill: เข้าคิวหาเนื้อเพลงเก่า {m} เพลง")
+        if b:
+            print(f"[best] backfill: เข้าคิวเทียบเนื้อจากทุกแหล่ง {b} เพลง")
+        if w:
+            print(f"[words] backfill: เข้าคิวทำเวลารายคำ (คาราโอเกะ) {w} เพลง")
+        await _reprioritize()      # มีคนสั่งเพลงไว้ก่อน backfill เสร็จ -> เพลงในห้องต้องได้คิวก่อน
+        # ภาษาของเพลงเก่า: ชื่อ/แทร็ก ASR ก่อน (ไม่ใช้ GPU) ที่ยังไม่รู้ค่อยให้ whisper ฟังตอนว่าง
+        # แล้วเพลงที่ไม่ใช่ไทยซึ่งเนื้อได้มาแบบ "คิดว่าเป็นไทย" -> หาเนื้อใหม่ครั้งเดียว
+        mig = 0
+        for vid, d in sorted(_dir_index().items()):
+            try:
+                if not LS.read_lang(d):
+                    LS.song_lang(d, save=True)
+                    _lang_cache.pop(vid, None)
+                if _song_lang(vid)[1] in ("unknown", "yt-asr", "default") and _audio_for(vid):
+                    await _ensure_lang(vid)          # ยังไม่รู้/รู้แบบชั่วคราว -> lrclib / เนื้อที่ FA ยืนยัน / whisper
+                if await _lang_migrate(vid):
+                    mig += 1
+            except Exception as exc:
+                print(f"[lang] {vid} {type(exc).__name__}: {exc}")
+        if mig:
+            print(f"[lang] backfill: เพลงต่างภาษาที่สั่งหาเนื้อใหม่ {mig} เพลง")
+
+    async def watchdog() -> None:
+        """ตาข่ายรับของทุกไปป์ไลน์ — ของเดิม _reprioritize เดินเฉพาะตอนมีคนกดปุ่ม
+        งานที่ตกหล่นระหว่างทาง (worker ตาย / คิวว่างเปล่าทั้งที่ยังไม่เสร็จ /
+        จังหวะแย่งคิวติด cooldown) จึงค้างยาวจนกว่าจะมีคนแตะรีโมตอีกครั้ง"""
+        while True:
+            await asyncio.sleep(WATCHDOG_EVERY)
+            try:
+                async with room.lock:
+                    await _reprioritize()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[watchdog] {type(exc).__name__}: {exc}")
+
+    tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog())]
+    yield
+    for t in tasks:
+        t.cancel()
+    _kill_children()     # demucs/gen_lyrics/fa_align ที่ทำค้างอยู่ — ไม่งั้นการปิดรอจนงานจบ และลูกกำพร้ากิน GPU ต่อ
+
+
+app = FastAPI(lifespan=_lifespan)
+
+
+def lan_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+_local_ip_cache: tuple[float, set[str]] = (0.0, set())
+
+
+def _local_ips() -> set[str]:
+    """IP ทุกอันของเครื่องนี้ — แคช 30 วิ เพราะ IP เปลี่ยนได้จริง
+    ต้องรวม LAN IP ด้วย ไม่ใช่แค่ loopback เพราะเจ้าของเครื่องมักเปิดผ่าน IP ตัวเอง"""
+    global _local_ip_cache
+    t, cached = _local_ip_cache
+    if time.monotonic() - t < 30.0 and cached:
+        return cached
+    ips = {"127.0.0.1", "::1", "localhost"}
+    try:
+        for *_, sa in socket.getaddrinfo(socket.gethostname(), None):
+            ips.add(sa[0])
+    except Exception:
+        pass
+    try:
+        ips.add(lan_ip())
+    except Exception:
+        pass
+    _local_ip_cache = (time.monotonic(), ips)
+    return ips
+
+
+def _is_local(host: str | None) -> bool:
+    if not host:
+        return False
+    return host.split("%")[0] in _local_ips()      # ตัด zone id ของ IPv6 link-local
+
+
+def _host_name(host_header: str | None) -> str:
+    """ค่า Host header -> ชื่อเครื่องล้วน (ตัดพอร์ต / วงเล็บของ IPv6)"""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        return h[1:h.find("]")] if "]" in h else h[1:]
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def _host_is_local_name(host_header: str | None) -> bool:
+    """Host ที่พิมพ์เข้ามาเป็นชื่อ/IP ของเครื่องนี้จริงไหม — ใช้คู่กับสิทธิ์ "เครื่องตัวเองผ่านเลย"
+    กัน DNS rebinding: เว็บอันตรายที่ชื่อโดเมนชี้กลับมา 127.0.0.1 จะมี Origin == Host ผ่านด่านแรกได้
+    แต่ Host ของมันเป็นโดเมนแปลก ไม่ใช่ localhost/IP ของเครื่อง/ชื่อ .local"""
+    h = _host_name(host_header)
+    if not h:
+        return False
+    extra = {x.strip().lower() for x in os.environ.get("KARA_ALLOWED_HOSTS", "").split(",") if x.strip()}
+    return (h in _local_ips() or h in extra or h.endswith(".local")
+            or h == socket.gethostname().lower())
+
+
+def _same_origin(headers) -> bool:
+    """คำขอมาจากหน้าเว็บของเราเองไหม — เบราว์เซอร์แนบ Origin มาเสมอกับ WebSocket และ POST ข้ามเว็บ
+    มี Origin: host:port ต้องตรงกับ Host / ไม่มี Origin: ยอมเฉพาะที่ Sec-Fetch-Site ไม่ได้บอกว่าข้ามเว็บ
+    หน้า player/remote/studio ทั้งหมดเสิร์ฟจากเซิร์ฟเวอร์นี้ จึงผ่านเสมอ"""
+    origin = headers.get("origin")
+    if origin:
+        if origin == "null":
+            return False
+        from urllib.parse import urlsplit
+        try:
+            return urlsplit(origin).netloc.lower() == (headers.get("host") or "").strip().lower()
+        except ValueError:
+            return False
+    return headers.get("sec-fetch-site") in (None, "", "same-origin", "none")
+
+
+def base_url() -> str:
+    """คำนวณใหม่ทุกครั้ง — IP เครื่องเปลี่ยนได้ ถ้าจำค่าไว้ QR จะชี้ไป IP ที่ตายแล้ว"""
+    return f"http://{lan_ip()}:{PORT}"
+
+
+BASE_URL = base_url()
+
+# --- ส่งข้อความ WebSocket แบบมีเพดานเวลา ---------------------------------
+# มือถือที่ล็อกจอ (แท็บถูกแช่แข็งแต่ TCP ยังตอบ) ไม่อ่านข้อมูล -> บัฟเฟอร์เต็ม -> send() ของ uvicorn
+# รอ writable ไปเรื่อย ๆ และ ping timeout ก็ปลดไม่ได้เพราะ transport เลื่อน connection_lost
+# ออกไปจนกว่าจะส่งข้อมูลที่ค้างหมด = ค้างได้ไม่มีกำหนด ของเดิมส่งทีละเครื่องขณะถือ room.lock
+# จึงทำให้ทั้งห้อง (รวม "ended" ของจอหลัก) ค้างตามไปด้วย
+WS_SEND_TIMEOUT = 5.0
+_bg_tasks: set[asyncio.Task] = set()      # ถือ reference ไว้ ไม่งั้น task ที่ยังไม่จบถูก GC เก็บกลางทาง
+
+
+def _bg(coro) -> None:
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+
+
+async def _ws_send(ws: WebSocket, msg: str) -> bool:
+    """ส่ง 1 เครื่อง ไม่เกิน WS_SEND_TIMEOUT — ยกเลิกกลางทางได้ปลอดภัย เพราะจุดรอมีจุดเดียว
+    (รอ writable) ก่อนจะแตะเฟรม/ตัวบีบอัดใด ๆ"""
+    try:
+        await asyncio.wait_for(ws.send_text(msg), WS_SEND_TIMEOUT)
+        return True
+    except Exception:
+        return False
+
+
+def _ws_drop(ws: WebSocket) -> None:
+    """เครื่องที่ส่งไม่ทัน/พัง -> เอาออกจากห้องทันที แล้วค่อยปิดเบื้องหลัง (ห้าม await ตอนถือ lock)
+    เครื่องนั้นต่อใหม่เองเมื่อกลับมา แล้วได้ state ล่าสุดตอนต่อ"""
+    room.clients.discard(ws)
+
+    async def _close() -> None:
+        try:
+            await asyncio.wait_for(ws.close(code=1011), WS_SEND_TIMEOUT)
+        except Exception:
+            pass
+    _bg(_close())
+
+
+class Room:
+    def __init__(self) -> None:
+        self.queue: list[dict[str, Any]] = []
+        self.current: dict[str, Any] | None = None
+        self.playing = False
+        self.restart_token = 0
+        self.mix = dict(MIX_DEFAULT)
+        self.lyr_mode = "scroll"          # รูปแบบการขึ้นเนื้อเพลงบนจอ — ค่าระดับห้อง เหมือน mix
+        self.tv = _load_tv()              # ตั้งค่าหน้าจอหลัก (Studio)
+        self.archive_rev = 0
+        self.player_id: str | None = None
+        self.pos = 0.0
+        self.pos_at = time.monotonic()
+        self.clients: set[WebSocket] = set()
+        self.lock = asyncio.Lock()
+        self.history = _load_history()
+
+    def position(self) -> float:
+        """ตำแหน่งเพลงตอนนี้ — เดินต่อจากค่าที่จอหลักรายงานล่าสุดถ้ากำลังเล่นอยู่"""
+        if not self.current:
+            return 0.0
+        if not self.playing:
+            return max(0.0, self.pos)
+        return max(0.0, self.pos + (time.monotonic() - self.pos_at))
+
+    def state(self) -> dict[str, Any]:
+        # เติมสถานะแยกเสียงล่าสุดลงทุก item ก่อนส่ง (แหล่งความจริงเดียวคือ _sep_state + ไฟล์บนดิสก์)
+        for it in ([self.current] if self.current else []) + self.queue:
+            _dl_fields(it)
+            _sep_fields(it)
+            _lyr_fields(it)
+            _fix_fields(it)      # ต้องท้ายสุด: อ่านผลของสามตัวบน
+        return {
+            "type": "state",
+            "current": self.current,
+            "queue": self.queue,
+            "playing": self.playing,
+            "restartToken": self.restart_token,
+            "mix": self.mix,
+            "lyrMode": self.lyr_mode,
+            "tv": _tv_public(self.tv),
+            "archiveRev": self.archive_rev,
+            "jobsRev": _jobs_rev(),
+            "position": self.position(),
+            "baseUrl": base_url(),
+        }
+
+    async def broadcast(self) -> None:
+        await self.send_all(json.dumps(self.state()))
+
+    async def send_all(self, msg: str) -> None:
+        # ส่งพร้อมกันทุกเครื่อง แต่ละเครื่องมีเพดานเวลา — เครื่องเดียวช้าต้องไม่ถ่วงทั้งห้อง
+        clients = list(self.clients)
+        if not clients:
+            return
+        ok = await asyncio.gather(*(_ws_send(ws, msg) for ws in clients))
+        for ws, good in zip(clients, ok):
+            if not good:
+                _ws_drop(ws)
+
+    # --- queue ops -------------------------------------------------
+    def add(self, item: dict[str, Any]) -> None:
+        item["id"] = uuid.uuid4().hex[:8]
+        item["addedAt"] = time.time()
+        self.queue.append(item)
+        if self.current is None:
+            self.next()
+
+    def next(self) -> None:
+        self.pos = 0.0
+        self.pos_at = time.monotonic()
+        self.mix["vocal"] = MIX_DEFAULT["vocal"]   # ไกด์เสียงร้อง = ค่าเริ่มต้นทุกเพลง
+        self.mix["key"] = MIX_DEFAULT["key"]
+        # master/music ไม่รีเซ็ต — เป็นค่าของห้อง ถ้าล้างทุกเพลงจะน่ารำคาญ
+        self.current = self.queue.pop(0) if self.queue else None
+        self.playing = self.current is not None
+
+    def remove(self, item_id: str) -> None:
+        # เอาออกจากคิว ≠ ยกเลิกโหลด/แยกเสียง — โปรเจกต์นี้ตั้งใจสะสมอาร์ไคฟ์ไว้
+        # งานที่ค้างอยู่จะตกไปอันดับ _BACKLOG เองเพราะ _prio_map() ไม่เห็นมันแล้ว
+        self.queue = [q for q in self.queue if q["id"] != item_id]
+
+    def find(self, item_id: str | None) -> dict[str, Any] | None:
+        for it in ([self.current] if self.current else []) + self.queue:
+            if it.get("id") == item_id:
+                return it
+        return None
+
+    def move(self, item_id: str, delta: int) -> None:
+        for i, q in enumerate(self.queue):
+            if q["id"] == item_id:
+                j = max(0, min(len(self.queue) - 1, i + delta))
+                self.queue.insert(j, self.queue.pop(i))
+                return
+
+
+room = Room()
+
+
+def _jobs_rev() -> str:
+    """ลายนิ้วมือของสถานะงานเบื้องหลังทุกชนิด — Studio ใช้ตัดสินว่าต้องดึงรายการทั้งคลังใหม่ไหม
+    (ของเดิมดึงทุกครั้งที่มี state แม้แค่มีคนลากสไลเดอร์เสียง = ทุก 1.5 วิ อ่านไฟล์ทั้งคลังบน event loop)"""
+    h = hashlib.sha1()
+    for st in (_dl_state, _sep_state, _lyr_state, _words_state, _best_state, _verify_state):
+        h.update(json.dumps(st, sort_keys=True, default=str).encode())
+    for q in (_dl_pending, _sep_pending, _lyr_pending, _lyrfind_pending, _words_pending, _best_pending):
+        h.update(("|".join(sorted(q.items)) + "#").encode())
+    return h.hexdigest()[:12]
+
+# --- ลำดับความสำคัญของงานเบื้องหลัง -----------------------------------
+# ทุกไปป์ไลน์ (โหลด/แยกเสียง/หาเนื้อ) ต้องเดินตาม "ลำดับคิวห้องตอนนี้" ไม่ใช่ลำดับที่กดเพิ่ม
+# คนกดเลื่อนคิวแล้วคาดหวังว่าเพลงที่เลื่อนขึ้นมาจะถูกเตรียมก่อน — ของเดิมเป็น FIFO
+# ตามลำดับ add จึงยังไล่ทำเพลงเดิมต่อ เพลงที่ถูกดันขึ้นมาเลยไม่มีเนื้อ/ไม่มีไกด์เสียงร้อง
+_BACKLOG = 1 << 20          # ไม่ได้อยู่ในห้อง = งานตอนว่าง (สะสมอาร์ไคฟ์) ทำทีหลังเสมอ
+_PREEMPT_RANK = 1           # แย่งงานให้เฉพาะเพลงที่เล่นอยู่ (0) กับเพลงถัดไป (1) เท่านั้น
+
+
+def _prio_map() -> dict[str, int]:
+    """videoId -> อันดับ: 0 = เพลงที่เล่นอยู่, 1..N = ตำแหน่งในคิว
+    สร้างใหม่ทุกครั้งที่หยิบงาน — ห้ามแคช เพราะคิวเปลี่ยนได้ทุกวินาที"""
+    m: dict[str, int] = {}
+    cur = room.current or {}
+    if cur.get("videoId"):
+        m[cur["videoId"]] = 0
+    for i, q in enumerate(room.queue):
+        if q.get("videoId"):
+            m.setdefault(q["videoId"], i + 1)      # เพลงซ้ำ -> ยึดตำแหน่งแรกสุด
+    return m
+
+
+def _prio(vid: str | None, m: dict[str, int] | None = None) -> int:
+    return (m if m is not None else _prio_map()).get(vid or "", _BACKLOG)
+
+
+class _Pending:
+    """งานที่รออยู่ — เก็บเป็น dict ไม่ใช่ asyncio.Queue เพราะลำดับจริงคือ
+    "ลำดับคิวห้องตอนนี้" ซึ่งเรียงใหม่ได้ตลอดเวลา แต่ Queue จัดลำดับใหม่ไม่ได้
+    ระบบ urgent/backlog สองชั้นแบบเดิมยุบมาอยู่ในนี้: เพลงที่ไม่อยู่ในห้อง = _BACKLOG เอง"""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.items: dict[str, int] = {}     # videoId -> ลำดับที่เข้าคิว (ตัวตัดสินเมื่ออันดับเท่ากัน)
+        self.seq = 0
+        self.wake = asyncio.Event()
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def has(self, vid: str) -> bool:
+        return vid in self.items
+
+    def push(self, vid: str) -> None:
+        if vid not in self.items:
+            self.seq += 1
+            self.items[vid] = self.seq
+        self.wake.set()
+
+    def discard(self, vid: str) -> None:
+        self.items.pop(vid, None)
+
+    def best(self, m: dict[str, int] | None = None) -> tuple[str, int] | None:
+        """(vid, อันดับ) ของงานที่ควรทำก่อน — ยังไม่ถอดออกจากคิว"""
+        if not self.items:
+            return None
+        m = m if m is not None else _prio_map()
+        vid = min(self.items, key=lambda v: (m.get(v, _BACKLOG), self.items[v]))
+        return vid, m.get(vid, _BACKLOG)
+
+    def take_now(self) -> str | None:
+        hit = self.best()
+        if hit:
+            self.items.pop(hit[0], None)
+        return hit[0] if hit else None
+
+    def order(self) -> list[str]:
+        """ลำดับงานที่จะทำ — ไว้ส่องใน /api/health"""
+        m = _prio_map()
+        return sorted(self.items, key=lambda v: (m.get(v, _BACKLOG), self.items[v]))
+
+    async def wait(self) -> None:
+        """รอจนมีงาน — นอนบน Event ไม่ busy-loop
+        ห้ามมี await คั่นระหว่างเช็ค items กับ clear() ไม่งั้น push() ที่เข้ามาตรงนั้นจะหาย"""
+        while not self.items:
+            self.wake.clear()
+            await self.wake.wait()
+
+    def bump(self) -> None:
+        """ลำดับห้องเปลี่ยน -> ปลุก worker ให้เลือกงานใหม่"""
+        if self.items:
+            self.wake.set()
+
+
+_dl_pending = _Pending("dl")
+_sep_pending = _Pending("sep")
+_lyr_pending = _Pending("lyr")
+_words_pending = _Pending("words")   # เวลารายตัวอักษรของโหมดคาราโอเกะ (FA)
+
+# --- YouTube search (metadata only, via yt-dlp) ---------------------
+import traceback
+
+try:
+    from yt_dlp import YoutubeDL, version as ytdlp_version
+    _HAS_YTDLP = True
+    _YTDLP_VER = ytdlp_version.__version__
+except Exception as _e:
+    _HAS_YTDLP = False
+    _YTDLP_VER = f"not installed ({_e})"
+
+# --- ดาวน์โหลดเพลง (โหลดทีละเพลง ตามลำดับคิว) -------------------------
+FFMPEG = shutil.which("ffmpeg")
+FFPROBE = shutil.which("ffprobe")
+_dl_task: asyncio.Task | None = None
+_dl_state: dict[str, dict] = {}    # videoId -> {"status","error"} เหมือน _sep_state/_lyr_state
+
+
+def _dl_fields(item: dict) -> None:
+    """เติม dlStatus/localUrl ลง item ตอนจะ broadcast — อ่านจากดิสก์ + _dl_state
+    ของเดิมเก็บไว้บน dict ของ item เอง ซึ่งผูกกับ "ใบการ์ด" ไม่ใช่ "เพลง":
+    เพิ่มเพลงเดิมซ้ำตอนกำลังโหลด ใบที่สองจะค้างที่ 'รอโหลด' จนกว่า worker จะวนมาถึง
+    ทั้งที่ไฟล์เสร็จไปแล้ว — และทำให้จัดลำดับตาม videoId ไม่ได้"""
+    vid = item.get("videoId")
+    if item.get("source") != "yt" or not vid:
+        return
+    d = _song_dir(vid)
+    if (d / "video.mp4").is_file():
+        item["dlStatus"] = "ready"
+        item["dlError"] = ""
+        item["localUrl"] = f"/song/{vid}/video.mp4"
+        if (d / "cover.jpg").is_file():
+            item["localThumb"] = f"/song/{vid}/cover.jpg"
+        return
+    st = _dl_state.get(vid, {})
+    item["dlStatus"] = st.get("status", "queued")
+    item["dlError"] = st.get("error", "")
+    item.pop("localUrl", None)
+
+
+def _ffmpeg(args: list[str]) -> None:
+    if not FFMPEG:
+        raise RuntimeError("ไม่พบ ffmpeg (ติดตั้งผ่าน Homebrew: brew install ffmpeg)")
+    try:
+        r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args],
+                           capture_output=True, text=True, timeout=FFMPEG_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ffmpeg หมดเวลา ({FFMPEG_TIMEOUT / 60:.0f} นาที)")
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg ล้มเหลว: {(r.stderr or '').strip()[-400:]}")
+
+
+_FRAG_RE = re.compile(r"\.f\d+$")      # "<vid>.f137" = ไฟล์ fragment ของ yt-dlp
+
+
+def _in_archive(d: Path) -> bool:
+    """โฟลเดอร์เพลงจริงในคลัง (ลูกตรงของ DL_DIR, ไม่ใช่โฟลเดอร์ซ่อน) — ด่านกันลบไฟล์ผิดที่"""
+    try:
+        return d.resolve().parent == DL_DIR.resolve() and not d.name.startswith(".")
+    except OSError:
+        return False
+
+
+def _dl_scrub(d: Path) -> None:
+    """ล้างเศษไฟล์ก่อน/หลังโหลด — ต้องทำก่อนลองใหม่ ไม่งั้น fragment เก่ากลายเป็น video.mp4"""
+    if not _in_archive(d):
+        raise RuntimeError(f"ปฏิเสธการล้างไฟล์นอกคลังเพลง: {d}")
+    if not d.is_dir():
+        return
+    for f in list(d.glob("*.part")) + list(d.glob("*.ytdl")):
+        f.unlink(missing_ok=True)
+    for f in d.iterdir():
+        if f.is_file() and (_FRAG_RE.search(f.stem)
+                            or (f.suffix in (".webp", ".png") and f.name != "cover.jpg")):
+            f.unlink(missing_ok=True)
+
+
+_DL_COMMON = {
+    "quiet": True, "no_warnings": True, "noplaylist": True, "noprogress": True,
+    "overwrites": False, "socket_timeout": 30, "retries": 3,
+    # YouTube เสิร์ฟเป็น DASH fragment ทีละก้อน — ของเดิมโหลดทีละก้อน (ค่า default 1)
+    "concurrent_fragment_downloads": 8,
+}
+
+
+def _pick_out(d: Path, vid: str, exts: tuple[str, ...]) -> Path | None:
+    """ไฟล์ที่ yt-dlp เพิ่งเขียน — เอาชื่อตรงตาม outtmpl ก่อน
+    เศษ fragment ชื่อ "<vid>.f137.mp4" เรียงมาก่อน "<vid>.mp4" ('f' < 'm')
+    ของเดิมใช้ sorted(glob)[0] จึงหยิบไฟล์วิดีโอล้วนที่ไม่มีเสียงมาเป็น video.mp4 ได้"""
+    for ext in exts:
+        exact = d / f"{vid}{ext}"
+        if exact.is_file():
+            return exact
+    cand = [f for ext in exts for f in sorted(d.glob(f"*{ext}"))
+            if not _FRAG_RE.search(f.stem)]
+    return cand[0] if cand else None
+
+
+def _download_audio(vid: str) -> None:
+    """เสียง + metadata ก่อน — demucs ต้องใช้แค่ audio.m4a จึงเริ่มแยกเสียงได้
+    ระหว่างที่วิดีโอยังโหลดอยู่ และได้สตรีม AAC ต้นฉบับตรง ๆ
+    (ของเดิมรอ merge เป็น mp4 เสร็จแล้วค่อยสกัดเสียงออกมาใหม่ = เสีย ffmpeg เต็มไฟล์ 1 รอบ)"""
+    if not _HAS_YTDLP:
+        raise RuntimeError("yt-dlp not installed")
+    if not _vid_ok(vid):
+        raise RuntimeError(f"videoId ไม่ถูกต้อง: {str(vid)[:40]!r}")
+    d = _song_dir(vid)
+    audio = d / "audio.m4a"
+    if audio.is_file():
+        return
+    if not _in_archive(d):
+        raise RuntimeError(f"โฟลเดอร์ไม่อยู่ในคลังเพลง: {d}")
+    d.mkdir(parents=True, exist_ok=True)
+    _dl_scrub(d)                         # เศษจากรอบที่พังกลางทางต้องไม่ปนมารอบนี้
+    try:
+        with YoutubeDL({**_DL_COMMON,
+                        "outtmpl": str(d / "%(id)s.%(ext)s"),
+                        "format": "ba[ext=m4a]/ba/b",
+                        "writeinfojson": True,
+                        "writethumbnail": True,
+                        "writesubtitles": True,   # ซับจริงเท่านั้น auto-caption เชื่อไม่ได้
+                        "writeautomaticsub": False,
+                        "subtitleslangs": ["th", "en", "ja", "ko"],   # ซับภาษาของเพลง (gen_lyrics เลือกใช้ตามภาษา)
+                        "subtitlesformat": "vtt",
+                        "convert_thumbnails": "jpg"}) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={vid}"])
+
+        src = _pick_out(d, vid, (".m4a", ".mp4", ".webm", ".opus", ".mka"))
+        if src is None:
+            raise RuntimeError("yt-dlp ไม่ได้ไฟล์เสียงมา")
+        if src.suffix == ".m4a":
+            src.rename(audio)            # AAC ต้นฉบับ ไม่ต้องเข้ารหัสใหม่
+        else:
+            part = d / "audio.m4a.part"
+            _ffmpeg(["-i", str(src), "-vn", "-c:a", "aac", "-b:a", "192k",
+                     "-movflags", "+faststart", "-f", "ipod", str(part)])
+            part.rename(audio)           # atomic: ครึ่ง ๆ ต้องไม่ถูกนับว่าเสร็จ
+            src.unlink(missing_ok=True)
+        _tidy_sidecars(d)
+    finally:
+        _dl_scrub(d)
+
+
+def _has_audio_stream(f: Path) -> bool:
+    if not FFPROBE:
+        return True                      # ตรวจไม่ได้ก็อย่าไปขวางทาง
+    try:
+        r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "a",
+                            "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(f)],
+                           capture_output=True, text=True, timeout=30)
+        return "audio" in (r.stdout or "")
+    except Exception:
+        return True
+
+
+def _download_video(vid: str) -> None:
+    """วิดีโอ — โหลดเฉพาะภาพแล้ว mux กับ audio.m4a ที่มีอยู่แล้วด้วย -c copy
+    ห้ามได้ไฟล์ที่ไม่มีเสียงเด็ดขาด: ตอนสเต็มยังไม่พร้อม จอเล่นเสียงจาก video.mp4
+    (static/player.html:507 + 540) เพลงจะเงียบสนิททั้งเพลง"""
+    if not _HAS_YTDLP:
+        raise RuntimeError("yt-dlp not installed")
+    if not _vid_ok(vid):
+        raise RuntimeError(f"videoId ไม่ถูกต้อง: {str(vid)[:40]!r}")
+    d = _song_dir(vid)
+    video = d / "video.mp4"
+    if video.is_file():
+        return
+    audio = d / "audio.m4a"
+    if not _in_archive(d):
+        raise RuntimeError(f"โฟลเดอร์ไม่อยู่ในคลังเพลง: {d}")
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        # มี audio.m4a แล้วก็ขอแค่ภาพ ไม่ต้องโหลดเสียงซ้ำ
+        fmt = ("bv*[ext=mp4][height<=720]/bv*[height<=720]/b[ext=mp4]/b" if audio.is_file()
+               else "bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/b")
+        with YoutubeDL({**_DL_COMMON,
+                        "outtmpl": str(d / "%(id)s.v.%(ext)s"),
+                        "format": fmt,
+                        "merge_output_format": "mp4"}) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={vid}"])
+
+        src = _pick_out(d, f"{vid}.v", (".mp4", ".webm", ".mkv"))
+        if src is None:
+            raise RuntimeError("yt-dlp ไม่ได้ไฟล์วิดีโอมา")
+        part = video.with_suffix(".mp4.part")
+        if audio.is_file() and not _has_audio_stream(src):
+            # ภาพล้วน + เสียงที่โหลดไว้แล้ว -> รวมร่างแบบ copy ไม่เข้ารหัสใหม่
+            _ffmpeg(["-i", str(src), "-i", str(audio), "-map", "0:v:0", "-map", "1:a:0",
+                     "-c", "copy", "-shortest", "-movflags", "+faststart",
+                     "-f", "mp4", str(part)])
+        elif src.suffix == ".mp4":
+            src.rename(part)
+        else:
+            _ffmpeg(["-i", str(src), "-c", "copy", "-movflags", "+faststart",
+                     "-f", "mp4", str(part)])
+        if not _has_audio_stream(part):
+            part.unlink(missing_ok=True)
+            raise RuntimeError("วิดีโอที่ได้ไม่มีแทร็กเสียง")
+        part.rename(video)               # atomic: ถือว่าเล่นได้ต่อเมื่อครบจริง
+        src.unlink(missing_ok=True)
+        _tidy_sidecars(d)
+        _fetch_auto_caption(d, vid)      # ต้องหลัง tidy — tidy rename ทุก *.vtt
+    finally:
+        for f in d.glob("*.mp4.part"):
+            f.unlink(missing_ok=True)
+        _dl_scrub(d)
+
+
+def _tidy_sidecars(d: Path) -> None:
+    """จัดชื่อ cover.jpg / info.json / sub.<lang>.vtt ให้เป็นระเบียบ"""
+    img = next((f for f in sorted(d.glob("*.jpg")) + sorted(d.glob("*.webp"))
+                + sorted(d.glob("*.png"))), None)
+    if img and img.name != "cover.jpg":
+        cover = d / "cover.jpg"
+        if img.suffix.lower() == ".jpg":
+            img.rename(cover)
+        else:
+            _ffmpeg(["-i", str(img), str(cover)])
+    for f in d.glob("*.info.json"):
+        if f.name != "info.json":
+            f.rename(d / "info.json")
+    for f in d.glob("*.vtt"):
+        # จัดชื่อเฉพาะไฟล์ใหม่ของ yt-dlp (<vid>.<lang>.vtt) — ชื่อที่จัดแล้ว (sub./auto.) กับไฟล์พักของ
+        # _fetch_auto_caption/_fetch_subs (_auto./_sub.) ห้ามแตะ: ของเดิม rename ทุกไฟล์ ทำให้ตอนโหลดใหม่
+        # auto.th.vtt (เครื่องถอด) กลายเป็น sub.th.vtt ที่ gen_lyrics เชื่อว่าเป็น "ซับที่คนทำ" และทับซับจริงได้
+        if _VTT_NAME.match(f.name) or f.name.startswith(("_auto.", "_sub.")):
+            continue
+        parts = f.name.split(".")
+        lang = (LS.norm_lang(parts[-2]) if len(parts) >= 3 else "") or "th"
+        f.replace(d / f"sub.{lang}.vtt")
+
+
+def _fetch_auto_caption(d: Path, vid: str) -> None:
+    """auto-caption (ASR ของ YouTube) -> auto.th.vtt
+
+    แยกไฟล์จาก sub.th.vtt เด็ดขาด เพราะคนละชั้นคุณภาพ: sub.th.vtt คนพิมพ์ เชื่อได้ทั้ง
+    เนื้อและเวลา ตัวนี้เครื่องถอด เวลาแม่นแต่ตัวหนังสืออาจสะกดผิด ต้องอยู่หลัง lrclib
+    ในลำดับเลือกแหล่ง และขึ้นป้ายความมั่นใจคนละระดับ
+
+    ยิงแยกรอบจากการโหลดหลัก เพราะตอนตั้ง opts ยังไม่มี info.json จึงยังไม่รู้ว่าคีย์ไหน
+    เป็น ASR ต้นฉบับจริง (ดู LS.asr_caption_track — ชื่อคีย์เชื่อไม่ได้)
+    ต้องเรียก *หลัง* _tidy_sidecars เสมอ เพราะ _tidy_sidecars rename ทุก *.vtt เป็น
+    sub.<lang>.vtt ซึ่งจะทับซับจริงถ้าไฟล์ของเราค้างอยู่ตอนนั้น"""
+    try:
+        info = json.loads((d / "info.json").read_text("utf-8"))
+    except Exception:
+        return
+    key, alang = LS.asr_track(info)          # ภาษาที่ YouTube ได้ยินจริง (ไม่ใช่แค่ไทย)
+    if not key or not alang:
+        return                               # ~29/70 เพลงจบตรงนี้ ไม่ยิงเน็ตเลย
+    if (d / f"auto.{alang}.vtt").is_file():
+        return
+    try:
+        with YoutubeDL({**_DL_COMMON, "skip_download": True,
+                        "writesubtitles": False,        # ห้ามปนซับจริง
+                        "writeautomaticsub": True,
+                        "subtitleslangs": [key], "subtitlesformat": "vtt",
+                        "outtmpl": str(d / "_auto")}) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={vid}"])
+        got = next(iter(sorted(d.glob("_auto.*.vtt"))), None)
+        if got:
+            got.replace(d / f"auto.{alang}.vtt")
+    except Exception as exc:
+        print(f"[dl] {vid} auto-caption ไม่ได้: {type(exc).__name__}: {exc}")
+    finally:
+        for f in d.glob("_auto.*"):
+            f.unlink(missing_ok=True)
+
+
+def _fetch_subs(d: Path, vid: str, lang: str) -> bool:
+    """ดึงซับจริงภาษาที่ระบุให้เพลงที่โหลดไว้แล้ว (ตอนโหลดครั้งแรกขอแค่ th/en) -> sub.<lang>.vtt"""
+    if not lang or (d / f"sub.{lang}.vtt").is_file():
+        return False
+    try:
+        with YoutubeDL({**_DL_COMMON, "skip_download": True, "writesubtitles": True,
+                        "writeautomaticsub": False, "subtitleslangs": [lang], "subtitlesformat": "vtt",
+                        "outtmpl": str(d / "_sub")}) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={vid}"])
+        got = next(iter(sorted(d.glob("_sub.*.vtt"))), None)
+        if got:
+            got.replace(d / f"sub.{lang}.vtt")
+            return True
+    except Exception as exc:
+        print(f"[dl] {vid} ซับ {lang} ไม่ได้: {type(exc).__name__}: {exc}")
+    finally:
+        for f in d.glob("_sub.*"):
+            f.unlink(missing_ok=True)
+    return False
+
+
+def _download_one(vid: str) -> None:
+    """โหลดครบทั้งเพลง — ใช้ตอนต้องการไฟล์ทั้งชุดในครั้งเดียว"""
+    _download_audio(vid)
+    _download_video(vid)
+
+
+_DL_TRIES = 2                      # โหลดพังเพราะเน็ตสะดุดเป็นเรื่องปกติ ลองซ้ำเองก่อนยอมแพ้
+_DL_AUTO_MAX = 3                   # ลองใหม่อัตโนมัติได้กี่รอบ ก่อนรอให้คนกดปุ่มซ่อมเอง
+_dl_fails: dict[str, int] = {}     # videoId -> โหลดพังมาแล้วกี่รอบ (ล้างเมื่อสำเร็จ/กดซ่อม)
+
+
+async def _download_worker() -> None:
+    while True:
+        await _dl_pending.wait()
+        vid = _dl_pending.take_now()       # เลือกตามลำดับคิวห้องตอนนี้ ไม่ใช่ลำดับที่กดเพิ่ม
+        if vid is None:
+            continue
+        if not _vid_ok(vid):
+            _dl_state.pop(vid, None)
+            continue
+        d = _song_dir(vid)
+        if (d / "video.mp4").is_file() and (d / "audio.m4a").is_file():
+            _dl_state.pop(vid, None)
+            await _enqueue_sep(vid)     # ไฟล์ครบแล้ว แต่ยังอาจไม่เคยแยกเสียง
+            await room.broadcast()
+            continue
+        _dl_state[vid] = {"status": "downloading", "error": ""}
+        await room.broadcast()
+        t0 = time.monotonic()
+        for attempt in range(1, _DL_TRIES + 1):
+            try:
+                # เสียงก่อน แล้วสั่งแยกเสียงทันที — demucs (2-3 นาที) จะได้เดินขนาน
+                # กับการโหลดวิดีโอ แทนที่จะต่อคิวกันแบบเดิม
+                await asyncio.to_thread(_download_audio, vid)
+                _invalidate_dirs()
+                await _enqueue_sep(vid)
+                await room.broadcast()
+                await asyncio.to_thread(_download_video, vid)
+                print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s")
+                # ซับ/metadata เพิ่งมาถึง — ถ้าเคยค้นเนื้อไปแล้วตอนโฟลเดอร์ยังว่าง
+                # ผลนั้นใช้ไม่ได้ ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนจะไปถอดเสียง
+                _lyr_nosrc.discard(vid)
+                _dl_state.pop(vid, None)   # ไฟล์อยู่บนดิสก์แล้ว _dl_fields อ่านเองได้
+                _invalidate_dirs()         # โฟลเดอร์เพิ่งเกิด อย่าให้แคช 2 วิบังไว้
+                room.archive_rev += 1
+                _dl_fails.pop(vid, None)
+                break
+            except Exception as exc:
+                if attempt < _DL_TRIES:
+                    print(f"[dl] {vid} ลองใหม่ ({attempt}/{_DL_TRIES}): {exc}")
+                    await asyncio.sleep(2)
+                    continue
+                _dl_fails[vid] = _dl_fails.get(vid, 0) + 1
+                _dl_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+                print(f"[dl] {vid} FAILED ({_dl_fails[vid]}/{_DL_AUTO_MAX}): {exc}")
+        await room.broadcast()
+
+
+async def _ensure_downloader() -> None:
+    global _dl_task
+    if _dl_task is None or _dl_task.done():
+        _dl_task = asyncio.create_task(_download_worker())
+
+
+# --- แยกเสียงร้อง (Demucs) ------------------------------------------
+# โมเดลเก็บในโปรเจกต์ ไม่ปนกับ ~/.cache และต้องตั้งก่อน spawn demucs
+os.environ.setdefault("TORCH_HOME", str(BASE / ".cache" / "torch"))
+# HF_HOME/HF_HUB_CACHE ตั้งไว้ต้นไฟล์แล้ว (demucs 4.1 ดึง HTDemucs จาก huggingface — มีใน .cache/hf แล้ว)
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+DEMUCS_MODEL = "htdemucs"
+_sep_task: asyncio.Task | None = None
+_sep_state: dict[str, dict] = {}                   # videoId -> {"status","error"}
+_sep_device: str | None = None                     # จำ device ที่ใช้ได้ไว้ ไม่ต้องลองใหม่ทุกเพลง
+_NEVER = 1 << 30                                   # อันดับ "ไม่มีใครรออยู่"
+_VERIFY_RANK = _BACKLOG << 1                       # ตรวจเนื้อยอมให้ทุกอย่างแซงเสมอ
+
+
+class _HeavyGate:
+    """สิทธิ์ใช้ GPU — ให้คนที่รอ "เพลงอันดับดีที่สุดในห้องตอนนี้" ได้ก่อน
+
+    ของเดิมเป็น asyncio.Lock ธรรมดาซึ่งปลุก waiter ตามลำดับที่มาขอ (FIFO) ผลคือ
+    demucs ของเพลงท้ายคิว หรืองานตรวจเนื้อเพลงเก่า ตัดหน้าเพลงที่กำลังเล่นได้
+    = เพลงขึ้นจอแล้วยังไม่มีไกด์เสียงร้อง/ไม่มีเนื้อ ซึ่งคืออาการที่ผู้ใช้เจอ
+
+    อันดับของแต่ละคนเปลี่ยนได้ตลอด (คิวห้องขยับ) จึงเก็บเป็นฟังก์ชันแล้วเรียกสดทุกครั้ง
+    ที่ประเมิน และต้องมี rethink() ให้คนอื่นปลุกตอนคิวเปลี่ยน ไม่งั้นไม่มีเหตุให้ตื่น"""
+
+    def __init__(self) -> None:
+        self._busy = False
+        self._cv = asyncio.Condition()
+        self._want: dict[str, Any] = {}        # ชื่อ worker -> ฟังก์ชันคืนอันดับที่รออยู่
+
+    @property
+    def busy(self) -> bool:
+        return self._busy
+
+    def _best_other(self, name: str) -> int:
+        return min((f() for n, f in self._want.items() if n != name), default=_NEVER)
+
+    @asynccontextmanager
+    async def slot(self, name: str, rank):
+        async with self._cv:
+            self._want[name] = rank
+            try:
+                await self._cv.wait_for(
+                    lambda: not self._busy and rank() <= self._best_other(name))
+            finally:
+                self._want.pop(name, None)
+            self._busy = True
+        try:
+            yield
+        finally:
+            async with self._cv:
+                self._busy = False
+                self._cv.notify_all()
+
+    async def rethink(self) -> None:
+        """ลำดับห้องเปลี่ยน -> ให้ทุกคนที่รออยู่ประเมินอันดับกันใหม่"""
+        async with self._cv:
+            self._cv.notify_all()
+
+
+_heavy = _HeavyGate()                              # demucs/whisper/ตรวจเนื้อ แย่ง GPU กัน ให้ทีละงาน
+SEP_TIMEOUT = 30 * 60        # ต่อ device — cpu เพลงยาวยังจบทัน / ค้างเกินนี้ = ค้างจริง
+LYR_TIMEOUT = 30 * 60        # gen_lyrics เต็ม (ถอดเสียง + ตรวจภาษา + ลองซ้ำเมื่อ whisper วนลูป)
+FIND_TIMEOUT = 10 * 60       # gen_lyrics --no-asr (เน็ตล้วน)
+LANG_TIMEOUT = 5 * 60        # whisper ฟัง 2 ช่วง ๆ ละ 30 วิ
+FFMPEG_TIMEOUT = 10 * 60
+
+# --- แย่งคิวงานหนัก ---------------------------------------------------
+# demucs/whisper กินเวลาเป็นนาที ถ้าไม่ฆ่าทิ้ง เพลงที่เพิ่งถูกเลื่อนขึ้นมาเล่นต้องรอจนจบ
+# = ขึ้นจอโดยไม่มีไกด์เสียงร้อง ซึ่งคืออาการที่ผู้ใช้เจอ
+_heavy_job: tuple[str, str] | None = None          # (ชนิดงาน, videoId) ที่ถือ _heavy อยู่ตอนนี้
+_preempt_kill: set[str] = set()                    # videoId ที่เพิ่งถูกสั่งฆ่า (ธงให้ฝั่ง thread อ่าน)
+_preempt_at = 0.0                                  # กันฆ่ารัว ตอนคนกดเลื่อนคิวหลายทีติด
+_preempt_n: dict[str, int] = {}                    # เพลงนี้ถูกแย่งไปกี่ครั้งแล้ว (กันอดตาย)
+_PREEMPT_COOLDOWN = 20.0
+_PREEMPT_MAX = 2
+
+
+class _Preempted(Exception):
+    """งานถูกฆ่าเพราะมีเพลงที่ต้องใช้ก่อน — ไม่ใช่ความล้มเหลว ให้เข้าคิวใหม่"""
+
+
+# --- โปรเซสลูกทั้งหมด (demucs / gen_lyrics / fa_align / ตรวจภาษา) ------------------
+# ลงทะเบียนไว้ที่เดียว: แย่งคิวหาตัวที่จะฆ่าเจอ / ปิดเซิร์ฟเวอร์ฆ่าได้ครบ / ทุกตัวมีเพดานเวลา
+# ของเดิมไม่มี timeout — demucs ค้างบน MPS ครั้งเดียว = ถือช่อง GPU ไว้ตลอด งานหนักทุกอย่างหยุดหมด
+_children: dict[int, tuple[str, str, subprocess.Popen]] = {}   # pid -> (ชนิดงาน, videoId, proc)
+_children_lock = threading.Lock()
+
+
+def _run_child(kind: str, vid: str, cmd: list[str], timeout: float, input: str | None = None,
+               **kw) -> tuple[int, str, str]:
+    """รันโปรเซสลูกจนจบ -> (returncode, stdout, stderr) / หมดเวลา = ฆ่าแล้ว raise RuntimeError"""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            stdin=subprocess.PIPE if input is not None else None, text=True, **kw)
+    with _children_lock:
+        _children[proc.pid] = (kind, vid, proc)
+    try:
+        try:
+            out, err = proc.communicate(input=input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.communicate(timeout=10)   # หลานที่ถือ pipe ไว้ (ffmpeg ของ demucs) ต้องไม่ทำให้ค้างซ้ำ
+            except subprocess.TimeoutExpired:
+                pass
+            raise RuntimeError(f"{kind} หมดเวลา ({timeout / 60:.0f} นาที)")
+    finally:
+        with _children_lock:
+            _children.pop(proc.pid, None)
+    return proc.returncode, out or "", err or ""
+
+
+def _child_of(kind: str, vid: str) -> subprocess.Popen | None:
+    with _children_lock:
+        return next((p for k, v, p in _children.values() if k == kind and v == vid), None)
+
+
+def _kill_children() -> None:
+    """ปิดเซิร์ฟเวอร์: ฆ่าลูกทุกตัว — ไม่งั้น thread ที่รอ communicate() ถ่วงการปิดไปหลายนาที และลูกค้างกิน GPU ต่อ"""
+    with _children_lock:
+        procs = [p for _, _, p in _children.values()]
+    for p in procs:
+        try:
+            p.kill()
+        except Exception:
+            pass
+
+
+def _preempt_heavy() -> None:
+    """มีเพลงที่กำลังเล่น/เพลงถัดไปรออยู่ แต่ GPU ติดงานของเพลงท้ายคิว -> ฆ่าแล้วเริ่มใหม่
+    เงื่อนไขแคบไว้ตั้งใจ: เริ่ม demucs/whisper ใหม่ = ทิ้งงานที่ทำมาทั้งหมด ห้ามฆ่าพร่ำเพรื่อ
+    ไม่มี await ในฟังก์ชันนี้ จึงเรียกตอนถือ room.lock ได้"""
+    global _preempt_at
+    job = _heavy_job
+    if not job or time.monotonic() - _preempt_at < _PREEMPT_COOLDOWN:
+        return
+    kind, vid = job
+    m = _prio_map()
+    best = min((b[1] for b in (_sep_pending.best(m), _lyr_pending.best(m)) if b), default=_BACKLOG)
+    if best > _PREEMPT_RANK:
+        return                                  # ไม่มีเพลงด่วนรออยู่ ปล่อยงานเดิมทำต่อ
+    if kind not in ("sep", "lyr", "verify"):
+        return                                  # งาน FA สั้น ๆ (words/best/fa/lang) ปล่อยให้จบเอง
+    run = _BACKLOG if kind == "verify" else _prio(vid, m)   # ตรวจเนื้อเพลงยอมให้แย่งเสมอ
+    if run <= best or _preempt_n.get(vid, 0) >= _PREEMPT_MAX:
+        return
+    proc = _child_of(kind, vid)
+    if proc is None or proc.poll() is not None:
+        return                                  # อยู่ช่วง ffmpeg/เขียนไฟล์ ฆ่าไปก็ไม่ได้อะไร
+    _preempt_kill.add(vid)
+    _preempt_n[vid] = _preempt_n.get(vid, 0) + 1
+    _preempt_at = time.monotonic()
+    print(f"[{kind}] แย่งคิว: หยุด {vid} (อันดับ {run}) ให้เพลงอันดับ {best} ก่อน")
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def _stem_paths(vid: str) -> tuple[Path, Path]:
+    d = _song_dir(vid)
+    return d / "vocals.m4a", d / "no_vocals.m4a"
+
+
+def _has_stems(vid: str) -> bool:
+    v, n = _stem_paths(vid)
+    return v.is_file() and n.is_file()
+
+
+_lyr_cache: dict[str, tuple[float, int, bool, str]] = {}
+# ที่มาที่ให้เวลามาด้วย (ดูที่ scripts/gen_lyrics.py) -> เชื่อเวลาได้ ไม่ต้องขึ้นคำเตือน
+_TRUSTED_LYR_TIME = frozenset({"manual-lrc", "manual-edit", "yt-sub", "lrclib", "yt-auto"})
+# ต้องตรงกับ gen_lyrics.TRUSTED_TIME เสมอ (เวลามาจากแหล่งตรง ๆ ไม่ได้เดาเอง)
+_chk_cache: dict[str, tuple[float, str]] = {}
+
+
+def _chk_info(vid: str) -> dict:
+    """ผลตรวจล่าสุดทั้งก้อน — {} = ยังไม่เคยตรวจ (แคชด้วย mtime)"""
+    f = _song_dir(vid) / "lyrics.check.json"
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return {}
+    hit = _chk_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        j = json.loads(f.read_text("utf-8"))
+    except Exception:
+        j = {}
+    _chk_cache[vid] = (mt, j)
+    return j
+
+
+def _chk_verdict(vid: str) -> str:
+    """ผลตรวจล่าสุด — reported | ok | fixed | bad | unknown | unmeasurable (ว่าง = ยังไม่ตรวจ)"""
+    return _chk_info(vid).get("verdict") or ""
+
+
+_lyr_from: dict[str, dict | None] = {}     # videoId -> {"kind": picked|best, "label"} อัปเดตพร้อม _lyr_cache
+
+
+def _lyr_meta(vid: str) -> tuple[float, int, bool, str, str]:
+    """(mtime, บรรทัด, เวลาน่าสงสัยไหม, ใครพิมพ์เนื้อ, ใครจับเวลา)
+    แคชด้วย mtime เพราะถูกเรียกทุก item ทุก broadcast"""
+    f = _song_dir(vid) / "lyrics.json"
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return (0.0, 0, False, "", "")
+    hit = _lyr_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit
+    try:
+        j = json.loads(f.read_text("utf-8"))
+        L = j.get("lines") or []
+        n = len(L)
+        src = j.get("src") or ""
+        if src in _TRUSTED_LYR_TIME:
+            warn = False              # เวลามาจากแหล่งโดยตรง ไม่ได้เดาเอง
+        else:
+            # เวลาเพี้ยนสังเกตได้จาก 2 อาการ: บรรทัดทับกันเอง กับเนื้อคลุมเพลงน้อยผิดปกติ
+            over = sum(1 for a, b in zip(L, L[1:]) if b["t"] < a["t"] + a["d"] - 0.2)
+            song = j.get("duration") or 0
+            cov = (sum(x["d"] for x in L) / song) if song else 1.0
+            warn = bool(n and (over > n * 0.1 or cov < 0.45))
+        tsrc = LC.time_src_of(j)
+    except Exception:
+        n, warn, src, tsrc = 0, False, "", ""
+    _lyr_cache[vid] = (mt, n, warn, src, tsrc)
+    try:
+        frm = ({"kind": "picked", "label": j["picked"]} if j.get("picked")
+               else {"kind": "best", "label": (j.get("best") or {}).get("label") or ""} if j.get("best") else None)
+    except Exception:
+        frm = None
+    _lyr_from[vid] = frm
+    return _lyr_cache[vid]
+
+
+# offset ประจำเพลง: บวกเข้ากับ t ตอนแสดง (บวก = ซับขึ้นช้าลง) ทิศเดียวกับ ?lyroffset= ของจอหลัก
+# แยกไฟล์จาก lyrics.json เพราะปรับสดจากรีโมทได้ระหว่างร้อง โดยไม่ต้องให้จอโหลดเนื้อใหม่
+# และไม่ต้องสร้างเนื้อเวอร์ชันใหม่ทุกครั้งที่กด ± — เวลาเนื้อถูกสร้างใหม่ ไฟล์นี้ถูกลบตาม
+LYR_OFFSET_MAX = 15.0
+_off_cache: dict[str, tuple[float, float]] = {}
+
+
+def _lyr_offset(vid: str) -> float:
+    f = _song_dir(vid) / "lyrics.offset.json"
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return 0.0
+    hit = _off_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        off = float(json.loads(f.read_text("utf-8")).get("offset") or 0.0)
+        off = max(-LYR_OFFSET_MAX, min(LYR_OFFSET_MAX, off))
+    except Exception:
+        off = 0.0
+    _off_cache[vid] = (mt, off)
+    return off
+
+
+def _set_lyr_offset(vid: str, off: float) -> float:
+    off = round(max(-LYR_OFFSET_MAX, min(LYR_OFFSET_MAX, float(off))), 2)
+    f = _song_dir(vid) / "lyrics.offset.json"
+    if abs(off) < 0.005:
+        f.unlink(missing_ok=True)
+    else:
+        tmp = f.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"offset": off, "at": int(time.time())}), encoding="utf-8")
+        os.replace(tmp, f)
+    _off_cache.pop(vid, None)
+    return off
+
+
+def _lyr_fields(item: dict) -> None:
+    """lyrStatus: na | queued | working | ready | failed"""
+    vid = item.get("videoId")
+    for k in ("lyricsUrl", "lyrLines", "lyrWarn", "lyrSrc", "lyrCheck", "lyrError",
+              "lyrConf", "lyrConfWhy", "lyrKind", "lyrOffset", "wordsUrl", "wordsStatus", "lyrBest",
+              "lyrFrom", "lyrLang"):
+        item.pop(k, None)
+    if item.get("source") != "yt" or not vid:
+        item["lyrStatus"] = "na"
+        return
+    _lg = _song_lang(vid)[0]
+    if _lg != "th":
+        item["lyrLang"] = _lg
+    _bst = _best_state.get(vid, {}).get("status")
+    if _bst in ("queued", "working"):
+        item["lyrBest"] = _bst          # กำลังเทียบเนื้อจากทุกแหล่ง (เนื้ออาจเปลี่ยนเป็นตัวที่ดีกว่า)
+    _vst = _verify_state.get(vid, {}).get("status")
+    chk = _vst if _vst in ("queued", "waiting", "checking", "failed") else _chk_verdict(vid)
+    if chk:
+        item["lyrCheck"] = chk
+    mt, n, warn, src, tsrc = _lyr_meta(vid)
+    if mt and n:
+        # ms ไม่ใช่วินาที: บันทึกจาก Studio 2 ครั้งในวินาทีเดียว URL ต้องเปลี่ยน ไม่งั้นจอไม่โหลดใหม่
+        item["lyricsUrl"] = f"/song/{vid}/lyrics.json?v={int(mt * 1000)}"
+        item["lyrLines"] = n
+        item["lyrWarn"] = warn
+        item["lyrSrc"] = src
+        item["lyrKind"] = LC.kind(src, tsrc)
+        item["lyrStatus"] = "ready"
+        if _lyr_from.get(vid):
+            item["lyrFrom"] = _lyr_from[vid]         # "เลือกจาก JOOX" / "ระบบเลือกจาก ..." (หน้าคิวใน Studio)
+        off = _lyr_offset(vid)
+        if off:
+            item["lyrOffset"] = off
+        wm = _words_meta(vid)
+        if wm["ok"] and wm["nk"]:
+            item["wordsUrl"] = f"/song/{vid}/lyrics.words.json?v={int(wm['mt'] * 1000)}"
+        item["wordsStatus"] = _words_status(vid)     # รีโมทบอกได้ว่า "กำลังทำ" หรือ "ไม่มี"
+        # ป้ายความมั่นใจ: คำนวณสดจาก "ที่มา + ผลวัดล่าสุด" จะได้เปลี่ยนเกณฑ์
+        # โดยไม่ต้องสร้าง lyrics.json ใหม่ทั้งคลัง
+        ck = _chk_info(vid)
+        item["lyrConf"], item["lyrConfWhy"] = LC.confidence(
+            src, tsrc,
+            ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
+            ck.get("measuredBy") or "",
+            measurable=ck.get("verdict") != "unmeasurable")
+        return
+    if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
+        item["lyrStatus"] = "nolyr"   # ลองครบทุกแหล่งแล้วจริง ๆ ไม่ใช่ "ยังไม่ได้ลอง"
+        return
+    st = _lyr_state.get(vid, {})
+    if st.get("status"):
+        item["lyrStatus"] = st["status"]
+    elif not _has_stems(vid):
+        item["lyrStatus"] = "na"
+    else:
+        # มี vocals แล้วแต่ไม่มี state — ต้องดูคิวจริง ห้ามเดาว่า "queued"
+        # สถานะปลอมนั้นคืออาการ "รอหาเนื้อ" ที่ไม่มีวันขยับ และยังไปซ่อนปุ่มโหลดเนื้อใหม่ด้วย
+        item["lyrStatus"] = ("queued" if _lyr_pending.has(vid) or _lyrfind_pending.has(vid)
+                             else "idle")
+    if st.get("error"):
+        item["lyrError"] = st["error"]
+
+
+def _sep_fields(item: dict) -> None:
+    """เติม sepStatus/sepError/stems ลงใน item ตามสถานะล่าสุด
+    sepStatus: na | queued | separating | ready | failed"""
+    vid = item.get("videoId")
+    if item.get("source") != "yt" or not vid:
+        item["sepStatus"] = "na"
+        item["sepError"] = ""
+        item.pop("stems", None)
+        return
+    if _has_stems(vid):
+        item["sepStatus"] = "ready"
+        item["sepError"] = ""
+        item["stems"] = {"vocals": f"/song/{vid}/vocals.m4a",
+                         "noVocals": f"/song/{vid}/no_vocals.m4a"}
+        item.pop("stemsKey", None)
+        item.pop("keyStatus", None)
+        k = int(room.mix.get("key") or 0)
+        if k:                                # คีย์ของห้อง ≠ 0: มีไฟล์เลื่อนคีย์แล้ว -> ส่ง URL ให้จอ ไม่งั้นบอกสถานะงาน
+            if _key_ready(vid, k):
+                item["stemsKey"] = {"key": k, "vocals": f"/song/{vid}/vocals.k{k:+d}.m4a",
+                                    "noVocals": f"/song/{vid}/no_vocals.k{k:+d}.m4a"}
+            else:
+                ks = _key_state.get(vid, {})
+                item["keyStatus"] = ks.get("status", "pending") if ks.get("key") == k else "pending"
+                if ks.get("error") and ks.get("key") == k:
+                    item["keyError"] = ks["error"]
+        return
+    st = _sep_state.get(vid, {})
+    item["sepStatus"] = st.get("status", "queued")
+    item["sepError"] = st.get("error", "")
+    item.pop("stems", None)
+
+
+# --- เปลี่ยนคีย์: เลื่อนระดับเสียงของสเต็ม (ดนตรี + ไกด์) ทำล่วงหน้าแล้วแคชเป็นไฟล์ต่อคีย์ ---
+# ไม่ทำสดในเบราว์เซอร์: pitch shift คุณภาพดีกิน CPU มาก ทำครั้งเดียวต่อ (เพลง, คีย์) ด้วย pedalboard
+# (Rubber Band ข้างใน) แล้วจอโหลดไฟล์ชุดใหม่แทนกลางเพลง — ไม่มี pedalboard ใช้ ffmpeg asetrate+atempo (คุณภาพพอใช้)
+_key_state: dict[str, dict] = {}                   # videoId -> {"status": working|failed, "key", "error"}
+_key_queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
+_key_task: asyncio.Task | None = None
+KEY_SR = 44100
+
+
+def _key_path(vid: str, stem: str, k: int) -> Path:
+    return _song_dir(vid) / f"{stem}.k{k:+d}.m4a"
+
+
+def _key_ready(vid: str, k: int) -> bool:
+    return k == 0 or all(_key_path(vid, st, k).is_file() for st in ("vocals", "no_vocals"))
+
+
+def _pitch_shift_file(src: Path, dst: Path, k: int) -> str:
+    """src -> dst เลื่อน k ครึ่งเสียง ความยาว/จังหวะเท่าเดิม คืนชื่อวิธีที่ใช้"""
+    tmp = dst.with_name(dst.name + ".tmp.m4a")
+    try:
+        from pedalboard import PitchShift
+        import numpy as np
+        raw = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(src),
+                              "-f", "f32le", "-ac", "2", "-ar", str(KEY_SR), "-"],
+                             capture_output=True, check=True, timeout=FFMPEG_TIMEOUT).stdout
+        audio = np.frombuffer(raw, dtype=np.float32).reshape(-1, 2).T.copy()
+        out = PitchShift(semitones=float(k))(audio, KEY_SR)
+        out = np.clip(out, -1.0, 1.0).T.astype(np.float32).tobytes()
+        r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "f32le", "-ac", "2",
+                            "-ar", str(KEY_SR), "-i", "-", "-c:a", "aac", "-b:a", "192k", str(tmp)],
+                           input=out, capture_output=True, timeout=FFMPEG_TIMEOUT)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or b"").decode(errors="replace")[-300:])
+        how = "pedalboard"
+    except ImportError:
+        ratio = 2 ** (k / 12)
+        _ffmpeg(["-i", str(src), "-af", f"asetrate={KEY_SR}*{ratio:.6f},aresample={KEY_SR},atempo={1 / ratio:.6f}",
+                 "-c:a", "aac", "-b:a", "192k", str(tmp)])
+        how = "ffmpeg"
+    os.replace(tmp, dst)
+    return how
+
+
+def _make_key(vid: str, k: int) -> str:
+    how = ""
+    for st in ("vocals", "no_vocals"):
+        dst = _key_path(vid, st, k)
+        if not dst.is_file():
+            how = _pitch_shift_file(_song_dir(vid) / f"{st}.m4a", dst, k)
+    return how
+
+
+async def _key_worker() -> None:
+    while True:
+        vid, k = await _key_queue.get()
+        superseded = room.current and room.current.get("videoId") == vid and int(room.mix.get("key") or 0) != k
+        if k == 0 or _key_ready(vid, k) or not _has_stems(vid) or superseded:
+            if _key_state.get(vid, {}).get("key") == k:       # กด +1 +1 ติดกัน: งาน +1 ถูกแซง ไม่ต้องทำ
+                _key_state.pop(vid, None)
+            await room.broadcast()
+            continue
+        _key_state[vid] = {"status": "working", "key": k, "error": ""}
+        await room.broadcast()
+        t0 = time.monotonic()
+        try:
+            how = await asyncio.to_thread(_make_key, vid, k)
+            _key_state.pop(vid, None)
+            print(f"[key] {vid} คีย์ {k:+d} พร้อม ({how}) | {time.monotonic() - t0:.0f}s")
+        except Exception as exc:
+            _key_state[vid] = {"status": "failed", "key": k, "error": f"{type(exc).__name__}: {exc}"[:200]}
+            print(f"[key] {vid} คีย์ {k:+d} FAILED: {exc}")
+        await room.broadcast()
+
+
+async def _enqueue_key(vid: str | None, k: int) -> None:
+    global _key_task
+    if not vid or not k or not _has_stems(vid) or _key_ready(vid, k):
+        return
+    ks = _key_state.get(vid)
+    if ks and ks.get("key") == k and ks.get("status") == "working":
+        return
+    if _key_task is None or _key_task.done():
+        _key_task = asyncio.create_task(_key_worker())
+    _key_state[vid] = {"status": "pending", "key": k, "error": ""}
+    _key_queue.put_nowait((vid, k))
+
+
+def _drop_key_files(vid: str) -> None:
+    for f in _song_dir(vid).glob("*.k[+-]*.m4a"):
+        f.unlink(missing_ok=True)
+
+
+def _separate_one(vid: str) -> None:
+    """แยก 1 เพลง -> songs/yt/<vid>/{vocals,no_vocals}.m4a
+    รันเป็น subprocess: torch ไม่ค้างใน process หลัก และ kill ได้"""
+    global _sep_device
+    d = _song_dir(vid)
+    audio = d / "audio.m4a"
+    if not audio.is_file():
+        raise RuntimeError("ไม่มี audio.m4a ให้แยก")
+    if _has_stems(vid):
+        return
+
+    tmp = d / ".sep"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        err = ""
+        devs = [_sep_device] if _sep_device else ["mps", "cpu"]
+        if "cpu" not in devs:
+            devs.append("cpu")   # จำ mps ได้แล้วก็ยังต้องมีทางลง ไม่งั้นเพลงที่ OOM ตายถาวร
+        for dev in devs:
+            cmd = [sys.executable, "-m", "demucs", "-n", DEMUCS_MODEL,
+                   "--two-stems", "vocals", "-d", dev,
+                   "-o", str(tmp), str(audio)]
+            try:
+                rc, _, err = _run_child("sep", vid, cmd, timeout=SEP_TIMEOUT, env=os.environ.copy())
+            except RuntimeError as exc:    # หมดเวลา — MPS ค้างก็ยังได้ลอง cpu ต่อ
+                rc, err = -1, str(exc)
+            if vid in _preempt_kill:
+                _preempt_kill.discard(vid)
+                raise _Preempted()   # ห้ามตกไป dev ถัดไป ไม่งั้นโดนฆ่าแล้วไปเปิด demucs ตัวใหม่บน cpu
+            if rc == 0:
+                _sep_device = dev
+                break
+            print(f"[sep] {vid} device={dev} rc={rc}\n{(err or '')[-1500:]}")
+        else:
+            raise RuntimeError(f"demucs ล้มเหลว: {(err or '').strip()[-300:]}")
+
+        # demucs ตั้งชื่อโฟลเดอร์ตามชื่อไฟล์ input -> .sep/htdemucs/audio/*.wav
+        # ใช้ glob กันเหนียว เผื่อ layout ต่างกันตามเวอร์ชัน
+        for stem, final in (("vocals", d / "vocals.m4a"), ("no_vocals", d / "no_vocals.m4a")):
+            wav = next(iter(sorted(tmp.rglob(f"{stem}.wav"))), None)
+            if wav is None:
+                raise RuntimeError(f"ไม่พบไฟล์ {stem}.wav ที่ demucs ควรสร้าง")
+            part = final.with_suffix(".m4a.part")
+            # ทั้งสองสเต็มเข้ารหัสด้วยค่าเดียวกัน -> priming delay เท่ากัน -> ยังตรงกันระดับ sample
+            # -f ipod: ffmpeg เดาคอนเทนเนอร์จากนามสกุล .part ไม่ได้ ต้องบอกตรงๆ
+            _ffmpeg(["-i", str(wav), "-c:a", "aac", "-b:a", "192k",
+                     "-movflags", "+faststart", "-f", "ipod", str(part)])
+            part.rename(final)   # atomic: ถือว่า ready ต่อเมื่อครบทั้งสองไฟล์
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        for f in d.glob("*.m4a.part"):
+            f.unlink(missing_ok=True)      # โดนแย่งคิวกลางทางมิกซ์ -> ไฟล์ครึ่ง ๆ ต้องไม่ค้าง
+
+
+async def _sep_worker() -> None:
+    global _heavy_job
+    while True:
+        await _sep_pending.wait()
+        preempted = False
+        # จอง GPU ก่อน แล้วค่อยเลือกงาน — เลือกก่อนจองจะได้งานที่ลำดับล้าสมัยไปแล้ว
+        async with _heavy.slot("sep", lambda: (_sep_pending.best() or ("", _NEVER))[1]):
+            vid = _sep_pending.take_now()
+            if vid is None:
+                continue
+            if _has_stems(vid):
+                _sep_state[vid] = {"status": "ready", "error": ""}
+                await _enqueue_lyr(vid)     # มี stems อยู่แล้ว -> ยังต้องต่อยอดไปหาเนื้อเหมือนกัน
+                await room.broadcast()
+                continue
+            _sep_state[vid] = {"status": "separating", "error": ""}
+            _heavy_job = ("sep", vid)
+            _preempt_kill.discard(vid)       # ล้างธงค้างจากรอบก่อน ไม่งั้นรอบนี้ตายทันทีแล้ววนไม่จบ
+            await room.broadcast()
+            _t0 = time.monotonic()
+            try:
+                _drop_key_files(vid)
+                await asyncio.to_thread(_separate_one, vid)
+                _sep_state[vid] = {"status": "ready", "error": ""}
+                _preempt_n.pop(vid, None)
+                room.archive_rev += 1
+                print(f"[sep] {vid} OK {time.monotonic() - _t0:.0f}s (device={_sep_device})")
+                await _enqueue_lyr(vid)          # มี vocals แล้ว ไปหาเนื้อเพลงต่อ
+                if not await _enqueue_best(vid):  # เนื้อมีอยู่แล้ว -> รอแค่ vocals ก็เทียบทุกแหล่ง/ทำเวลารายคำได้
+                    await _enqueue_words(vid)
+            except _Preempted:
+                # ถูกแย่งคิว: กลับเป็น queued ไม่ใช่ failed — จอยังขึ้น "กำลังแยกเสียง…" เหมือนเดิม
+                preempted = True
+                _sep_state[vid] = {"status": "queued", "error": ""}
+                _sep_pending.push(vid)
+                print(f"[sep] {vid} ถูกแย่งคิว -> เข้าคิวใหม่")
+            except Exception as exc:
+                _sep_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+                print(f"[sep] {vid} FAILED: {exc}")
+            finally:
+                _heavy_job = None
+        await room.broadcast()
+        if preempted:
+            await asyncio.sleep(1.0)   # ปล่อยให้ worker ที่ได้สิทธิ์คว้า _heavy ก่อน ไม่งั้นวนฆ่าเพลงเดิมซ้ำ
+
+
+async def _ensure_separator() -> None:
+    global _sep_task
+    if _sep_task is None or _sep_task.done():
+        _sep_task = asyncio.create_task(_sep_worker())
+
+
+async def _enqueue_sep(vid: str | None) -> None:
+    if not vid or _has_stems(vid):
+        return
+    if not (_song_dir(vid) / "audio.m4a").is_file():
+        return   # ยังโหลดไม่เสร็จ เดี๋ยว _download_worker สั่งให้เองตอนได้ไฟล์แล้ว
+    await _ensure_separator()   # ต้องอยู่ก่อน early-return: worker ที่ตายไปแล้วต้องถูกปลุกใหม่
+                                # แม้ vid จะยังค้างอยู่ใน _sep_pending (ไม่งั้นคิวล็อกถาวร)
+    # ยึดตามคิวจริง ไม่ใช่ _sep_state — สถานะที่ค้าง (เช่น worker ตาย) จะได้ไม่ล็อกเพลงออกถาวร
+    # เทียบทั้ง (ชนิดงาน, vid): ของเดิมเทียบแค่ vid จึงไปชนกับงาน sep ของเพลงเดียวกัน
+    if _sep_pending.has(vid) or _heavy_job == ("sep", vid):
+        return
+    _sep_state[vid] = {"status": "queued", "error": ""}
+    _sep_pending.push(vid)      # ไม่มี urgent แล้ว — เพลงที่ไม่อยู่ในห้องได้อันดับ _BACKLOG เอง
+
+
+# --- หาเนื้อเพลง (ซับ YouTube -> lrclib -> ถอดเสียง) ------------------
+# งานหนักเหมือน demucs จึงใช้โครงเดียวกัน: คิวด่วน + คิวเพลงเก่า + subprocess
+_lyr_task: asyncio.Task | None = None
+_lyr_state: dict[str, dict] = {}                   # videoId -> {"status","error"}
+_lyrfind_task: asyncio.Task | None = None
+_lyrfind_pending = _Pending("lyrfind")
+_lyr_nosrc: set[str] = set()      # เฟสที่ไม่ใช้ GPU ลองครบแล้วไม่เจอ -> เหลือทางเดียวคือถอดเสียง
+_NEED_ASR_RC = 3                  # ตรงกับ gen_lyrics.NEED_ASR
+_NO_LYRICS_RC = 4                 # ตรงกับ gen_lyrics.NO_LYRICS — ลองครบทุกแหล่งแล้วไม่มีเนื้อ
+
+
+def _find_lyrics(vid: str) -> tuple[bool, str]:
+    """แหล่งที่ไม่ใช้ GPU: ไฟล์ผู้ใช้ -> ซับ YouTube -> lrclib
+    คืน (ต้องถอดเสียงต่อไหม, บรรทัดสรุป) — 2 ใน 3 ของคลังจบที่นี่ในไม่กี่วินาที
+    ไม่แตะ GPU และไม่ต้องรอ demucs จึงไม่ต้องจองคิวงานหนักเลย"""
+    script = BASE / "scripts" / "gen_lyrics.py"
+    if not script.is_file():
+        raise RuntimeError("ไม่มี scripts/gen_lyrics.py")
+    rc, out, err = _run_child("lyrfind", vid, [sys.executable, str(script), "--no-asr", vid],
+                              timeout=FIND_TIMEOUT, cwd=str(BASE))
+    if rc == _NEED_ASR_RC:
+        return True, ""
+    if rc != 0:
+        raise RuntimeError(f"gen_lyrics --no-asr ล้มเหลว: {err.strip()[-300:]}")
+    if not (_song_dir(vid) / "lyrics.json").is_file():
+        return True, ""            # ไม่ได้เนื้อและไม่ได้บอกว่าต้องถอดเสียง -> ลองถอดดู
+    return False, next((l for l in reversed(out.splitlines()) if l[:1] in "✓▲✗"), "")
+
+
+async def _lyrfind_worker() -> None:
+    while True:
+        await _lyrfind_pending.wait()
+        vid = _lyrfind_pending.take_now()
+        if vid is None:
+            continue
+        if _lyr_meta(vid)[1] > 0:
+            _lyr_state[vid] = {"status": "ready", "error": ""}
+            await room.broadcast()
+            continue
+        if not (_song_dir(vid) / "info.json").is_file():
+            # ยังไม่มี metadata -> ค้นไปก็ผิด และจะถูกจำว่า "ไม่มีแหล่ง" ทั้งที่ยังไม่ได้ลองจริง
+            _lyr_state.pop(vid, None)
+            await room.broadcast()
+            continue
+        _lyr_state[vid] = {"status": "searching", "error": ""}
+        await room.broadcast()
+        t0 = time.monotonic()
+        try:
+            await _ensure_lang(vid)          # gen_lyrics จะได้อ่านภาษาจาก lang.json ไม่ต้องเดาเอง
+            need_asr, line = await asyncio.to_thread(_find_lyrics, vid)
+            if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
+                _lyr_state[vid] = {"status": "nolyr", "error": ""}
+                print(f"[lyr] {vid} ไม่มีเนื้อจากทุกแหล่ง ({time.monotonic() - t0:.0f}s)")
+            elif not need_asr:
+                _lyr_state[vid] = {"status": "ready", "error": ""}
+                room.archive_rev += 1
+                print(f"[lyr] {line or vid + ' OK'} | {time.monotonic() - t0:.0f}s (ไม่ใช้ GPU)")
+                if not await _enqueue_best(vid):
+                    await _enqueue_words(vid)
+            else:
+                _lyr_nosrc.add(vid)
+                _lyr_state.pop(vid, None)
+                print(f"[lyr] {vid} ต้องถอดเสียง ({time.monotonic() - t0:.0f}s)")
+                await _enqueue_lyr(vid)      # ไม่มี vocals? _enqueue_lyr จะสั่งแยกเสียงให้เอง
+        except Exception as exc:
+            _lyr_nosrc.add(vid)              # ค้นไม่ได้ก็ยังเหลือทางถอดเสียง
+            _lyr_state.pop(vid, None)
+            print(f"[lyr] {vid} ค้นเนื้อไม่สำเร็จ: {exc}")
+            await _enqueue_lyr(vid)
+        await room.broadcast()
+
+
+async def _ensure_lyricfinder() -> None:
+    global _lyrfind_task
+    if _lyrfind_task is None or _lyrfind_task.done():
+        _lyrfind_task = asyncio.create_task(_lyrfind_worker())
+
+
+def _build_lyrics(vid: str) -> str:
+    """เรียก scripts/gen_lyrics.py ของเพลงเดียว คืนบรรทัดสรุปที่มันพิมพ์ออกมา
+    รันเป็น subprocess ด้วยเหตุผลเดียวกับ demucs: whisper ไม่ค้างใน process หลัก"""
+    script = BASE / "scripts" / "gen_lyrics.py"
+    if not script.is_file():
+        raise RuntimeError("ไม่มี scripts/gen_lyrics.py")
+    try:
+        rc, out, err = _run_child("lyr", vid, [sys.executable, str(script), vid],
+                                  timeout=LYR_TIMEOUT, cwd=str(BASE))
+    except RuntimeError:
+        if vid in _preempt_kill:
+            _preempt_kill.discard(vid)
+            raise _Preempted()
+        raise
+    if vid in _preempt_kill:
+        _preempt_kill.discard(vid)
+        raise _Preempted()
+    if rc == _NO_LYRICS_RC:
+        return ""                   # ลองครบทุกแหล่งแล้วไม่มีเนื้อ — ไม่ใช่ความล้มเหลว
+    if rc != 0:
+        raise RuntimeError(f"gen_lyrics ล้มเหลว: {(err or '').strip()[-300:]}")
+    if not (_song_dir(vid) / "lyrics.json").is_file():
+        raise RuntimeError("หาเนื้อเพลงไม่ได้จากทุกแหล่ง")
+    return next((l for l in reversed((out or "").splitlines()) if l[:1] in "✓▲✗"), "")
+
+
+async def _lyr_worker() -> None:
+    global _heavy_job
+    while True:
+        await _lyr_pending.wait()
+        preempted = False
+        # โครงเดียวกับ _sep_worker: จอง GPU ก่อน แล้วค่อยเลือก
+        async with _heavy.slot("lyr", lambda: (_lyr_pending.best() or ("", _NEVER))[1]):
+            vid = _lyr_pending.take_now()
+            if vid is None:
+                continue
+            if _lyr_meta(vid)[1] > 0:
+                _lyr_state[vid] = {"status": "ready", "error": ""}
+                await room.broadcast()
+                continue
+            _lyr_state[vid] = {"status": "working", "error": ""}
+            _heavy_job = ("lyr", vid)
+            _preempt_kill.discard(vid)
+            await room.broadcast()
+            _t0 = time.monotonic()
+            try:
+                line = await asyncio.to_thread(_build_lyrics, vid)
+                nolyr = (_song_dir(vid) / "lyrics.nolyr.json").is_file()
+                _lyr_state[vid] = {"status": "nolyr" if nolyr else "ready", "error": ""}
+                _preempt_n.pop(vid, None)
+                room.archive_rev += 1
+                print(f"[lyr] {line or vid + (' ไม่มีเนื้อจากทุกแหล่ง' if nolyr else ' OK')}"
+                      f" | {time.monotonic() - _t0:.0f}s")
+                # ไม่มีเนื้อจากทางปกติ ก็ยังมีลุ้นจาก JOOX/YouTube Music/NetEase ในงานเลือกเนื้อ
+                if not await _enqueue_best(vid) and not nolyr:
+                    await _enqueue_words(vid)
+            except _Preempted:
+                preempted = True
+                _lyr_state[vid] = {"status": "queued", "error": ""}
+                _lyr_pending.push(vid)
+                print(f"[lyr] {vid} ถูกแย่งคิว -> เข้าคิวใหม่")
+            except Exception as exc:
+                _lyr_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+                print(f"[lyr] {vid} FAILED: {exc}")
+            finally:
+                _heavy_job = None
+        await room.broadcast()
+        if preempted:
+            await asyncio.sleep(1.0)
+
+
+async def _ensure_lyricist() -> None:
+    global _lyr_task
+    if _lyr_task is None or _lyr_task.done():
+        _lyr_task = asyncio.create_task(_lyr_worker())
+
+
+async def _enqueue_lyr(vid: str | None) -> None:
+    if not vid or _lyr_meta(vid)[1] > 0:
+        return   # "มีไฟล์" ไม่พอ — ไฟล์ที่เขียนค้างครึ่งเดียวต้องถือว่ายังไม่มี ไม่งั้นค้างถาวร
+    if vid not in _lyr_nosrc:
+        # ยังไม่ได้ลองแหล่งที่ไม่ใช้ GPU — ไม่ต้องรอ demucs และไม่ต้องจองคิวงานหนัก
+        await _ensure_lyricfinder()
+        if not _lyrfind_pending.has(vid):
+            _lyr_state[vid] = {"status": "queued", "error": ""}
+            _lyrfind_pending.push(vid)
+        return
+    if not _has_stems(vid):
+        await _enqueue_sep(vid)   # เหลือทางถอดเสียงแล้ว -> ขอ vocals ก่อน เดี๋ยว sep ต่อให้เอง
+        return
+    await _ensure_lyricist()    # ต้องอยู่ก่อน early-return ด้วยเหตุผลเดียวกับ _enqueue_sep
+    # เทียบทั้ง (ชนิดงาน, vid) — ของเดิมเทียบแค่ vid ทำให้ _sep_worker ที่เรียกฟังก์ชันนี้
+    # ตอน _heavy_job ยังเป็น ("sep", vid) โดน return ทิ้งทุกครั้ง = ไม่เคยได้หาเนื้อเลย
+    if _lyr_pending.has(vid) or _heavy_job == ("lyr", vid):
+        return
+    _lyr_state[vid] = {"status": "queued", "error": ""}
+    _lyr_pending.push(vid)
+
+
+# แคชผลถอดเสียงของ gen_lyrics.py — ต้องรู้จักที่นี่ด้วย 2 เหตุผล:
+# 1) ตรวจเนื้อที่มีแคชแล้วใช้เวลาแค่ไม่กี่วิ และไม่แตะ GPU -> ไม่ต้องรอเพลงจบ
+# 2) สั่งโหลดเนื้อใหม่แล้วไม่ล้างแคช = ได้ผลถอดเสียงชุดเดิม = ได้เนื้อหน้าตาเดิมเป๊ะ
+SEG_CACHE = BASE / "lyrics-preview" / "_seg"
+
+
+def _asr_cached(vid: str) -> bool:
+    return (SEG_CACHE / f"{vid}.json").is_file() or any(SEG_CACHE.glob(f"{vid}.*.json"))
+
+
+def _clear_lyrics(vid: str) -> None:
+    """ล้างเนื้อเพลงเดิมทั้งชุด เพื่อให้สร้างใหม่ตั้งแต่ต้นจริง ๆ
+    ลบผลตรวจด้วย ไม่งั้นป้าย "เนื้อไม่ตรง" เดิมจะค้างทับของใหม่
+    เนื้อชุดปัจจุบันสำรองลง lyrics.edits/ ก่อนเสมอ — ของเดิมลบทิ้งเฉย ๆ ทำให้ "เลิกใช้เนื้อที่แก้เอง"
+    ทำฉบับล่าสุดหายถาวร ทั้งที่กล่องยืนยันใน Studio บอกว่าย้อนกลับได้จากประวัติ"""
+    d = _song_dir(vid)
+    _backup_lyrics(d, _read_lyr(vid))
+    for name in ("lyrics.json", "lyrics.json.tmp", "lyrics.check.json",
+                 "lyrics.nolyr.json", "lyrics.offset.json"):
+        (d / name).unlink(missing_ok=True)
+    _off_cache.pop(vid, None)
+    (SEG_CACHE / f"{vid}.json").unlink(missing_ok=True)
+    for f in SEG_CACHE.glob(f"{vid}.*.json"):      # แคชของทุกโมเดล
+        f.unlink(missing_ok=True)
+    _lyr_cache.pop(vid, None)
+    _chk_cache.pop(vid, None)
+    _lyr_state.pop(vid, None)
+    _verify_state.pop(vid, None)
+    _lyr_nosrc.discard(vid)     # ให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ด้วย (ผู้ใช้อาจเพิ่งวางไฟล์เอง)
+    _dl_fails.pop(vid, None)
+
+
+# --- ภาษาของเพลง ----------------------------------------------------------
+# lang.json ต่อเพลง (ดู LS.song_lang) — ชื่อคลิป/แทร็ก ASR รู้ได้ทันที ไม่รู้ค่อยให้ whisper ฟัง (GPU)
+_lang_cache: dict[str, tuple[float, str, str]] = {}
+
+
+def _song_lang(vid: str) -> tuple[str, str]:
+    """(ภาษา, ที่มา) — แคชด้วย mtime ของ lang.json; ยังไม่มีไฟล์ = เดาจากชื่อ/แทร็ก ASR (ไม่ใช้ GPU)"""
+    d = _song_dir(vid)
+    try:
+        mt = (d / "lang.json").stat().st_mtime
+    except OSError:
+        mt = 0.0
+    hit = _lang_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1], hit[2]
+    try:
+        lang, by = LS.song_lang(d, save=False)
+    except Exception:
+        lang, by = "th", "unknown"
+    _lang_cache[vid] = (mt, lang, by)
+    return lang, by
+
+
+def _detect_lang_sync(vid: str) -> tuple[str, float] | None:
+    """whisper ฟังเสียงร้องแล้วบอกภาษา — รันเป็น subprocess เหมือน demucs/gen_lyrics
+    ของเดิม import gen_lyrics แล้วโหลด mlx-whisper ในโปรเซสหลัก: โมเดลหลาย GB ถูกโหลดเข้าหน่วยความจำเซิร์ฟเวอร์ทุกครั้ง"""
+    audio = _audio_for(vid)
+    if not audio:
+        return None
+    rc, out, err = _run_child("lang", vid, [sys.executable, str(BASE / "scripts" / "gen_lyrics.py"),
+                                            "--detect-lang", str(audio.resolve())],
+                              timeout=LANG_TIMEOUT, cwd=str(BASE))
+    if rc != 0:
+        tail = [l for l in err.strip().splitlines() if l.strip()]
+        raise RuntimeError(tail[-1][:200] if tail else f"rc={rc}")
+    j = json.loads(out.strip().splitlines()[-1]) if out.strip() else {}
+    return (str(j["lang"]), float(j.get("prob") or 0.0)) if j.get("lang") else None
+
+
+def _whisper_done(rec: dict, audio: Path | None) -> bool:
+    """whisper เคยฟังเพลงนี้แล้ว (แต่ไม่มั่นใจ) ด้วยเสียงที่ดีที่สุดที่มีตอนนี้ -> ไม่ต้องฟังซ้ำ
+    เคยฟังเสียงรวม แล้วตอนนี้มีเสียงร้องแยกแล้ว = ฟังใหม่ได้อีกครั้ง (เสียงร้องล้วนตัดสินภาษาแม่นกว่า)"""
+    if not rec.get("whisperTried"):
+        return False
+    return not (rec.get("audio") == "audio.m4a" and audio is not None and audio.name == "vocals.m4a")
+
+
+_lang_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _ensure_lang(vid: str) -> str:
+    """ให้แน่ใจว่ามี lang.json ก่อนหาเนื้อ — ชื่อ/แทร็ก ASR ตัดสินได้ก็จบ ไม่งั้นให้ whisper ฟัง (จองช่อง GPU ตามอันดับเพลง)
+    ทำทีละงานต่อเพลง: สองงานพร้อมกัน (หาเนื้อ + ปุ่มตรวจภาษา) ใช้ชื่อช่อง GPU เดียวกันแล้วทับกันเอง"""
+    async with _lang_locks.setdefault(vid, asyncio.Lock()):
+        return await _ensure_lang_locked(vid)
+
+
+async def _ensure_lang_locked(vid: str) -> str:
+    global _heavy_job
+    d = _song_dir(vid)
+    rec = LS.read_lang(d)
+    if rec and rec.get("by") not in ("yt-asr", "default"):
+        return _song_lang(vid)[0]
+    if rec and _whisper_done(rec, _audio_for(vid)):
+        # ของเดิมลบแล้วให้ whisper ฟังใหม่ทุกครั้งที่หาเนื้อ + ทุกครั้งที่เปิดเซิร์ฟเวอร์ ได้ผลเดิมทุกรอบ
+        # (อยากให้ฟังใหม่จริง ๆ ใช้ปุ่มตรวจภาษาใน Studio ซึ่งลบ lang.json ก่อน)
+        return rec["lang"]
+    if rec:                                  # ค่าชั่วคราวจากแทร็ก ASR (YouTube เดาผิดได้) -> ตรวจซ้ำด้วยหลักฐานที่ดีกว่า
+        (d / "lang.json").unlink(missing_ok=True)
+        _lang_cache.pop(vid, None)
+    try:
+        info = json.loads((d / "info.json").read_text("utf-8"))
+    except Exception:
+        info = {}
+    lang, by = await asyncio.to_thread(LS.song_lang, d, info, None, True, True)   # ชื่อ -> lrclib (เน็ต ไม่ใช้ GPU)
+    if by in ("title", "lrclib", "yt-asr+lrclib") or not _audio_for(vid):
+        _lang_cache.pop(vid, None)
+        return lang                          # ชื่อคลิป/lrclib บอกชัด / ไม่มีเสียงให้ฟัง = เท่านี้
+    # เพลงเก่าที่มีเนื้อซึ่ง FA ยืนยันแล้วว่าตรงเสียง: อักษรของเนื้อนั้น = ภาษาที่ร้อง (แม่นกว่าให้ whisper ฟังใหม่)
+    j = _read_lyr(vid)
+    if j:
+        txt = " ".join(l.get("x") or "" for l in j.get("lines") or [])
+        tl = LS.text_lang(txt)
+        ck = _chk_info(vid)
+        agree = (ck.get("score") or 0) if ck.get("measuredBy") == "fa" else 0
+        bb = _best_brief(vid) or {}
+        if tl and (agree >= 60 or (bb.get("status") == "done" and bb.get("action") in ("keep", "shift"))):
+            LS.write_lang(d, tl, "lyrics")
+            _lang_cache.pop(vid, None)
+            return tl
+    audio = _audio_for(vid)
+    failed = False
+    async with _heavy.slot(f"lang:{vid}", lambda: _prio(vid) + 0.2):
+        _heavy_job = ("lang", vid)
+        try:
+            r = await asyncio.to_thread(_detect_lang_sync, vid)
+        except Exception as exc:
+            print(f"[lang] {vid} ตรวจภาษาไม่ได้: {exc}")
+            r, failed = None, True
+        finally:
+            _heavy_job = None
+    _, asr = LS.asr_track(info)
+    got = LS.norm_lang(r[0]) if r else ""
+    if got and ((r[1] or 0) >= 0.75 or (got == asr and (r[1] or 0) >= 0.5)):
+        LS.write_lang(d, got, "whisper", prob=round(float(r[1] or 0), 2))
+        print(f"[lang] {vid} whisper ว่า {got} ({(r[1] or 0):.0%})")
+    else:
+        # จำว่า whisper ฟังแล้ว (ด้วยเสียงไฟล์ไหน) -> ไม่ฟังซ้ำอัตโนมัติ / ฟังไม่สำเร็จ (หมดเวลา/พัง) = ไม่จำ ลองใหม่ได้
+        tried = {} if failed else {"whisperTried": int(time.time()), "audio": audio.name if audio else ""}
+        LS.write_lang(d, asr or "th", "yt-asr" if asr else "default",
+                      prob=round(float((r or (0, 0))[1] or 0), 2), **tried)
+        print(f"[lang] {vid} whisper ไม่มั่นใจ ({got or '-'} {(r[1] if r else 0):.0%}) -> ใช้ {asr or 'th'}")
+    _lang_cache.pop(vid, None)
+    return _song_lang(vid)[0]
+
+
+def _lang_migrate_needed(vid: str) -> str:
+    """เพลงที่ไม่ใช่ไทยและเนื้อปัจจุบันได้มาจากขั้นที่ยังคิดว่าเป็นไทย -> เหตุผลที่ต้องหาใหม่ ("" = ไม่ต้อง)"""
+    d = _song_dir(vid)
+    lang, by = _song_lang(vid)
+    if lang == "th" or by == "unknown":
+        return ""
+    rec = LS.read_lang(d)
+    if rec.get("migrated"):
+        return ""
+    j = _read_lyr(vid)
+    if not j:
+        return "ไม่มีเนื้อ" if (d / "lyrics.nolyr.json").is_file() else ""
+    src, tsrc = j.get("src") or "", LC.time_src_of(j)
+    if src in BEST_MANUAL:
+        return ""
+    if src == "yt-sub" and not (d / f"sub.{lang}.vtt").is_file():
+        return "เนื้อมาจากซับไทยซึ่งเป็นคำแปล"
+    if src == "yt-auto":
+        return "เนื้อจากคำบรรยายอัตโนมัติภาษาไทย"
+    if tsrc in ("asr", "auto-cap"):
+        return "จับเวลาด้วยการถอดเสียงภาษาไทย"
+    return ""
+
+
+async def _lang_migrate(vid: str) -> bool:
+    why = _lang_migrate_needed(vid)
+    if not why:
+        return False
+    d = _song_dir(vid)
+    lang = _song_lang(vid)[0]
+    await asyncio.to_thread(_fetch_subs, d, vid, lang)
+    await asyncio.to_thread(_fetch_auto_caption, d, vid)
+    LS.write_lang(d, lang, LS.read_lang(d).get("by") or "cache", migrated=int(time.time()))
+    _lang_cache.pop(vid, None)
+    print(f"[lang] {vid} ({lang}) หาเนื้อใหม่: {why}")
+    await _relyr(vid)
+    return True
+
+
+async def _relyr(vid: str) -> None:
+    """โหลดเนื้อใหม่ตั้งแต่ต้น — ใช้ทั้งปุ่มบนรีโมทและใน Studio
+    ไฟล์ใน lyrics-in/ ไม่ถูกแตะ จึงยังมาก่อนทุกแหล่งเหมือนเดิม (เนื้อที่แก้เองไม่หาย)"""
+    _clear_lyrics(vid)
+    print(f"[lyr] {vid} สั่งโหลดเนื้อใหม่ (ล้างเนื้อเดิม+แคชถอดเสียง)")
+    if _has_stems(vid):
+        await _enqueue_lyr(vid)
+    else:
+        await _enqueue_sep(vid)   # ยังไม่มี vocals -> แยกเสียงก่อน เดี๋ยวมันต่อให้เอง
+
+
+# --- ตรวจเนื้อเพลงตามที่มีคนรายงาน (ขั้นที่ 4) -------------------------
+# ต่างจากขั้นอื่นตรงที่ "รอให้เพลงนั้นเล่นจบก่อน" — คนกำลังร้องอยู่ ห้ามแย่ง GPU
+_verify_queue: asyncio.Queue[str] = asyncio.Queue()
+_verify_task: asyncio.Task | None = None
+_verify_state: dict[str, dict] = {}                # videoId -> {"status","error"}
+
+
+# --- แจ้งซับไม่ตรงจากรีโมท -> กล่องรายงานใน Studio (คนแก้เอง ไม่ซ่อมอัตโนมัติ) ---------
+# แยกไฟล์จาก lyrics.check.json เพราะบันทึกใน Studio ลบ check.json ทิ้งทุกครั้ง รายงานจะหายตาม
+REPORT_TAGS = ("late", "early", "typo", "missing", "nolyr", "wrong")
+REPORTS_KEEP = 50
+
+
+def _reports_file(vid: str) -> Path:
+    return _song_dir(vid) / "lyrics.reports.json"
+
+
+def _read_reports(vid: str) -> list[dict]:
+    try:
+        data = json.loads(_reports_file(vid).read_text("utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _write_reports(vid: str, reps: list[dict]) -> None:
+    f = _reports_file(vid)
+    if not reps:
+        f.unlink(missing_ok=True)
+        return
+    tmp = f.with_name(f.name + ".tmp")
+    tmp.write_text(json.dumps(reps[-REPORTS_KEEP:], ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, f)
+
+
+def _add_user_report(vid: str, pos: float, tags: Any, note: Any, by: Any) -> dict:
+    tags = [t for t in (tags if isinstance(tags, list) else []) if t in REPORT_TAGS][:len(REPORT_TAGS)]
+    rep = {"id": uuid.uuid4().hex[:10], "at": round(time.time(), 3), "pos": round(max(0.0, pos), 1), "tags": tags,
+           "note": " ".join(str(note or "").split())[:200],
+           "by": " ".join(str(by or "").split())[:24] or DEFAULT_SINGER, "done": False}
+    _write_reports(vid, _read_reports(vid) + [rep])
+    return rep
+
+
+def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, note: str = "") -> dict:
+    """ผลตรวจเวลาเนื้อ -> lyrics.check.json (ป้ายความมั่นใจบนรีโมท/Studio อ่านจากนี่)
+    เก็บรายงานจากรีโมทที่ค้างอยู่ในไฟล์เดิมไว้ด้วย"""
+    d = _song_dir(vid)
+    j = _read_lyr(vid) or {}
+    old = _chk_info(vid)
+    rec = {"vid": vid, "at": time.time(), "src": j.get("src") or "", "timeSrc": LC.time_src_of(j) if j else "",
+           "measuredBy": by, "lines": n, "shift": round(shift, 2), "note": note}
+    if score is None:
+        rec.update(verdict="unmeasurable", score=None)
+    else:
+        rec.update(verdict="ok" if score >= LC.OK_SCORE else "bad", score=round(score, 1))
+    for k in ("reports",):
+        if old.get(k):
+            rec[k] = old[k]
+    _write_json_atomic(d / "lyrics.check.json", rec)
+    _chk_cache.pop(vid, None)
+    return rec
+
+
+def _fa_measure(vid: str, lines: list[dict], off: float, fl: list[dict]) -> tuple[float | None, float, int, float | None]:
+    """เทียบเวลาที่ขึ้นจอ (t+offset) กับที่ FA ได้ยิน -> (% ตรงใน 0.5 วิ, เลื่อนแนะนำ, จำนวนบรรทัดที่วัดได้, % หลังเลื่อน)"""
+    ds = [l2["t"] - (float(l1.get("t") or 0) + off) for l1, l2 in zip(lines, fl)
+          if (l2.get("conf") or 0) >= FA_MIN_CONF]
+    if len(ds) < max(4, len(lines) * 0.3):
+        return None, 0.0, len(ds), None
+    score = 100.0 * sum(abs(x) <= 0.5 for x in ds) / len(ds)
+    med = sorted(ds)[len(ds) // 2]
+    shift = round(med, 2) if abs(med) >= 0.3 else 0.0
+    after = 100.0 * sum(abs(x - shift) <= 0.5 for x in ds) / len(ds) if shift else score
+    return score, shift, len(ds), after
+
+
+def _verify_one(vid: str) -> str:
+    """ตรวจเวลาเนื้อด้วย FA (เดิม whisper ~27% ภายใน 0.5 วิ / FA ~80%) — วัดอย่างเดียว ไม่เปลี่ยนเนื้อ
+    เนื้อที่ FA จับเวลาเองก็ยังวัดได้ แต่ LC.confidence ถือเป็นการวัดตัวเอง (ไม่ขึ้นป้ายว่าตรวจแล้ว)"""
+    j = _read_lyr(vid)
+    L = (j or {}).get("lines") or []
+    if not L:
+        raise RuntimeError("ยังไม่มีเนื้อให้ตรวจ")
+    if _song_lang(vid)[0] not in LS.FA_LANGS or not _fa_scriptable(vid):
+        _write_check(vid, None, 0.0, "fa", 0, "ไม่มีโมเดล FA สำหรับภาษานี้")
+        return f"{vid} วัดไม่ได้: ไม่มีโมเดล FA สำหรับภาษานี้"
+    r = _fa_call(vid, {"texts": [l.get("x") or "" for l in L], "duration": j.get("duration") or 0},
+                 kind="verify")
+    score, shift, n, after = _fa_measure(vid, L, _lyr_offset(vid), r.get("lines") or [])
+    rec = _write_check(vid, score, shift, "fa", n)
+    if score is None:
+        return f"{vid} วัดไม่ได้ (FA มั่นใจแค่ {n}/{len(L)} บรรทัด)"
+    return (f"{vid} เวลาตรง {score:.0f}% ({rec['verdict']})"
+            + (f" เลื่อน {shift:+.2f} จะได้ {after:.0f}%" if shift else ""))
+
+
+async def _verify_worker() -> None:
+    global _heavy_job
+    while True:
+        vid = await _verify_queue.get()
+        # รอเพลงจบก่อนค่อยแย่ง GPU — แต่เฉพาะตอนที่ต้องถอดเสียงใหม่จริง ๆ
+        # ถ้ามีแคชถอดเสียงอยู่แล้ว การตรวจใช้เวลาไม่กี่วิและไม่แตะ GPU เลย
+        # (ของเดิมรอทุกกรณี จึงรู้สึกว่าปุ่มรายงานช้ามากทั้งที่งานจริงแป๊บเดียว)
+        _verify_state[vid] = {"status": "checking", "error": ""}
+        await room.broadcast()
+        try:
+            async with _heavy.slot("verify", lambda: _VERIFY_RANK):
+                _heavy_job = ("verify", vid)
+                _preempt_kill.discard(vid)
+                try:
+                    line = await asyncio.to_thread(_verify_one, vid)
+                finally:
+                    _heavy_job = None
+            _verify_state.pop(vid, None)
+            _preempt_n.pop(vid, None)
+            _lyr_cache.pop(vid, None)          # เนื้ออาจถูกแก้ไปแล้ว ล้างแคชให้อ่านใหม่
+            room.archive_rev += 1
+            print(f"[verify] {line or vid}")
+            if not await _enqueue_best(vid):   # ตรวจแล้วเปลี่ยนเนื้อ -> เวลารายคำชุดเก่าใช้ไม่ได้
+                await _enqueue_words(vid)
+        except _Preempted:
+            # ตรวจเนื้อเป็นงานที่รอได้ที่สุด ยอมให้เพลงในคิวแย่งเสมอ แล้วค่อยกลับมาทำใหม่
+            _verify_state[vid] = {"status": "checking", "error": ""}
+            _verify_queue.put_nowait(vid)
+            print(f"[verify] {vid} ถูกแย่งคิว -> เข้าคิวใหม่")
+            await asyncio.sleep(1.0)
+        except Exception as exc:
+            _verify_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+            print(f"[verify] {vid} FAILED: {exc}")
+        await room.broadcast()
+
+
+async def _ensure_verifier() -> None:
+    global _verify_task
+    if _verify_task is None or _verify_task.done():
+        _verify_task = asyncio.create_task(_verify_worker())
+
+
+async def _enqueue_verify(vid: str | None) -> None:
+    if not vid or _lyr_meta(vid)[1] <= 0:
+        return
+    if _verify_state.get(vid, {}).get("status") in ("queued", "waiting", "checking"):
+        return
+    _verify_state[vid] = {"status": "queued", "error": ""}   # "checking" ต้องตั้งตอนเริ่มทำจริงเท่านั้น
+    await _ensure_verifier()
+    _verify_queue.put_nowait(vid)
+
+
+def _fix_target(vid: str) -> tuple[str, str]:
+    """ขั้นที่พังของเพลงนี้ + เหตุผลสั้น ๆ ("" = ไม่มีอะไรพัง)
+    ใช้ที่เดียวทั้งตอน broadcast และตอนกดปุ่ม ปุ่มกับป้ายจะได้ไม่เถียงกันเอง
+    บอกเฉพาะที่ "ตันจริง" — งานที่แค่รอคิวอยู่ watchdog จัดการเองอยู่แล้ว"""
+    d = _song_dir(vid)
+    if not (d / "video.mp4").is_file():
+        if _dl_state.get(vid, {}).get("status") == "downloading":
+            return "", ""
+        if _dl_state.get(vid, {}).get("status") == "failed" or _dl_fails.get(vid):
+            return "dl", "โหลดวิดีโอไม่สำเร็จ"
+        return "", ""
+    if not (d / "audio.m4a").is_file():
+        return "audio", "แยกไฟล์เสียงไม่สำเร็จ"
+    if not _has_stems(vid) and _sep_state.get(vid, {}).get("status") == "failed":
+        return "sep", "แยกเสียงร้องไม่สำเร็จ"
+    if _lyr_meta(vid)[1] <= 0 and _lyr_state.get(vid, {}).get("status") == "failed":
+        return "lyr", "หาเนื้อเพลงไม่สำเร็จ"
+    if _verify_state.get(vid, {}).get("status") == "failed":
+        return "verify", "ตรวจเนื้อไม่สำเร็จ"
+    return "", ""
+
+
+def _fix_fields(item: dict) -> None:
+    item.pop("fix", None)
+    item.pop("fixWhy", None)
+    vid = item.get("videoId")
+    if item.get("source") != "yt" or not vid:
+        return
+    f, why = _fix_target(vid)
+    if f:
+        item["fix"], item["fixWhy"] = f, why
+
+
+async def _do_fix(vid: str) -> None:
+    """ผู้ใช้กด "ลองใหม่" — เซิร์ฟเวอร์เลือกขั้นที่พังให้เอง
+    ทุกทางล้วน idempotent: กดรัว ๆ ไม่ทำให้งานซ้อน (_Pending กันซ้ำให้อยู่แล้ว)"""
+    what, _ = _fix_target(vid)
+    _preempt_n.pop(vid, None)      # กดซ่อมเอง = ให้สิทธิ์ถูกแย่งคิวใหม่ ไม่ติดเพดานเดิม
+    if what in ("dl", "audio"):
+        _dl_fails.pop(vid, None)
+        _dl_state.pop(vid, None)
+        _dl_scrub(_song_dir(vid))
+        _invalidate_dirs()
+        await _ensure_downloader()
+        _dl_pending.push(vid)
+    elif what == "sep":
+        _sep_state.pop(vid, None)  # ล้างธง failed -> _enqueue_sep รับต่อได้เอง
+        await _enqueue_sep(vid)
+    elif what == "lyr":
+        _lyr_state.pop(vid, None)
+        _lyr_nosrc.discard(vid)    # ให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนถอดเสียง
+        await _enqueue_lyr(vid)
+    elif what == "verify":
+        _verify_state.pop(vid, None)
+        _chk_cache.pop(vid, None)
+        await _enqueue_verify(vid)
+    print(f"[fix] {vid} ผู้ใช้สั่งซ่อมขั้น {what or '-'}")
+
+
+def _mark_ready_if_archived(item: dict) -> bool:
+    """ถ้าเพลงนี้เคยโหลดเก็บไว้แล้ว → ติดสถานะ ready ไว้เลย ไม่ต้องโหลดซ้ำ"""
+    vid = item.get("videoId")
+    if not vid:
+        return False
+    d = _song_dir(vid)
+    if not (d / "video.mp4").is_file():
+        return False
+    item["dlStatus"] = "ready"
+    item["dlError"] = ""
+    item["localUrl"] = f"/song/{vid}/video.mp4"
+    if (d / "cover.jpg").is_file():
+        item["localThumb"] = f"/song/{vid}/cover.jpg"
+    return True
+
+
+async def _reprioritize() -> None:
+    """คิวห้องขยับ -> ให้ทุกไปป์ไลน์เดินตามลำดับใหม่ทันที
+    เรียกหลังทุกคำสั่งที่ทำให้ลำดับเปลี่ยน (add/next/ended/remove/up/down/playnow)
+
+    การกวาดห้องตรงนี้มีไว้ดึงเพลงที่ยัง "ไม่เคย" เข้าคิวงานเข้ามาเท่านั้น
+    ตัวที่อยู่ใน _Pending แล้วเลื่อนอันดับเองอัตโนมัติ เพราะ best() อ่าน _prio_map() สดทุกครั้ง"""
+    for it in ([room.current] if room.current else []) + room.queue:
+        vid = it.get("videoId")
+        if it.get("source") != "yt" or not vid:
+            continue
+        await _ensure_downloader()
+        if not (_song_dir(vid) / "video.mp4").is_file() and not _dl_pending.has(vid) \
+                and _dl_state.get(vid, {}).get("status") != "downloading" \
+                and _dl_fails.get(vid, 0) < _DL_AUTO_MAX:
+            # ของเดิม _reprioritize แตะแต่ sep/lyr — เพลงที่โหลดพังจึงค้างถาวร
+            # ไม่มีใคร push กลับเข้าคิวให้เลย
+            _dl_pending.push(vid)
+        # เพลงที่พังแล้วไม่ลองใหม่อัตโนมัติ ไม่งั้นมันจะวนกินคิวทุกครั้งที่มีคนกดเลื่อน
+        if _sep_state.get(vid, {}).get("status") != "failed":
+            await _enqueue_sep(vid)
+        if _lyr_state.get(vid, {}).get("status") != "failed":
+            await _enqueue_lyr(vid)
+        await _enqueue_best(vid)
+        await _enqueue_words(vid)
+    _dl_pending.bump()
+    _sep_pending.bump()
+    _lyr_pending.bump()
+    _lyrfind_pending.bump()
+    _words_pending.bump()
+    _best_pending.bump()
+    await _heavy.rethink()     # คนที่รอ GPU อยู่ต้องประเมินอันดับกันใหม่ด้วย
+    _preempt_heavy()
+
+
+def _search(q: str, n: int = 12) -> list[dict[str, Any]]:
+    if not _HAS_YTDLP:
+        return []
+    opts = {
+        "quiet": True, "no_warnings": True, "extract_flat": True,
+        "skip_download": True, "noplaylist": True, "default_search": "ytsearch",
+        "socket_timeout": 15,
+        "extractor_args": {"youtube": {"player_client": ["web"]}},
+    }
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{n}:{q}", download=False)
+    out = []
+    for e in (info or {}).get("entries", []) or []:
+        if not e.get("id"):
+            continue
+        out.append({
+            "videoId": e["id"],
+            "title": e.get("title") or e["id"],
+            "channel": e.get("uploader") or e.get("channel") or "",
+            "duration": e.get("duration"),
+            "thumb": f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg",
+        })
+    return out
+
+
+def _embeddable(video_id: str) -> bool:
+    """เช็คว่าเจ้าของคลิปเปิดให้ฝัง (embed) ไหม — oEmbed ตอบ 401/403 ถ้าปิด"""
+    import urllib.request, urllib.error
+    url = ("https://www.youtube.com/oembed?format=json&url="
+           f"https%3A//www.youtube.com/watch%3Fv%3D{video_id}")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.status == 200
+    except urllib.error.HTTPError:
+        return False
+    except Exception:
+        return True  # เช็คไม่ได้ ให้ผ่านไปก่อน เดี๋ยวจอหลักจัดการเอง
+
+
+def _annotate(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        flags = list(ex.map(lambda r: _embeddable(r["videoId"]), results))
+    for r, ok in zip(results, flags):
+        r["embeddable"] = ok
+    return sorted(results, key=lambda r: not r["embeddable"])
+
+
+@app.get("/api/embeddable")
+async def api_embeddable(videoId: str):
+    if not _vid_ok(videoId):
+        return JSONResponse({"error": "videoId ไม่ถูกต้อง"}, status_code=400)
+    return {"videoId": videoId, "embeddable": await asyncio.to_thread(_embeddable, videoId)}
+
+
+@app.get("/api/search")
+async def api_search(q: str = Query(..., min_length=1)):
+    if not _HAS_YTDLP:
+        return JSONResponse({"error": "yt-dlp not installed", "results": []}, 200)
+    try:
+        res = await asyncio.to_thread(_search, q)
+        res = await asyncio.to_thread(_annotate, res)
+        if not res:
+            print(f"[search] '{q}' -> 0 results")
+        return {"results": res}
+    except Exception as exc:
+        print(f"[search] '{q}' FAILED:\n{traceback.format_exc()}")
+        return JSONResponse({"error": f"{type(exc).__name__}: {exc}", "results": []}, 200)
+
+
+def _demucs_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("demucs")
+    except Exception as exc:
+        return f"not installed ({exc})"
+
+
+# --- log จากฝั่งเบราว์เซอร์ -------------------------------------------
+# จอหลักเป็น TV ไม่มีใครเปิด DevTools ดู error จึงส่งกลับมาให้เซิร์ฟเวอร์เก็บ
+_client_log: list[dict] = []
+
+
+def _printable(v: Any, n: int) -> str:
+    return "".join(c for c in str(v if v is not None else "") if c.isprintable())[:n]
+
+
+@app.post("/api/clientlog")
+async def api_clientlog(request: Request):
+    # ใครในวงแลนก็ยิงได้ -> เก็บแค่ tag/msg ตัดความยาว ไม่เก็บ dict ทั้งก้อนที่ส่งมา
+    if not _same_origin(request.headers):
+        return JSONResponse({"ok": False}, status_code=403)
+    try:
+        too_big = int(request.headers.get("content-length") or 0) > 64_000
+    except ValueError:
+        too_big = True
+    if too_big:
+        return JSONResponse({"ok": False}, status_code=413)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False}, status_code=400)
+    entry = {"tag": _printable(body.get("tag") or "?", 40), "msg": _printable(body.get("msg"), 2000),
+             "at": time.time()}
+    _client_log.append(entry)
+    del _client_log[:-50]
+    print(f"[client] {entry['tag']}: {entry['msg']}")
+    return {"ok": True}
+
+
+@app.get("/api/clientlog")
+def api_clientlog_get():
+    return {"entries": _client_log}
+
+
+def _lyr_health() -> dict:
+    """สรุปสถานะเนื้อเพลง: มีกี่เพลง มาจากแหล่งไหนบ้าง ค้างคิวเท่าไร"""
+    by_src: dict[str, int] = {}
+    conf: dict[str, int] = {}
+    nolyr = 0
+    for vid in _dir_index():
+        _, n, _, src, tsrc = _lyr_meta(vid)
+        if not n:
+            nolyr += (_song_dir(vid) / "lyrics.nolyr.json").is_file()
+            continue
+        by_src[src or "?"] = by_src.get(src or "?", 0) + 1
+        ck = _chk_info(vid)
+        lvl, _ = LC.confidence(
+            src, tsrc,
+            ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
+            ck.get("measuredBy") or "",
+            measurable=ck.get("verdict") != "unmeasurable")
+        conf[lvl] = conf.get(lvl, 0) + 1
+    return {
+        "withLyrics": sum(by_src.values()),
+        "bySource": dict(sorted(by_src.items(), key=lambda kv: -kv[1])),
+        "queued": len(_lyr_pending),
+        "order": _lyr_pending.order(),          # ลำดับจริงที่จะทำ = ลำดับคิวห้องตอนนี้
+        "find": {"queued": len(_lyrfind_pending), "order": _lyrfind_pending.order(),
+                 "noSrc": sorted(_lyr_nosrc)},  # เฟสที่ไม่ใช้ GPU
+        "confidence": conf,
+        "noLyrics": nolyr,
+        "state": _lyr_state,
+        "verify": {"queued": _verify_queue.qsize(), "state": _verify_state},
+        "words": {"queued": len(_words_pending), "order": _words_pending.order(),
+                  "state": _words_state},       # เวลารายตัวอักษร (โหมดคาราโอเกะ)
+        "best": {"queued": len(_best_pending), "order": _best_pending.order(),
+                 "state": _best_state},         # เลือกเนื้อดีที่สุดจากทุกแหล่ง
+    }
+
+
+@app.get("/api/health")
+def health(search: int = 0):
+    """เช็คสุขภาพระบบ — ใส่ ?search=1 ถ้าอยากทดสอบค้นหา YouTube จริง (ช้าหลายวินาที)"""
+    # demucs 4.1 ดึง weights จาก huggingface (repo adefossez/HTDemucs) — ของเดิมเช็คที่
+    # TORCH_HOME ซึ่งไม่เคยมีไฟล์ จึงรายงานว่าไม่ได้แคชตลอดทั้งที่แคชอยู่แล้ว
+    _hf = Path(os.environ.get("HF_HOME") or (Path.home() / ".cache" / "huggingface"))
+    _ckpts = [Path(os.environ["TORCH_HOME"]) / "hub" / "checkpoints",
+              _hf / "hub", Path.home() / ".cache" / "huggingface" / "hub"]
+    done = sum(1 for vid in _dir_index() if _has_stems(vid))
+    info = {
+        "ytdlp": _YTDLP_VER, "ffmpeg": bool(FFMPEG), "baseUrl": base_url(), "caBundle": _CA,
+        "sep": {
+            "demucs": _demucs_version(),
+            "asrModel": os.environ.get("KARA_ASR_MODEL",
+                                       "mlx-community/whisper-large-v3-turbo").rsplit("/", 1)[-1],
+            "model": DEMUCS_MODEL,
+            "device": _sep_device or "ยังไม่ได้ใช้",
+            "modelCached": any(c.is_dir() and any(c.glob("*HTDemucs*")) or
+                                  c.is_dir() and any(c.glob("*.th")) for c in _ckpts),
+            "separated": done,
+            "queued": len(_sep_pending),
+            "order": _sep_pending.order(),
+            "state": _sep_state,
+        },
+        "lyr": _lyr_health(),
+        "dl": {"queued": len(_dl_pending), "order": _dl_pending.order(), "state": _dl_state},
+        "heavyJob": list(_heavy_job) if _heavy_job else None,
+        "queueOrder": [q.get("videoId") for q in room.queue],
+    }
+    if search:
+        try:
+            info["sampleSearch"] = [r["title"] for r in _search("test", 3)]
+        except Exception as exc:
+            info["sampleSearch"] = f"{type(exc).__name__}: {exc}"
+    return info
+
+
+_meta_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _song_meta(vid: str) -> dict:
+    """title/duration/uploader จาก info.json — แคชด้วย mtime
+    (info.json เพลงละหลายร้อย KB ห้ามอ่านใหม่ทุก request)"""
+    d = _song_dir(vid)
+    ij = d / "info.json"
+    try:
+        mt = ij.stat().st_mtime
+    except OSError:
+        mt = 0.0
+    hit = _meta_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    meta = {"title": "", "duration": None, "uploader": ""}
+    if mt:
+        try:
+            j = json.loads(ij.read_text("utf-8"))
+            meta = {"title": j.get("title") or "",
+                    "duration": j.get("duration"),
+                    "uploader": j.get("uploader") or j.get("channel") or ""}
+        except Exception:
+            pass
+    if not meta["title"]:
+        meta["title"] = _SUF_RE.sub("", d.name).strip() or vid   # ไม่มี info.json -> เอาชื่อโฟลเดอร์
+    _meta_cache[vid] = (mt, meta)
+    return meta
+
+
+@app.get("/api/archive")
+def api_archive(q: str = "", limit: int = 200):
+    """เพลงที่โหลดเก็บไว้แล้ว + จำนวนครั้งที่ถูกสั่ง — เรียงตามความถี่
+    ทุกเพลงในนี้กดแล้วเล่นได้ทันที ไม่ต้องรอโหลดหรือแยกเสียง"""
+    plays: dict[str, int] = {}
+    last: dict[str, float] = {}
+    for e in room.history:
+        v = e.get("videoId")
+        if not v:
+            continue
+        plays[v] = plays.get(v, 0) + 1
+        last[v] = max(last.get(v, 0.0), e.get("at") or 0.0)
+
+    ql = q.lower().strip()
+    out = []
+    for vid, d in _dir_index().items():
+        if not (d / "video.mp4").is_file():
+            continue                       # ยังโหลดไม่เสร็จ
+        m = _song_meta(vid)
+        if ql and ql not in m["title"].lower() and ql not in m["uploader"].lower():
+            continue
+        _mt, lyr_n, _w, lyr_src, lyr_tsrc = _lyr_meta(vid)
+        out.append({
+            "source": "yt", "videoId": vid,
+            "title": m["title"], "channel": m["uploader"], "duration": m["duration"],
+            "thumb": f"/song/{vid}/cover.jpg",       # ปกในเครื่อง ไม่ต้องพึ่งอินเทอร์เน็ต
+            "plays": plays.get(vid, 0), "lastAt": last.get(vid),
+            "stems": _has_stems(vid),
+            "lyrLines": lyr_n,
+            "lyrKind": LC.kind(lyr_src, lyr_tsrc) if lyr_n else "",
+        })
+    out.sort(key=lambda r: (-r["plays"], -(r["lastAt"] or 0), r["title"]))
+    return {"results": out[:limit], "total": len(out)}
+
+
+@app.get("/api/songinfo")
+async def api_songinfo(videoId: str = ""):
+    """สถานะเพลง "ก่อน" กดเพิ่มเข้าคิว (รีโมทให้เลือก เพิ่ม/ออก จากหน้านี้)
+    ใช้ตัวเติมฟิลด์ชุดเดียวกับคิว ป้ายจึงตรงกันทุกที่ — ยกเว้นเพลงที่ยังไม่เคยเข้าไปป์ไลน์
+    ตัวเติมฟิลด์จะเดาว่า "queued" ซึ่งไม่จริง (ยังไม่มีใครสั่ง) จึงแปลงเป็น "new" """
+    if not _vid_ok(videoId):
+        return JSONResponse({"error": "videoId ไม่ถูกต้อง"}, status_code=400)
+    it: dict[str, Any] = {"source": "yt", "videoId": videoId}
+    _dl_fields(it)
+    _sep_fields(it)
+    _lyr_fields(it)
+    archived = it.get("dlStatus") == "ready"
+    if not archived and videoId not in _dl_state:
+        it["dlStatus"] = "new"
+    if it.get("sepStatus") == "queued" and videoId not in _sep_state:
+        it["sepStatus"] = "new"
+    it["archived"] = archived
+    if archived:
+        it["title"] = _song_meta(videoId)["title"]
+    return it
+
+
+@app.get("/api/library")
+def api_library(q: str = ""):
+    """เพลงในโฟลเดอร์ songs/ — วางไฟล์ที่คุณมีสิทธิ์ใช้ลงไปได้เลย"""
+    ql = q.lower().strip()
+    out = []
+    for f in sorted(SONGS.rglob("*")):
+        if not f.is_file() or f.suffix.lower() not in MEDIA_EXT:
+            continue
+        rel = f.relative_to(SONGS).as_posix()
+        if rel.startswith("yt/"):
+            continue  # อาร์ไคฟ์ที่โหลดจาก YouTube — ซ่อนจากไลบรารี
+        if ql and ql not in rel.lower():
+            continue
+        out.append({
+            "source": "local",
+            "path": rel,
+            "title": f.stem,
+            "folder": f.parent.relative_to(SONGS).as_posix(),
+            "audioOnly": f.suffix.lower() in {".mp3", ".m4a", ".wav", ".flac", ".ogg"},
+            "sizeMB": round(f.stat().st_size / 1e6, 1),
+        })
+    return {"results": out[:200], "total": len(out)}
+
+
+@app.get("/song/{vid}/{name}")
+def song_file(vid: str, name: str):
+    """ไฟล์ในอาร์ไคฟ์ อ้างด้วย videoId — เซิร์ฟเวอร์แปลงเป็นโฟลเดอร์จริงให้เอง
+    URL จึงเป็น ASCII ล้วนและไม่เปลี่ยนแม้ตั้งชื่อเพลงใหม่"""
+    from fastapi.responses import FileResponse
+    if not _vid_ok(vid) or not (name in _SONG_FILES or _VTT_NAME.match(name) or _KEY_NAME.match(name)):
+        return JSONResponse({"error": "not found"}, 404)
+    f = (_song_dir(vid) / name).resolve()
+    if not f.is_relative_to(DL_DIR.resolve()) or not f.is_file():
+        return JSONResponse({"error": "not found"}, 404)
+    return FileResponse(f)
+
+
+@app.get("/media/yt/{vid}/{name}")
+def media_yt_compat(vid: str, name: str):
+    """URL แบบเก่าที่อาจค้างอยู่ในคิว/แคชของเครื่องลูก"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(f"/song/{vid}/{name}", status_code=307)
+
+
+@app.get("/media/{path:path}")
+def media(path: str):
+    from fastapi.responses import FileResponse
+    f = (SONGS / path).resolve()
+    if not f.is_relative_to(SONGS.resolve()) or not f.is_file():
+        return JSONResponse({"error": "not found"}, 404)
+    return FileResponse(f)
+
+
+@app.get("/thumb/{video_id}")
+def thumb(video_id: str):
+    """ภาพปกผ่านเซิร์ฟเวอร์ (โหลดจาก i.ytimg แล้วแคชไว้) — เบราว์เซอร์ไม่ต้องเข้าอินเทอร์เน็ตตรง"""
+    from fastapi.responses import FileResponse
+    if not _vid_ok(video_id):
+        return JSONResponse({"error": "no thumb"}, 404)
+    path = THUMB_CACHE / f"{video_id}.jpg"
+    if not path.is_file():
+        import urllib.request, urllib.error
+        try:
+            url = f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            data = urllib.request.urlopen(req, timeout=10).read()
+            if len(data) > 2000 and b"<html" not in data[:200].lower():
+                path.write_bytes(data)
+            else:
+                return JSONResponse({"error": "no thumb"}, 404)
+        except Exception:
+            return JSONResponse({"error": "no thumb"}, 404)
+    return FileResponse(path)
+
+
+@app.get("/tv/logo.png")
+def tv_logo():
+    from fastapi.responses import FileResponse
+    f = _tv_logo()
+    if not f.is_file():
+        return JSONResponse({"error": "no logo"}, 404)
+    return FileResponse(f, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/qr.png")
+def qr_png():
+    img = qrcode.make(f"{base_url()}/r")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
+
+
+@app.get("/", response_class=HTMLResponse)
+def player_page(request: Request):
+    """จอหลักเปิดได้เฉพาะเครื่องที่รันเซิร์ฟเวอร์ — หลายจอพร้อมกันจะแย่งเล่นเพลงกัน
+    เครื่องอื่นเด้งไปหน้ารีโมทให้เลย"""
+    from fastapi.responses import RedirectResponse
+    if not _is_local(request.client.host if request.client else None):
+        return RedirectResponse("/r", status_code=307)
+    return HTMLResponse((BASE / "static" / "player.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/r", response_class=HTMLResponse)
+def remote_page():
+    return HTMLResponse((BASE / "static" / "remote.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+# ===== Studio: แก้เนื้อ / ปรับเวลาซับ / ดูสถานะและซ่อมทุกเพลงในเครื่อง =====
+# เปิดได้ทุกเครื่องใน WiFi แต่ต้องใส่ PIN — เครื่องที่รันเซิร์ฟเวอร์ผ่านเลย (เหมือนจอหลัก)
+_studio_cfg_cache: tuple[float, dict] | None = None
+_pin_fail: dict[str, tuple[int, float]] = {}      # ip -> (ผิดติดกันกี่ครั้ง, ล็อกถึงเมื่อไร)
+PIN_TRIES, PIN_LOCK_S = 5, 60.0
+
+
+def _studio_cfg() -> dict:
+    """อ่าน .studio.json (สร้าง PIN สุ่มครั้งแรก) — แก้ PIN ในไฟล์ได้เลยไม่ต้องรีสตาร์ท
+    ตั้ง KARA_STUDIO_PIN ไว้ = ใช้ค่านั้นแทน"""
+    global _studio_cfg_cache
+    try:
+        mt = STUDIO_FILE.stat().st_mtime
+    except OSError:
+        cfg = {"pin": f"{secrets.randbelow(10000):04d}", "secret": secrets.token_hex(16)}
+        STUDIO_FILE.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+        mt = STUDIO_FILE.stat().st_mtime
+    if not _studio_cfg_cache or _studio_cfg_cache[0] != mt:
+        try:
+            cfg = json.loads(STUDIO_FILE.read_text("utf-8"))
+        except Exception:
+            cfg = {}
+        cfg.setdefault("secret", secrets.token_hex(16))
+        cfg["pin"] = str(cfg.get("pin") or "0000")
+        _studio_cfg_cache = (mt, cfg)
+    cfg = dict(_studio_cfg_cache[1])
+    if os.environ.get("KARA_STUDIO_PIN"):
+        cfg["pin"] = os.environ["KARA_STUDIO_PIN"].strip()
+    return cfg
+
+
+def _studio_token() -> str:
+    c = _studio_cfg()        # เปลี่ยน PIN = cookie เก่าทุกเครื่องใช้ไม่ได้ทันที
+    return hashlib.sha256(f'{c["secret"]}:{c["pin"]}'.encode()).hexdigest()
+
+
+def _studio_guard(request: Request) -> None:
+    # คำสั่งที่เปลี่ยนข้อมูลต้องมาจากหน้า Studio ของเราเอง: เครื่องตัวเองผ่าน PIN ได้เลย และ request.json()
+    # ไม่สน Content-Type -> เว็บอื่นที่เปิดอยู่ในเครื่องนี้ยิง POST text/plain สั่ง drop-edit/redl แทนได้
+    if request.method not in ("GET", "HEAD") and not _same_origin(request.headers):
+        raise HTTPException(status_code=403, detail="คำขอข้ามเว็บ — ไม่อนุญาต")
+    if _is_local(request.client.host if request.client else None) \
+            and _host_is_local_name(request.headers.get("host")):
+        return
+    if hmac.compare_digest(request.cookies.get("studio", ""), _studio_token()):
+        return
+    raise HTTPException(status_code=401, detail="ต้องใส่ PIN")
+
+
+def _studio_vid(vid: str) -> Path:
+    if not _vid_ok(vid):
+        raise HTTPException(status_code=400, detail="videoId ไม่ถูกต้อง")
+    d = _song_dir(vid)
+    if not d.is_dir():
+        raise HTTPException(status_code=404, detail="ไม่มีเพลงนี้ในเครื่อง")
+    return d
+
+
+def _studio_item(vid: str, d: Path, plays: dict[str, int], qpos: dict[str, int]) -> dict:
+    """สถานะครบทุกด้านของ 1 เพลง — ใช้ตัวเติมฟิลด์ชุดเดียวกับคิว ป้ายจึงตรงกันทุกหน้า"""
+    it: dict[str, Any] = {"source": "yt", "videoId": vid}
+    _dl_fields(it)
+    _sep_fields(it)
+    _lyr_fields(it)
+    _fix_fields(it)
+    # ตัวเติมฟิลด์เดา "queued" ให้เพลงที่ไม่มีใครสั่ง — ในหน้านี้ต้องบอกตามจริงว่า "ว่าง"
+    if it.get("dlStatus") == "queued" and vid not in _dl_state and not _dl_pending.has(vid):
+        it["dlStatus"] = "idle"
+    if it.get("sepStatus") == "queued" and vid not in _sep_state and not _sep_pending.has(vid):
+        it["sepStatus"] = "idle"
+    m = _song_meta(vid)
+    ck = _chk_info(vid)
+    lyr_mt = _lyr_meta(vid)[0]
+    offp = d / "lyrics.offset.json"
+    off_mt = offp.stat().st_mtime if offp.is_file() else 0.0
+    shift = float(ck.get("shift") or 0.0)
+    ck_at = float(ck.get("at") or 0.0)
+    it.update({
+        "title": m["title"], "channel": m["uploader"], "duration": m["duration"],
+        "thumb": f"/song/{vid}/cover.jpg" if (d / "cover.jpg").is_file() else f"/thumb/{vid}",
+        "plays": plays.get(vid, 0),
+        "queuePos": qpos.get(vid),
+        "edited": (LYRICS_IN / f"{vid}.json").is_file(),
+        "reports": sum(1 for r in _read_reports(vid) if not r.get("done")),
+        "hasVideo": (d / "video.mp4").is_file(),
+        "hasVocals": _has_stems(vid),
+        "words": _words_brief(vid),
+        "best": _best_brief(vid),
+        "lang": _song_lang(vid)[0], "langBy": _song_lang(vid)[1],
+        "check": ({"verdict": ck.get("verdict") or "", "score": ck.get("score"),
+                   "shift": shift, "reports": len(ck.get("reports") or []),
+                   "measuredBy": ck.get("measuredBy") or "", "at": ck_at} if ck else None),
+        # คำแนะนำเลื่อนใช้ได้เฉพาะตอนผลตรวจ "ใหม่กว่า" เนื้อและ offset ปัจจุบัน
+        # เลื่อนเกิน 10 วิ = แทบไม่ใช่เวลาเลื่อน แต่เป็นเนื้อผิดเพลง/ผิดเวอร์ชัน -> ไม่แนะนำ
+        "shiftOk": bool(ck and 0.3 <= abs(shift) <= 10 and lyr_mt and ck_at >= lyr_mt - 1
+                        and off_mt <= ck_at + 1),
+    })
+    return it
+
+
+def _best_brief(vid: str) -> dict | None:
+    """ผลเลือกเนื้ออัตโนมัติของเพลงนี้ สำหรับ Studio (None = ยังไม่เคยทำ)"""
+    st = _best_state.get(vid, {})
+    rec = _best_rec(vid)
+    if not st and not rec:
+        return None
+    j = _read_lyr(vid) or {}
+    applied = bool(j.get("best")) and _lyr_hash(j) == rec.get("out")
+    return {"status": st.get("status") or "done", "error": st.get("error") or "",
+            "action": rec.get("action") or "", "reason": rec.get("reason") or "", "at": rec.get("at"),
+            "applied": applied, "partial": bool(rec.get("partial"))}
+
+
+def _words_brief(vid: str) -> dict:
+    wm = _words_meta(vid)
+    out = {"status": _words_status(vid), "nk": wm["nk"], "n": wm["n"]}
+    err = _words_state.get(vid, {}).get("error")
+    if err:
+        out["error"] = err
+    return out
+
+
+def _studio_ctx() -> tuple[dict[str, int], dict[str, int]]:
+    plays: dict[str, int] = {}
+    for e in room.history:
+        v = e.get("videoId")
+        if v:
+            plays[v] = plays.get(v, 0) + 1
+    qpos: dict[str, int] = {}
+    if room.current and room.current.get("videoId"):
+        qpos[room.current["videoId"]] = 0
+    for i, q in enumerate(room.queue):
+        if q.get("videoId"):
+            qpos.setdefault(q["videoId"], i + 1)
+    return plays, qpos
+
+
+def _clean_edit_lines(raw: Any) -> list[dict]:
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=400, detail="ต้องมีเนื้ออย่างน้อย 1 บรรทัด")
+    if len(raw) > 3000:
+        raise HTTPException(status_code=400, detail="บรรทัดเยอะเกินไป")
+    out = []
+    for i, l in enumerate(raw):
+        try:
+            t = float(l["t"])
+            d = float(l.get("d") or 3.0)
+            x = " ".join(str(l["x"]).split())[:300]
+            if not (math.isfinite(t) and math.isfinite(d)):
+                raise ValueError("nan")
+            t, d = round(t, 2), round(max(0.3, min(30.0, d)), 2)
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"บรรทัดที่ {i + 1} ข้อมูลไม่ครบ")
+        if t < 0 or not x:
+            raise HTTPException(status_code=400, detail=f"บรรทัดที่ {i + 1} เวลาติดลบหรือไม่มีข้อความ")
+        out.append({"t": t, "d": d, "x": x})
+    out.sort(key=lambda l: l["t"])           # เรียงให้เสมอ จอหลักค้นแบบ binary search
+    return out
+
+
+def _write_json_atomic(f: Path, obj: Any) -> None:
+    tmp = f.with_name(f.name + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, f)
+
+
+EDITS_KEEP = 20
+
+
+def _backup_lyrics(d: Path, obj: dict | None) -> None:
+    """สำรองเนื้อชุดหนึ่งลง lyrics.edits/<YYYYmmdd-HHMMSS-mmm>.json (เห็นใน 🕘 ประวัติของ Studio เก็บ 20 รุ่น)
+    ใช้ทุกทางที่เนื้อจะถูกแทนที่หรือลบ: บันทึกใน Studio / ระบบเลือกเนื้ออัตโนมัติ / โหลดเนื้อใหม่ / เลิกใช้เนื้อที่แก้เอง
+    - อ่านนาฬิกาครั้งเดียว ชื่อชนกัน (สำรองสองครั้งในมิลลิวินาทีเดียว) เลื่อนไปมิลลิวินาทีถัดไป -> ไม่ทับ และยังเรียงตามเวลา
+    - เหมือนฉบับล่าสุดที่สำรองไว้เป๊ะ = ไม่ต้องเก็บซ้ำ (ไม่เปลืองช่องประวัติ)"""
+    if not obj or not obj.get("lines") or not d.is_dir():
+        return
+    ed = d / "lyrics.edits"
+    ed.mkdir(exist_ok=True)
+    body = json.dumps(obj, ensure_ascii=False)
+    olds = sorted(ed.glob("*.json"))
+    if olds:
+        try:
+            if olds[-1].read_text("utf-8") == body:
+                return
+        except OSError:
+            pass
+    ms = int(time.time() * 1000)
+    while True:
+        f = ed / f"{time.strftime('%Y%m%d-%H%M%S', time.localtime(ms / 1000))}-{ms % 1000:03d}.json"
+        if not f.exists():
+            break
+        ms += 1
+    tmp = f.with_name(f.name + ".tmp")
+    tmp.write_text(body, encoding="utf-8")
+    os.replace(tmp, f)
+    for old in sorted(ed.glob("*.json"))[:-EDITS_KEEP]:
+        old.unlink(missing_ok=True)
+
+
+def _write_edit(vid: str, d: Path, lines: list[dict], offset: float | None, picked: str = "") -> None:
+    """บันทึกเนื้อที่แก้ใน Studio
+    - สำรองของเดิมไว้ใน lyrics.edits/ (ย้อนกลับได้ 20 รุ่น)
+    - เขียนสำเนาไว้ lyrics-in/<vid>.json ด้วย -> โหลดเนื้อใหม่/สร้างใหม่ทั้งคลังก็ยังได้ฉบับนี้"""
+    cur = d / "lyrics.json"
+    old = None
+    if cur.is_file():
+        try:
+            old = json.loads(cur.read_text("utf-8"))
+        except Exception:
+            old = None
+    _backup_lyrics(d, old)
+    dur = float((old or {}).get("duration") or _song_meta(vid)["duration"] or 0.0)
+    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "PU KARAOKE Studio",
+           "src": "manual-edit", "timeSrc": "self", "duration": round(dur, 2),
+           "lines": lines, "editedAt": int(time.time())}
+    if picked:                          # เลือกแหล่งจากหน้าคิวของ Studio — จำไว้ว่ามาจากไหน
+        out["picked"] = picked
+    _write_json_atomic(cur, out)
+    LYRICS_IN.mkdir(exist_ok=True)
+    _write_json_atomic(LYRICS_IN / f"{vid}.json", out)
+    # ผลตรวจ/หมุดเก่าพูดถึงเนื้อชุดก่อน — ค้างไว้จะขึ้นป้ายผิด
+    for name in ("lyrics.check.json", "lyrics.nolyr.json"):
+        (d / name).unlink(missing_ok=True)
+    if offset is not None:
+        _set_lyr_offset(vid, offset)
+    _lyr_cache.pop(vid, None)
+    _chk_cache.pop(vid, None)
+    _lyr_state.pop(vid, None)
+    _lyr_nosrc.discard(vid)
+
+
+def _autotime(vid: str, texts: list[str]) -> dict:
+    """จับเวลาข้อความที่แก้แล้ว ด้วย word timing ที่มีอยู่แล้ว — ไม่แตะ GPU
+    ลำดับไม้บรรทัด: ผลถอดเสียงร้อง (แคช whisper) ก่อน แล้วค่อย auto-caption ของ YouTube"""
+    import gen_lyrics as G          # import เบา (ASR โหลดตอนถอดเสียงจริงเท่านั้น)
+    d = _song_dir(vid)
+    dur = float(_song_meta(vid)["duration"] or 0.0) or G.song_duration(d)
+    rulers: list[tuple[str, list[dict]]] = []
+    seg_files = [G.segment_cache_path(vid)] + sorted(SEG_CACHE.glob(f"{vid}.*.json")) \
+        + [SEG_CACHE / f"{vid}.json"]
+    for f in seg_files:
+        if not f.is_file():
+            continue
+        try:
+            data = json.loads(f.read_text("utf-8"))
+        except Exception:
+            continue
+        words = [w for sg in data.get("segs") or [] for w in (sg.get("words") or [])
+                 if w.get("start") is not None and w.get("end") is not None
+                 and (w.get("word") or "").strip()]
+        if words:
+            rulers.append(("asr", words))
+            break
+    auto = d / "auto.th.vtt"
+    if auto.is_file():
+        w = LS.words_from_auto_vtt(auto)
+        if w:
+            rulers.append(("auto-cap", w))
+    if not rulers:
+        return {"need": "asr"}
+    # ขั้นตอนเดียวกับ G.time_with แต่ไม่ตัดทิ้งเมื่อ align_ok ไม่ผ่าน — ใน Studio คนเป็นคนตัดสิน
+    # (ลองฟังในพรีวิวก่อนบันทึกได้) จึงส่งผลที่ดีที่สุดกลับไปพร้อมบอกว่าผ่านเกณฑ์ไหม
+    best = None
+    for by, words in rulers:
+        chunks = G.make_chunks([{"start": words[0]["start"], "end": words[-1]["end"],
+                                 "text": "", "words": words}])
+        anchors = G.align(chunks, texts, dur)
+        starts = G.timings_for_lines(texts, anchors, dur)
+        durs = []
+        for i, st in enumerate(starts):
+            nxt = starts[i + 1] if i + 1 < len(starts) else (dur if dur > st else st + 6.0)
+            durs.append(round(max(G.MIN_DUR_L, min(G.MAX_DUR_L, nxt - st)), 2))
+        covered = {a["line"] for a in anchors}
+        tot = sum(len(G.norm_chars(l)) for l in texts)
+        cov = 100.0 * sum(len(G.norm_chars(l)) for i, l in enumerate(texts) if i in covered) / tot if tot else 0.0
+        res = {"lines": [{"t": round(t, 2), "d": d_, "x": x} for t, d_, x in zip(starts, durs, texts)],
+               "by": by, "cov": round(cov, 1), "ok": G.align_ok(starts, durs, cov, dur)}
+        if res["ok"]:
+            return res
+        if best is None or res["cov"] > best["cov"]:
+            best = res
+    return best
+
+
+@app.get("/studio", response_class=HTMLResponse)
+def studio_page():
+    return HTMLResponse((BASE / "static" / "studio.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/studio/login")
+async def studio_login(request: Request):
+    if not _same_origin(request.headers):
+        return JSONResponse({"ok": False, "why": "คำขอข้ามเว็บ — ไม่อนุญาต"}, status_code=403)
+    ip = request.client.host if request.client else "?"
+    n, until = _pin_fail.get(ip, (0, 0.0))
+    now = time.monotonic()
+    if until > now:
+        return JSONResponse({"ok": False, "why": f"ใส่ผิดหลายครั้ง รออีก {int(until - now) + 1} วินาที"},
+                            status_code=429)
+    try:
+        pin = str((await request.json()).get("pin") or "").strip()
+    except Exception:
+        pin = ""
+    if not hmac.compare_digest(pin, _studio_cfg()["pin"]):
+        n += 1
+        _pin_fail[ip] = (0, now + PIN_LOCK_S) if n >= PIN_TRIES else (n, 0.0)
+        return JSONResponse({"ok": False, "why": "PIN ไม่ถูกต้อง"}, status_code=401)
+    _pin_fail.pop(ip, None)
+    r = JSONResponse({"ok": True})
+    r.set_cookie("studio", _studio_token(), max_age=30 * 86400, httponly=True, samesite="lax")
+    return r
+
+
+@app.get("/api/studio/songs")
+async def studio_songs(request: Request):
+    _studio_guard(request)
+    plays, qpos = _studio_ctx()
+    items = sorted(_dir_index().items())
+    # อ่านไฟล์ 2-3 ไฟล์ต่อเพลงทั้งคลัง -> ทำใน thread ไม่ให้จอทีวี/รีโมทสะดุดระหว่างนั้น
+    out = await asyncio.to_thread(lambda: [_studio_item(vid, d, plays, qpos) for vid, d in items])
+    return {"songs": out, "archiveRev": room.archive_rev}
+
+
+@app.get("/api/studio/song/{vid}")
+async def studio_song(vid: str, request: Request):
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    plays, qpos = _studio_ctx()
+    lyr = None
+    if (d / "lyrics.json").is_file():
+        try:
+            lyr = json.loads((d / "lyrics.json").read_text("utf-8"))
+        except Exception:
+            lyr = None
+    edits = []
+    for f in sorted((d / "lyrics.edits").glob("*.json"), reverse=True) if (d / "lyrics.edits").is_dir() else []:
+        try:
+            j = json.loads(f.read_text("utf-8"))
+            edits.append({"ts": f.stem, "src": j.get("src") or "", "n": len(j.get("lines") or [])})
+        except Exception:
+            continue
+    nolyr = None
+    if (d / "lyrics.nolyr.json").is_file():
+        try:
+            nolyr = json.loads((d / "lyrics.nolyr.json").read_text("utf-8")).get("why")
+        except Exception:
+            nolyr = ""
+    return {
+        "item": _studio_item(vid, d, plays, qpos),
+        "lyrics": lyr,
+        "offset": _lyr_offset(vid),
+        "check": _chk_info(vid) or None,
+        "nolyr": nolyr,
+        "edits": edits,
+        "files": {k: (d / k).is_file() for k in ("video.mp4", "audio.m4a", "vocals.m4a",
+                                                 "auto.th.vtt", "sub.th.vtt")},
+        "asrCache": _asr_cached(vid),
+        "manual": {k: (LYRICS_IN / f"{vid}.{k}").is_file() for k in ("json", "lrc", "txt")},
+        "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)},
+        "reports": _read_reports(vid),
+        "words": _words_detail(vid, d),
+    }
+
+
+def _words_detail(vid: str, d: Path) -> dict:
+    """สถานะ + k ของทุกบรรทัด (ไว้พรีวิวโหมดคาราโอเกะ/ขีดเวลาคำใน Studio)"""
+    out = _words_brief(vid)
+    if _words_meta(vid)["ok"]:
+        try:
+            w = json.loads((d / "lyrics.words.json").read_text("utf-8"))
+            out.update({"k": w.get("k") or [], "conf": w.get("conf") or [], "at": w.get("at"),
+                        "audio": w.get("audio") or ""})
+        except Exception:
+            pass
+    return out
+
+
+@app.post("/api/studio/song/{vid}/reports")
+async def studio_reports(vid: str, request: Request):
+    """ติ๊ก "แก้แล้ว" / เปิดใหม่ ให้รายงานจากรีโมท — {id, done} หรือ {all_done:true}
+    อ้างด้วย id ไม่ใช่เวลา: แจ้งติดกันเร็ว ๆ เวลาห่างกันไม่ถึงมิลลิวินาที จะติ๊กโดนหลายอัน"""
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    reps = _read_reports(vid)
+    if body.get("all_done"):
+        for r in reps:
+            r["done"] = True
+    else:
+        rid = str(body.get("id") or "")
+        hit = [r for r in reps if rid and r.get("id") == rid]
+        if not hit:
+            raise HTTPException(status_code=404, detail="ไม่มีรายงานนี้")
+        for r in hit:
+            r["done"] = bool(body.get("done", True))
+    await asyncio.to_thread(_write_reports, vid, reps)
+    room.archive_rev += 1
+    await room.broadcast()             # ให้ Studio เครื่องอื่นอัปเดตตัวเลข 🚩
+    return {"ok": True, "open": sum(1 for r in reps if not r.get("done"))}
+
+
+@app.get("/api/studio/song/{vid}/edit/{ts}")
+async def studio_edit_version(vid: str, ts: str, request: Request):
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    if not re.fullmatch(r"[0-9-]{10,24}", ts):
+        raise HTTPException(status_code=400, detail="ชื่อรุ่นไม่ถูกต้อง")
+    f = d / "lyrics.edits" / f"{ts}.json"
+    if not f.is_file():
+        raise HTTPException(status_code=404, detail="ไม่มีรุ่นนี้")
+    return json.loads(f.read_text("utf-8"))
+
+
+@app.put("/api/studio/song/{vid}/lyrics")
+async def studio_save(vid: str, request: Request):
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    body = await request.json()
+    lines = _clean_edit_lines(body.get("lines"))
+    off = body.get("offset")
+    if off is not None:
+        off = _finite(off, -LYR_OFFSET_MAX, LYR_OFFSET_MAX)
+        if off is None:
+            raise HTTPException(status_code=400, detail="offset ไม่ใช่ตัวเลข")
+    picked = " ".join(str(body.get("picked") or "").split())[:120]
+    await asyncio.to_thread(_write_edit, vid, d, lines, off, picked)
+    print(f"[studio] {vid} บันทึกเนื้อที่แก้เอง {len(lines)} บรรทัด"
+          f"{f' offset {off:+.2f}s' if off else ''}")
+    room.archive_rev += 1
+    _words_state.pop(vid, None)
+    await _enqueue_words(vid)          # แก้ข้อความ -> เวลารายคำชุดเก่าใช้ไม่ได้ (แก้แค่เวลา = ใช้ต่อได้ ไม่ทำซ้ำ)
+    await room.broadcast()             # เพลงนี้กำลังเล่นอยู่ -> จอหลักโหลดเนื้อใหม่ทันที
+    mt = _lyr_meta(vid)[0]
+    # Studio จำ URL นี้ไว้ — การบันทึกของตัวเองจะได้ไม่ถูกมองว่า "มีงานเบื้องหลังเขียนเนื้อทับ"
+    return {"ok": True, "n": len(lines), "lyricsUrl": f"/song/{vid}/lyrics.json?v={int(mt * 1000)}" if mt else ""}
+
+
+@app.get("/api/studio/tv")
+async def studio_tv_get(request: Request):
+    _studio_guard(request)
+    return {"tv": _tv_public(room.tv), "default": _clean_tv({}), "chips": list(TV_CHIPS)}
+
+
+@app.post("/api/studio/tv")
+async def studio_tv_set(request: Request):
+    """ตั้งค่าจอหลัก — ส่งมาเฉพาะค่าที่เปลี่ยนก็ได้ / {"reset": true} = คืนค่าเริ่มต้น (รูปไม่ถูกลบ)"""
+    _studio_guard(request)
+    body = await request.json()
+    room.tv = _clean_tv({}) if body.get("reset") else _clean_tv(body, room.tv)
+    await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
+    await room.broadcast()
+    return {"tv": _tv_public(room.tv)}
+
+
+TV_LOGO_MAX = 10 * 1024 * 1024
+TV_LOGO_PX = 512
+
+
+def _save_logo(raw: bytes) -> None:
+    """รูปอะไรก็ได้ -> ครอปกลางเป็นจัตุรัส 512x512 PNG (เก็บพื้นใส) — เปิดไม่ได้ = ไม่ใช่รูป"""
+    from PIL import Image, ImageOps
+    try:
+        im = Image.open(io.BytesIO(raw))
+        im.load()
+    except Exception:
+        raise HTTPException(status_code=400, detail="ไฟล์นี้ไม่ใช่รูปที่เปิดได้")
+    im = ImageOps.exif_transpose(im)
+    im = im.convert("RGBA")
+    side = min(im.size)
+    left, top = (im.width - side) // 2, (im.height - side) // 2
+    im = im.crop((left, top, left + side, top + side)).resize((TV_LOGO_PX, TV_LOGO_PX), Image.LANCZOS)
+    TV_DIR.mkdir(exist_ok=True)
+    tmp = TV_DIR / "logo.tmp.png"
+    im.save(tmp, format="PNG", optimize=True)
+    os.replace(tmp, _tv_logo())
+
+
+@app.put("/api/studio/tv/logo")
+async def studio_tv_logo_put(request: Request):
+    _studio_guard(request)
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="ไม่มีไฟล์")
+    if len(raw) > TV_LOGO_MAX:
+        raise HTTPException(status_code=413, detail="รูปใหญ่เกิน 10 MB")
+    await asyncio.to_thread(_save_logo, raw)
+    room.tv = _clean_tv({"logo": True}, room.tv)          # อัปแล้วโชว์เลย ไม่ต้องไปกดเปิดอีกที
+    await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
+    await room.broadcast()
+    return {"tv": _tv_public(room.tv)}
+
+
+@app.delete("/api/studio/tv/logo")
+async def studio_tv_logo_del(request: Request):
+    _studio_guard(request)
+    _tv_logo().unlink(missing_ok=True)
+    room.tv = _clean_tv({"logo": False}, room.tv)
+    await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
+    await room.broadcast()
+    return {"tv": _tv_public(room.tv)}
+
+
+@app.post("/api/studio/song/{vid}/offset")
+async def studio_offset(vid: str, request: Request):
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    off = _finite(body.get("offset") or 0.0, -LYR_OFFSET_MAX, LYR_OFFSET_MAX)
+    if off is None:
+        raise HTTPException(status_code=400, detail="offset ไม่ใช่ตัวเลข")
+    off = await asyncio.to_thread(_set_lyr_offset, vid, off)
+    await room.broadcast()
+    return {"ok": True, "offset": off}
+
+
+@app.post("/api/studio/song/{vid}/autotime")
+async def studio_autotime(vid: str, request: Request):
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    texts = [" ".join(str(x).split()) for x in (body.get("texts") or [])]
+    texts = [x for x in texts if x]
+    if not texts:
+        raise HTTPException(status_code=400, detail="ไม่มีข้อความให้จับเวลา")
+    engine = body.get("engine") or ("fa" if _fa_ready() else "whisper")
+    if engine == "fa" and _fa_ready() and _audio_for(vid):
+        try:
+            r = await _fa(vid, {"texts": texts, "duration": _song_meta(vid)["duration"] or 0})
+        except Exception as exc:
+            return {"fail": True, "why": f"จับเวลาละเอียดไม่สำเร็จ: {exc}"}
+        r["lines"] = [{"t": l["t"], "d": l["d"], "x": l["x"]} for l in r["lines"]]
+        return r
+    return await asyncio.to_thread(_autotime, vid, texts)
+
+
+# ===== Studio: แผนที่ความคลาด / ห้องหาเนื้อ / จับเวลาละเอียด (FA) =====
+# FA = forced alignment ด้วย wav2vec2 ภาษาไทย (scripts/fa_align.py) รันเป็น subprocess
+# ไม่ให้โมเดล 1.2 GB ค้างในโปรเซสหลัก — แคชผลวิเคราะห์เสียงไว้ต่อเพลง ครั้งถัดไปเร็วมาก
+# วัดกับเวลาที่คนทำ (ซับ YouTube/lrclib): ตรงภายใน 0.5 วิ ~9 ใน 10 บรรทัด (whisper เดิม ~3 ใน 10)
+FA_MIN_CONF = 0.12            # ต่ำกว่านี้ = ข้อความไม่ตรงกับเสียงจริงช่วงนั้น ไม่นับเป็นค่าที่วัดได้
+_FA_RANK = 0.5                # ต่อคิว GPU หลังงานของเพลงที่กำลังเล่น แต่ก่อนเพลงในคิว/งานตอนว่าง
+
+
+def _fa_mod():
+    import fa_align                       # นำเข้าเบา (numpy) — torch/transformers โหลดเฉพาะตอนคำนวณเสียง
+    return fa_align
+
+
+def _fa_ready() -> bool:
+    import importlib.util
+    if importlib.util.find_spec("transformers") is None:
+        return False
+    hub = Path(os.environ.get("HF_HUB_CACHE") or BASE / ".cache" / "hf" / "hub")
+    return (hub / ("models--" + _fa_mod().MODEL.replace("/", "--"))).is_dir()
+
+
+def _fa_cached(vid: str) -> bool:
+    try:
+        return _fa_mod().cached(vid)
+    except Exception:
+        return False
+
+
+def _fa_cached_for(vid: str, texts: list[str]) -> bool:
+    """FA ข้อความชุดนี้ได้โดยไม่ต้องใช้ GPU ไหม: แคชไทยต้องมี + ถ้ามีคำอังกฤษ แคชโมเดลอังกฤษก็ต้องมี
+    (ไม่มีโมเดลอังกฤษในเครื่อง = ไม่ทำรอบอังกฤษ จึงไม่ต้องรอแคชนั้น)"""
+    try:
+        F = _fa_mod()
+        if not F.cached(vid):
+            return False
+        return not F.has_latin(texts) or not F.model_ready(F.MODEL_EN) or F.cached(vid, en=True)
+    except Exception:
+        return False
+
+
+def _audio_for(vid: str) -> Path | None:
+    d = _song_dir(vid)
+    for name in ("vocals.m4a", "audio.m4a"):
+        if (d / name).is_file():
+            return d / name
+    return None
+
+
+def _fa_call(vid: str, payload: dict, kind: str = "fa") -> dict:
+    """kind = ชื่องานที่ลงทะเบียนโปรเซส (verify ถูกแย่งคิวได้ — ฆ่าแล้วกลายเป็น _Preempted ไม่ใช่ failed)"""
+    audio = _audio_for(vid)
+    if not audio:
+        raise RuntimeError("ไม่มีไฟล์เสียง")
+    try:
+        rc, out, err = _run_child(kind, vid, [sys.executable, str(BASE / "scripts" / "fa_align.py"), vid,
+                                              "--audio", str(audio)],
+                                  timeout=900, input=json.dumps(payload, ensure_ascii=False), cwd=str(BASE))
+    finally:
+        if kind == "verify" and vid in _preempt_kill:
+            _preempt_kill.discard(vid)
+            raise _Preempted()
+    if rc != 0:
+        tail = [l for l in err.strip().splitlines() if l.strip()]
+        raise RuntimeError(tail[-1][:200] if tail else f"rc={rc}")
+    return json.loads(out.strip().splitlines()[-1])
+
+
+async def _fa(vid: str, payload: dict) -> dict:
+    """ครั้งแรกของเพลงต้องวิเคราะห์เสียง (ใช้ GPU ~5-20 วิ) -> ต่อคิวเดียวกับ demucs/whisper
+    ครั้งต่อไปมีแคชแล้วเหลือแค่ Viterbi บน CPU ไม่ต้องรอคิว"""
+    global _heavy_job
+    texts = list(payload.get("texts") or [x for st in (payload.get("sets") or []) for x in (st or [])])
+    if _fa_cached_for(vid, texts):
+        return await asyncio.to_thread(_fa_call, vid, payload)
+    async with _heavy.slot(f"fa:{vid}", lambda: _FA_RANK):
+        _heavy_job = ("fa", vid)                  # /api/health เห็นว่า GPU ไม่ว่าง (ไม่ถูกแย่งคิว: คนกดรออยู่)
+        try:
+            return await asyncio.to_thread(_fa_call, vid, payload)
+        finally:
+            _heavy_job = None
+
+
+# ===== เวลารายตัวอักษร: โหมด "คาราโอเกะ" บนจอ (ไล่สีตามที่ร้องจริง) =====
+# ท่อนร้องเร็ว เวลาเริ่มบรรทัดตรงอยู่แล้ว (FA คลาด ~0.1 วิ) แต่ทั้งบรรทัดขึ้นพร้อมกัน
+# คนร้องตามไม่ทันว่าถึงคำไหน -> เก็บเวลาที่ "แต่ละตัวอักษรถูกร้อง" ไว้ให้จอไล่สี
+# ไฟล์แยก lyrics.words.json ไม่แตะ lyrics.json — ใช้ได้เฉพาะตอนข้อความทุกบรรทัดตรงกัน
+# (แก้เวลาใน Studio อย่างเดียว ไฟล์นี้ยังใช้ได้ เพราะ k เป็นเวลาจริงในเสียง ไม่ได้อิงเวลาบรรทัด)
+WORDS_MIN_CONF = 0.15         # บรรทัดที่ FA ไม่มั่นใจ (เสียงไม่ตรงข้อความ) -> ไม่ไล่สี แสดงแบบ 2 บรรทัดปกติ
+WORDS_MAX_GAP = 3.0           # k ตัวแรกห่างจากเวลาบรรทัดเกินนี้ = FA วางผิดรอบ (ฮุคซ้ำ) -> ไม่ไล่สี
+WORDS_VERSION = 2             # 2 = มีคำอังกฤษด้วย (โมเดลอังกฤษรอบที่ 2) — รุ่นเก่าถือว่าต้องทำใหม่
+_words_task: asyncio.Task | None = None
+_words_state: dict[str, dict] = {}                 # videoId -> {"status": queued|working|failed, "error"}
+_words_cache: dict[str, tuple] = {}
+_fa_ok: tuple[float, bool] = (0.0, False)
+
+
+def _fa_ok_cached() -> bool:
+    """_fa_ready() ไปค้นแพ็กเกจ/โฟลเดอร์โมเดล — ถูกเรียกจาก _reprioritize ทุก 10 วิ จึงจำไว้ 60 วิ"""
+    global _fa_ok
+    if time.monotonic() - _fa_ok[0] > 60:
+        try:
+            _fa_ok = (time.monotonic(), _fa_ready())
+        except Exception:
+            _fa_ok = (time.monotonic(), False)
+    return _fa_ok[1]
+
+
+_en_ok: tuple[float, bool] = (0.0, False)
+
+
+def _en_model_ok() -> bool:
+    """โมเดลอังกฤษเพิ่งถูกโหลดมาไว้ -> ไฟล์ที่ทำตอนยังไม่มีโมเดลถือว่าเก่า (จำไว้ 60 วิ)"""
+    global _en_ok
+    if time.monotonic() - _en_ok[0] > 60:
+        try:
+            F = _fa_mod()
+            _en_ok = (time.monotonic(), F.model_ready(F.MODEL_EN))
+        except Exception:
+            _en_ok = (time.monotonic(), False)
+    return _en_ok[1]
+
+
+def _words_meta(vid: str) -> dict:
+    """{"ok": ใช้ได้ไหม, "mt", "nk": บรรทัดที่ไล่สีได้, "n": ทุกบรรทัด, "stale": มีไฟล์แต่ข้อความไม่ตรง}
+    แคชด้วย mtime ของทั้งสองไฟล์ + offset เพราะถูกเรียกทุก item ทุก broadcast"""
+    d = _song_dir(vid)
+    try:
+        wm = (d / "lyrics.words.json").stat().st_mtime
+    except OSError:
+        return {"ok": False, "mt": 0.0, "nk": 0, "n": 0, "stale": False}
+    lm = _lyr_meta(vid)[0]
+    off = _lyr_offset(vid)
+    key = (wm, lm, off)
+    hit = _words_cache.get(vid)
+    if hit and hit[0] == key:
+        return hit[1]
+    out = {"ok": False, "mt": wm, "nk": 0, "n": 0, "stale": True}
+    try:
+        w = json.loads((d / "lyrics.words.json").read_text("utf-8"))
+        L = json.loads((d / "lyrics.json").read_text("utf-8")).get("lines") or []
+        texts = [x.get("x") or "" for x in L]
+        en_missing = (w.get("en") or {}).get("why") == "no-model" and _en_model_ok()
+        if texts and w.get("texts") == texts and w.get("v") == WORDS_VERSION and not en_missing:
+            ks = w.get("k") or []
+            # นับเหมือนที่จอจะใช้จริง: k ตัวแรกต้องอยู่ใกล้เวลาบรรทัด (+offset ประจำเพลง)
+            nk = sum(1 for ln, k in zip(L, ks)
+                     if k and abs(k[0][1] - (float(ln.get("t") or 0) + off)) <= WORDS_MAX_GAP)
+            out = {"ok": True, "mt": wm, "nk": nk, "n": len(texts), "stale": False}
+    except Exception:
+        pass
+    _words_cache[vid] = (key, out)
+    return out
+
+
+def _fa_scriptable(vid: str) -> bool:
+    """เนื้อมีตัวไทยหรือละตินพอให้ FA จับได้ไหม (ญี่ปุ่น/เกาหลีล้วน = ไม่มีโมเดล)"""
+    txt = " ".join(_lyr_texts(vid))
+    return len(_TH_RE.findall(txt)) + len(_LAT_RE.findall(txt)) >= 20
+
+
+def _lyr_texts(vid: str) -> list[str]:
+    try:
+        L = json.loads((_song_dir(vid) / "lyrics.json").read_text("utf-8")).get("lines") or []
+        return [x.get("x") or "" for x in L]
+    except Exception:
+        return []
+
+
+def _make_words(vid: str) -> tuple[int, int]:
+    """FA ทั้งเพลงแบบขอเวลารายตัวอักษร -> lyrics.words.json คืน (บรรทัดที่ได้ k, ทุกบรรทัด)"""
+    d = _song_dir(vid)
+    j = json.loads((d / "lyrics.json").read_text("utf-8"))
+    L = j.get("lines") or []
+    texts = [x.get("x") or "" for x in L]
+    if not texts:
+        raise RuntimeError("ไม่มีเนื้อเพลง")
+    # เวลาบรรทัดที่จอใช้จริง (+offset ประจำเพลง) เป็นหมุด: ท่อนซ้ำที่ FA ทั้งเพลงวางผิดรอบจะถูกจับใหม่รอบหมุด
+    off = _lyr_offset(vid)
+    anchors = [[round(float(x.get("t") or 0) + off, 2), float(x.get("d") or 0)] for x in L]
+    r = _fa_call(vid, {"texts": texts, "duration": j.get("duration") or 0, "words": True, "anchors": anchors},
+                 kind="words")
+    lines = r.get("lines") or []
+    if len(lines) != len(texts):
+        raise RuntimeError("จำนวนบรรทัดจาก FA ไม่ตรง")
+    ks: list = []
+    confs: list = []
+    for ln in lines:
+        c = ln.get("conf")
+        k = ln.get("k") or []
+        ks.append(k if k and c is not None and c >= WORDS_MIN_CONF else None)
+        confs.append(c)
+    # เนื้อถูกแก้ระหว่างที่ FA ทำงาน -> ทิ้งผล ไม่งั้นไฟล์จะผูกกับข้อความเก่า (ตรวจซ้ำตอนเขียน)
+    now = [x.get("x") or "" for x in (json.loads((d / "lyrics.json").read_text("utf-8")).get("lines") or [])]
+    if now != texts:
+        raise RuntimeError("เนื้อเพลงเปลี่ยนระหว่างทำ")
+    audio = _audio_for(vid)
+    out = {"v": WORDS_VERSION, "texts": texts, "k": ks, "conf": confs, "by": "fa", "en": r.get("en"),
+           "audio": audio.name if audio else "", "at": int(time.time())}
+    f = d / "lyrics.words.json"
+    tmp = f.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.replace(tmp, f)
+    _words_cache.pop(vid, None)
+    return sum(1 for k in ks if k), len(ks)
+
+
+def _words_status(vid: str) -> str:
+    """ready | queued | working | failed | stale | none | na"""
+    st = _words_state.get(vid, {}).get("status")
+    if st in ("queued", "working"):
+        return st
+    wm = _words_meta(vid)
+    if wm["ok"]:
+        return "ready"
+    if st == "failed":
+        return "failed"
+    if not _fa_ok_cached():
+        return "na"
+    return "stale" if wm["stale"] else "none"
+
+
+async def _ensure_worder() -> None:
+    global _words_task
+    if _words_task is None or _words_task.done():
+        _words_task = asyncio.create_task(_words_worker())
+
+
+async def _enqueue_words(vid: str | None, force: bool = False) -> bool:
+    """เข้าคิวทำเวลารายคำ — คืน True ถ้าเข้าคิวจริง
+    ปกติรอให้แยกเสียงเสร็จก่อน (FA บนเสียงร้องล้วนแม่นกว่าเสียงรวมมาก) ยกเว้นแยกเสียงพังไปแล้ว
+    หรือมีผลวิเคราะห์เสียงของเพลงนี้แคชอยู่แล้ว (Studio เคยกด FA) ซึ่งไม่ต้องใช้ GPU เลย"""
+    if not vid or _lyr_meta(vid)[1] <= 0 or not _fa_ok_cached() or not _fa_scriptable(vid):
+        return False
+    if _words_pending.has(vid) or _words_state.get(vid, {}).get("status") == "working":
+        return False
+    if _best_pending.has(vid) or _best_state.get(vid, {}).get("status") == "working":
+        return False                # ข้อความอาจเปลี่ยน — งานเลือกเนื้อเสร็จแล้วจะสั่งต่อเอง
+    if not force:
+        if _words_meta(vid)["ok"] or _words_state.get(vid, {}).get("status") == "failed":
+            return False
+        if not _has_stems(vid) and _sep_state.get(vid, {}).get("status") != "failed" \
+                and not _fa_cached(vid):
+            return False            # เดี๋ยว _sep_worker สั่งให้เองตอนได้ vocals
+    if not _audio_for(vid):
+        return False
+    await _ensure_worder()
+    _words_state[vid] = {"status": "queued", "error": ""}
+    _words_pending.push(vid)
+    return True
+
+
+async def _words_worker() -> None:
+    global _heavy_job
+    while True:
+        await _words_pending.wait()
+        hit = _words_pending.best()
+        if not hit:
+            continue
+        # มีแคชผลวิเคราะห์เสียงแล้ว = งาน CPU ไม่กี่วินาที ไม่ต้องจอง GPU
+        # ยังไม่มี -> ต่อคิว GPU ตามอันดับเพลงในห้อง แต่หลังงานแยกเสียง/หาเนื้อของเพลงอันดับเดียวกัน
+        if _fa_cached_for(hit[0], _lyr_texts(hit[0])):
+            vid = hit[0]
+            _words_pending.discard(vid)
+            await _run_words(vid)
+        else:
+            async with _heavy.slot("words", lambda: (_words_pending.best() or ("", _NEVER))[1] + 0.5):
+                vid = _words_pending.take_now()
+                if vid is None:
+                    continue
+                _heavy_job = ("words", vid)
+                try:
+                    await _run_words(vid)
+                finally:
+                    _heavy_job = None
+        await room.broadcast()
+
+
+async def _run_words(vid: str) -> None:
+    if _lyr_meta(vid)[1] <= 0:
+        _words_state.pop(vid, None)
+        return
+    _words_state[vid] = {"status": "working", "error": ""}
+    t0 = time.monotonic()
+    try:
+        nk, n = await asyncio.to_thread(_make_words, vid)
+        _words_state.pop(vid, None)
+        print(f"[words] {vid} ไล่สีได้ {nk}/{n} บรรทัด | {time.monotonic() - t0:.0f}s")
+    except Exception as exc:
+        _words_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
+        print(f"[words] {vid} FAILED: {exc}")
+
+
+def _whisper_chunks(vid: str) -> tuple[list[dict] | None, str]:
+    """ไม้บรรทัดสำรองเมื่อยังไม่มี FA: แคช whisper ก่อน แล้วค่อย auto-caption"""
+    import gen_lyrics as G
+    for f in [G.segment_cache_path(vid)] + sorted(SEG_CACHE.glob(f"{vid}.*.json")):
+        if f.is_file():
+            try:
+                segs = json.loads(f.read_text("utf-8")).get("segs") or []
+            except Exception:
+                continue
+            if segs:
+                return G.make_chunks(segs), "asr"
+    auto = _song_dir(vid) / "auto.th.vtt"
+    if auto.is_file():
+        w = LS.words_from_auto_vtt(auto)
+        if w:
+            return G.make_chunks([{"start": w[0]["start"], "end": w[-1]["end"], "text": "", "words": w}]), "auto-cap"
+    return None, ""
+
+
+def _measure_whisper(vid: str, texts: list[str], eff: list[float], dur: float) -> tuple[list, str]:
+    """เวลาที่เสียงร้องบอกต่อบรรทัด (ไม้บรรทัด whisper) — เลือกจุดที่ "ใกล้เวลาปัจจุบันที่สุด"
+    ไม่ใช่จุดแรก เพราะท่อนฮุคร้องซ้ำ จุดแรกจะชี้ไปท่อนแรกเสมอ"""
+    import gen_lyrics as G
+    chunks, by = _whisper_chunks(vid)
+    if not chunks:
+        return [None] * len(texts), ""
+    hits: dict[int, list[float]] = {}
+    for a in G.align(chunks, texts, dur):
+        hits.setdefault(a["line"], []).append(a["t"])
+    out = []
+    for i, e in enumerate(eff):
+        ts = [t for t in hits.get(i, []) if abs(t - e) <= 15]
+        out.append(min(ts, key=lambda t: abs(t - e)) if ts else None)
+    return out, by
+
+
+@app.post("/api/studio/song/{vid}/drift")
+async def studio_drift(vid: str, request: Request):
+    """เวลาที่เสียงร้องบอกของทุกบรรทัด (ไว้ทำแผนที่ความคลาดใน Studio)
+    engine: auto = ใช้ FA ถ้ามีแคช (เร็ว) ไม่งั้น whisper / fa = บังคับวิเคราะห์ละเอียด"""
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    raw = body.get("lines") or []
+    off = _finite(body.get("offset") or 0.0, -LYR_OFFSET_MAX, LYR_OFFSET_MAX)
+    if off is None or not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="ข้อมูลไม่ถูกต้อง")
+    raw = [l for l in raw if isinstance(l, dict)]
+    texts = [" ".join(str(l.get("x") or "").split()) for l in raw]
+    eff = [(_finite(l.get("t") or 0, 0.0, 86400.0) or 0.0) + off for l in raw]
+    dur = float(_song_meta(vid)["duration"] or 0)
+    engine = body.get("engine") or "auto"
+    if not texts:
+        return {"by": "", "texts": [], "meas": [], "conf": []}
+    use_fa = _fa_ready() and _audio_for(vid) and (engine == "fa" or (engine == "auto" and _fa_cached(vid)))
+    conf: list = [None] * len(texts)
+    if use_fa:
+        try:
+            r = await _fa(vid, {"texts": texts, "duration": dur})
+            meas = [l["t"] if (l.get("conf") or 0) >= FA_MIN_CONF else None for l in r["lines"]]
+            conf = [l.get("conf") for l in r["lines"]]
+            by = "fa"
+        except Exception as exc:
+            return {"by": "", "texts": texts, "meas": [], "conf": [], "why": f"วิเคราะห์ละเอียดไม่สำเร็จ: {exc}"}
+    else:
+        meas, by = await asyncio.to_thread(_measure_whisper, vid, texts, eff, dur)
+    # คืน "เวลาที่วัดได้" แบบสัมบูรณ์ — Studio คำนวณความคลาดและช่วงที่ควรเลื่อนเองสด ๆ
+    # ระหว่างลาก/เลื่อนเวลา โดยไม่ต้องถามเซิร์ฟเวอร์ซ้ำ (ตราบใดที่ข้อความไม่เปลี่ยน)
+    return {"by": by, "texts": texts, "meas": [round(m, 2) if m is not None else None for m in meas],
+            "conf": conf, "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)}}
+
+
+# --- ห้องหาเนื้อ -------------------------------------------------------------
+_src_cache: dict[tuple, tuple[float, list[dict]]] = {}
+SRC_TTL = 1800.0
+
+
+def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None) -> list[dict]:
+    """ผู้สมัครทุกแหล่ง (ยังไม่ให้คะแนน) — แหล่งออนไลน์ยิงพร้อมกัน แต่ละแหล่งพังได้โดยไม่ลากตัวอื่น
+    errs: ส่ง list มา = ได้ชื่อแหล่งที่พัง (งานเลือกเนื้ออัตโนมัติใช้ตัดสินว่าผลยังไม่ครบ ต้องลองใหม่)"""
+    import gen_lyrics as G
+    import lyrics_more as M
+    from concurrent.futures import ThreadPoolExecutor
+    d = _song_dir(vid)
+    meta = _song_meta(vid)
+    dur = float(meta["duration"] or 0)
+    try:
+        info = json.loads((d / "info.json").read_text("utf-8"))
+    except Exception:
+        info = {}
+    title = f"{artist} - {track}" if track else (meta["title"] or "")
+    uploader = "" if track else (meta["uploader"] or "")
+    # คำค้นจากชื่อ (สูงสุด 3) + ท่อนเนื้อ (สูงสุด 2) — ผลผิดเพลงไม่เป็นไร เพราะเรียงด้วยเสียงร้องจริงทีหลัง
+    tq = [x for x in dict.fromkeys([f"{artist} {track}".strip(), track]) if x] if track \
+        else M.queries(title, uploader)
+    lyr_texts: list[str] = []
+    try:
+        if (d / "lyrics.json").is_file():
+            lyr_texts = [l["x"] for l in json.loads((d / "lyrics.json").read_text("utf-8")).get("lines") or []]
+        if not lyr_texts:
+            lyr_texts = G.read_lines(vid, d)[0] or []
+        if not lyr_texts:                    # ยังไม่มีเนื้อเลย -> ใช้สิ่งที่ whisper ได้ยิน
+            for f in [G.segment_cache_path(vid)] + sorted(SEG_CACHE.glob(f"{vid}.*.json")):
+                if f.is_file():
+                    lyr_texts = [sg.get("text") or "" for sg in json.loads(f.read_text("utf-8")).get("segs") or []]
+                    break
+    except Exception:
+        lyr_texts = []
+    lq = M.lyric_queries(lyr_texts, 2)
+    queries = [(x, "title") for x in tq] + [(x, "lyric") for x in lq]
+    out: list[dict] = []
+
+    def add(provider, label, lines=None, texts=None, extra=None):
+        via = (extra or {}).get("via") or ("title" if provider in ("lrclib", "joox", "netease", "ytmusic") else "local")
+        if lines:
+            out.append({"provider": provider, "label": label, "synced": True, "lines": lines,
+                        "texts": None, "meta": extra or {}, "via": via})
+        elif texts and len(texts) >= 2:
+            out.append({"provider": provider, "label": label, "synced": False, "lines": None,
+                        "texts": texts, "meta": extra or {}, "via": via})
+
+    if not track:                                      # แหล่งในเครื่อง (ค้นเองไม่ต้องทำซ้ำ)
+        cur = d / "lyrics.json"
+        if cur.is_file():
+            try:
+                j = json.loads(cur.read_text("utf-8"))
+                add("current", "เนื้อที่ใช้อยู่ตอนนี้ · " + LC.kind(j.get("src") or "", LC.time_src_of(j)),
+                    lines=j.get("lines"))
+            except Exception:
+                pass
+        if (d / "sub.th.vtt").is_file():
+            add("yt-sub", "ซับที่คนทำบน YouTube", lines=LS.from_vtt(d / "sub.th.vtt", dur))
+        try:
+            desc, dsrc = G.read_lines(vid, d)
+            add(dsrc, "เนื้อจากคำอธิบายใต้คลิป" if dsrc == "web/description" else f"ไฟล์ที่วางเอง ({dsrc})", texts=desc)
+        except Exception:
+            pass
+        if (d / "auto.th.vtt").is_file():
+            w = LS.words_from_auto_vtt(d / "auto.th.vtt")
+            if w:
+                add("yt-auto", "คำบรรยายอัตโนมัติของ YouTube", lines=G.lines_from_words(w, dur))
+
+    def lrclib():
+        res = []
+        pool = LS._lrclib_pool(title, uploader, info.get("description") or "" if not track else "",
+                               dur, need_synced=False, dur_tol=None)
+        # เวอร์ชันที่ยาวใกล้คลิปนี้ก่อน (lrclib คืนเพลงชื่อซ้ำจากหลายศิลปินมาเยอะ)
+        pool.sort(key=lambda r: abs((r.get("duration") or 0) - dur) if dur else 0)
+        for rec in pool[:6]:
+            lab = f'LRCLIB · {rec.get("artistName", "?")} – {rec.get("trackName", "?")}'
+            ex = {"duration": rec.get("duration") or 0}
+            ln = LS.from_lrc(rec["syncedLyrics"], dur) if rec.get("syncedLyrics") else None
+            res.append(("lrclib", lab, ln, None if ln else LS._plain_of(rec), ex))
+        return res
+
+    def wrap(name, fn):
+        try:
+            return fn()
+        except Exception as exc:
+            print(f"[sources] {vid} {name}: {type(exc).__name__}: {exc}")
+            if errs is not None:
+                errs.append(name)
+            return []
+    jobs = {"lrclib": lrclib,
+            "joox": lambda: M.from_joox(queries, dur, per=2, max_total=6),
+            "netease": lambda: M.from_syncedlyrics([(x, "title") for x in tq[:2]], dur, providers=("NetEase",)),
+            "ytmusic": lambda: M.from_ytmusic(vid, [(x, "title") for x in tq[:2]] + [(x, "lyric") for x in lq[:1]],
+                                              dur, per=2)}
+    with ThreadPoolExecutor(len(jobs)) as ex:
+        futs = {k: ex.submit(wrap, k, fn) for k, fn in jobs.items()}
+        for k, f in futs.items():
+            for c in f.result():
+                if isinstance(c, tuple):
+                    add(c[0], c[1], lines=c[2], texts=c[3], extra=c[4])
+                else:
+                    add(c["provider"], c["label"], lines=c["lines"], texts=c["texts"], extra=c["meta"])
+    # ตัดซ้ำ (ข้อความเหมือนกันทุกตัวอักษร) เก็บตัวที่มาก่อน
+    seen, uniq = set(), []
+    for c in out:
+        key = (c["synced"], "\n".join(l["x"] for l in c["lines"]) if c["synced"] else "\n".join(c["texts"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        c["id"] = len(uniq)
+        uniq.append(c)
+    return uniq[:20], {"title": tq, "lyric": lq}
+
+
+def _score_whisper(vid: str, cands: list[dict]) -> None:
+    import verify_lyrics as V
+    chunks, by = _whisper_chunks(vid)
+    dur = float(_song_meta(vid)["duration"] or 0)
+    for c in cands:
+        if not chunks:
+            continue
+        lines = c["lines"] or [{"t": 0.0, "d": 1.0, "x": x} for x in c["texts"]]
+        m = V.measure(lines, chunks, dur)
+        c["match"] = round(m["anchorPct"], 1)
+        if c["synced"]:
+            c["timing"] = round(m["onTime"], 1)
+            c["shift"] = m["shift"] or 0.0
+            c["timingAfter"] = round(V.measure(V.shifted(lines, c["shift"], dur), chunks, dur)["onTime"], 1) \
+                if c["shift"] else c["timing"]
+        c["by"] = by
+
+
+def _score_fa(cands: list[dict], results: list[dict | None]) -> None:
+    """คะแนนด้วย FA: match = ข้อความเข้ากับเสียงร้องแค่ไหน (ความมั่นใจเฉลี่ย)
+    timing = % บรรทัดที่เวลาเดิมตรงกับที่ FA หาได้ภายใน 0.5 วิ / หลังเลื่อนทั้งเพลงค่าเดียว
+    แนบ faLines = ข้อความชุดนั้นจับเวลาด้วย FA แล้ว (ใช้ได้ทันทีแม้เป็นเนื้อเปล่า)"""
+    for c, r in zip(cands, results):
+        if not r:
+            continue
+        fl = r["lines"]
+        confs = [l.get("conf") or 0 for l in fl]
+        c["match"] = round(100 * sum(confs) / max(1, len(confs)), 1)
+        c["by"] = "fa"
+        c["faConf"] = [l.get("conf") for l in fl]         # ต่อบรรทัด (None = ไม่มีตัวที่โมเดลรู้จัก)
+        if c["match"] < 5:                  # ข้อความไม่เข้ากับเสียงร้องเลย (ผิดเพลง/อังกฤษล้วน) ไม่ต้องเสนอ
+            continue
+        c["faLines"] = [{"t": l["t"], "d": l["d"], "x": l["x"]} for l in fl]
+        if c["synced"]:
+            ds = [a["t"] - b["t"] for a, b, cf in zip(fl, c["lines"], confs) if cf >= FA_MIN_CONF]
+            if ds:
+                m = sorted(ds)[len(ds) // 2]
+                c["shift"] = round(m, 2) if abs(m) >= 0.3 else 0.0
+                c["timing"] = round(100 * sum(abs(x) <= 0.5 for x in ds) / len(ds), 1)
+                c["timingAfter"] = round(100 * sum(abs(x - c["shift"]) <= 0.5 for x in ds) / len(ds), 1)
+
+
+@app.post("/api/studio/song/{vid}/sources")
+async def studio_sources(vid: str, request: Request):
+    """ห้องหาเนื้อ: ทุกแหล่ง + คะแนน (ข้อความตรงเพลงไหม / เวลาตรงไหม / ควรเลื่อนเท่าไร)"""
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    track = " ".join(str(body.get("track") or "").split())
+    artist = " ".join(str(body.get("artist") or "").split())
+    key = (vid, track, artist)
+    hit = _src_cache.get(key)
+    if hit and not body.get("fresh") and time.time() - hit[0] < SRC_TTL:
+        cands, used = hit[1]
+    else:
+        cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist)
+        engine_fa = _fa_ready() and _audio_for(vid)
+        if engine_fa and cands:
+            try:
+                sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
+                r = await _fa(vid, {"sets": sets, "duration": _song_meta(vid)["duration"] or 0})
+                _score_fa(cands, r.get("results") or [])
+            except Exception as exc:
+                print(f"[sources] {vid} FA ให้คะแนนไม่ได้ ({exc}) -> ใช้ whisper")
+                await asyncio.to_thread(_score_whisper, vid, cands)
+        else:
+            await asyncio.to_thread(_score_whisper, vid, cands)
+        _src_cache[key] = (time.time(), (cands, used))
+    ranked = sorted(cands, key=lambda c: (-(c.get("match") or 0), -(c.get("timingAfter") or 0)))
+    return {"candidates": ranked, "queries": used,
+            "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)}}
+
+
+# ===== เลือกเนื้อดีที่สุดจากทุกแหล่ง (งานเบื้องหลัง "best") =====
+# gen_lyrics เลือกแบบ "เจอตัวแรกที่ผ่านเกณฑ์ใช้เลย" เพื่อให้เพลงมีเนื้อขึ้นจอเร็ว
+# งานนี้ตามมาทีหลัง: รวมทุกแหล่ง (ในเครื่อง + lrclib/JOOX/NetEase/YouTube Music) ให้ FA ให้คะแนน
+# กับเสียงร้องจริง แล้วเปลี่ยนเฉพาะตอนที่ดีกว่าชัดเจน — ของเดิมสำรองไว้ใน lyrics.edits/ (🕘 ประวัติ)
+# ไม่แตะเนื้อที่คนตั้งใจใส่เอง (แก้ใน Studio / วางไฟล์ใน lyrics-in)
+BEST_MANUAL = frozenset({"manual-edit", "manual-lrc", "manual-txt"})
+BEST_GOOD_CONF = 0.25         # บรรทัดที่ FA มั่นใจเท่านี้ขึ้นไป = ข้อความนั้นถูกร้องจริง
+# ความเข้ากันเฉลี่ย (match) แยกเพลงผิดได้: วัดกับคลังจริง เพลงผิด 14-30 / เนื้อถูก 38-72
+# (FA ไทยจับคู่ข้อความไทยอะไรก็ได้บางส่วน บรรทัดเพลงผิดจึงยังได้ ~0.3 — นับแค่ตัวอักษรที่ผ่านเกณฑ์ไม่พอ)
+BEST_MIN_MATCH = 35.0         # ต่ำกว่านี้ไม่เอามาแทนเด็ดขาด
+BEST_MATCH_SPREAD = 15.0      # และต้องไม่ห่างจากตัวที่เข้ากันที่สุดของเพลงนั้นเกินเท่านี้
+BEST_WIN_RATIO, BEST_WIN_CHARS = 1.1, 20   # ข้อความใหม่ต้องชนะของเดิมชัด ๆ ไม่งั้นไม่เปลี่ยน (กันสลับไปมา)
+BEST_WIN_HUMAN = 1.3          # ของเดิมคนพิมพ์+จับเวลาและตรงเสียงอยู่แล้ว (ซับของคลิปนี้เอง) ต้องชนะขาดกว่านี้
+BEST_TIME_HUMAN = 60.0        # เวลาที่คนทำ: ตรงกับ FA >= เท่านี้ (หลังเลื่อน) = ใช้เวลาเดิม
+BEST_TIME_SUB = 30.0          # ซับ YouTube ของคลิปนี้: เชื่อคนมากกว่า FA เว้นแต่ไม่ตรงเลยจริง ๆ
+BEST_TIME_AI = 85.0           # เวลาที่เครื่องเดา (whisper/auto-cap): ต้องตรงมากกว่านี้ถึงเก็บไว้ ไม่งั้นใช้ FA
+BEST_SHIFT_MIN, BEST_SHIFT_GAIN = 0.5, 15.0   # เลื่อนทั้งเพลงเมื่อเลื่อน >= 0.5 วิ และตรงขึ้น >= 15%
+# ไม่มี "ขยับรายบรรทัด" ตั้งใจ: เคยลองขยับบรรทัดที่ FA เห็นต่าง 0.5-1.5 วิ ไปตาม FA
+# วัดกับ 20 เพลงที่ผู้ใช้จับเวลาเอง ความตรงลดจาก 97% เหลือ 92% ทุกเพลง = ตรงนั้น FA ผิด ไม่ใช่คน
+BEST_IDLE_GAP = 2.0           # งานตอนว่างเว้นระหว่างเพลง กันแหล่งออนไลน์ตัดการเชื่อมต่อ
+_TH_RE = re.compile(r"[฀-๿]")
+_LAT_RE = re.compile(r"[A-Za-z]")
+_best_pending = _Pending("best")
+_best_task: asyncio.Task | None = None
+_best_state: dict[str, dict] = {}                  # videoId -> {"status": queued|working|failed, "error"}
+_best_retried: set[str] = set()                    # ผลไม่ครบ (แหล่งออนไลน์เงียบ) ลองใหม่ได้ครั้งเดียวต่อรอบเปิดเซิร์ฟเวอร์
+
+
+def _lyr_hash(j: dict | None) -> str:
+    if not j:
+        return "nolyr"
+    body = json.dumps([j.get("src") or "", [[l.get("t"), l.get("d"), l.get("x")] for l in j.get("lines") or []]],
+                      ensure_ascii=False)
+    return hashlib.sha1(body.encode("utf-8")).hexdigest()[:16]
+
+
+def _read_lyr(vid: str) -> dict | None:
+    try:
+        return json.loads((_song_dir(vid) / "lyrics.json").read_text("utf-8"))
+    except Exception:
+        return None
+
+
+def _best_rec(vid: str) -> dict:
+    try:
+        return json.loads((_song_dir(vid) / "lyrics.best.json").read_text("utf-8"))
+    except Exception:
+        return {}
+
+
+def _best_needed(vid: str) -> bool:
+    """ยังไม่เคยตัดสินเนื้อชุดนี้ -> ต้องทำ (เนื้อจากการเลือกอัตโนมัติเอง / เนื้อที่คนใส่ = ไม่ต้อง)"""
+    d = _song_dir(vid)
+    j = _read_lyr(vid)
+    if j:
+        if (j.get("src") or "") in BEST_MANUAL or j.get("best"):
+            return False
+    elif not (d / "lyrics.nolyr.json").is_file():
+        return False                              # ยังหาเนื้อรอบแรกไม่เสร็จ
+    rec = _best_rec(vid)
+    h = _lyr_hash(j)
+    if rec and h in (rec.get("base"), rec.get("out")):
+        return bool(rec.get("partial")) and vid not in _best_retried
+    return True
+
+
+def _text_score(c: dict) -> int:
+    """ตัวอักษรไทยของบรรทัดที่เข้ากับเสียงร้อง ลบ ตัวอักษรของบรรทัดที่ไม่เข้าเลย
+    เนื้อครบทั้งเพลงชนะเนื้อที่ขาดท่อน / บรรทัดเกิน (เครดิต, ท่อนที่คลิปไม่มี) โดนหัก
+    บรรทัดที่ไม่มีตัวไทย (อังกฤษ) โมเดลไทยวัดไม่ได้ -> ไม่นับทั้งบวกและลบ"""
+    texts = [l["x"] for l in c["lines"]] if c["synced"] else c["texts"]
+    good = bad = 0
+    for x, cf in zip(texts, c.get("faConf") or []):
+        n = len(_TH_RE.findall(x or "")) + len(_LAT_RE.findall(x or ""))   # ตัวละตินนับได้เพราะ FA ร่วมให้ conf แล้ว
+        if not n or cf is None:
+            continue
+        if cf >= BEST_GOOD_CONF:
+            good += n
+        elif cf < FA_MIN_CONF:
+            bad += n
+    return good - bad
+
+
+def _best_src(c: dict, cur: dict | None) -> str:
+    p = c["provider"]
+    if p == "current":
+        return (cur or {}).get("src") or ""
+    if p == "lrclib" and not c["synced"]:
+        return "lrclib-plain"
+    return p
+
+
+def _best_decide(cands: list[dict], cur: dict | None) -> dict:
+    """ตัดสินจากผลให้คะแนนของ FA (ฟังก์ชันล้วน — ทดลองกับทั้งคลังได้โดยไม่เขียนไฟล์)
+    คืน {"action": keep|shift|retime|newtext|found|none, "reason", "cand", "lines", "timeSrc", "shift"}"""
+    for c in cands:
+        if c.get("faConf") is not None:
+            c["score"] = _text_score(c)
+    scored = [c for c in cands if "score" in c]
+    gate = max(BEST_MIN_MATCH, max((c.get("match") or 0 for c in scored), default=0) - BEST_MATCH_SPREAD)
+
+    def timed(c):
+        return c["synced"] and (c.get("timingAfter") or 0) >= BEST_TIME_HUMAN
+    cur_c = next((c for c in scored if c["provider"] == "current"), None)
+    # ตัวหนังสือเครื่องถอด (yt-auto) ไม่เอามาแทน / คะแนนเท่ากันให้ตัวที่เวลาในตัวตรงเสียงชนะ
+    pool = [c for c in scored if c["provider"] not in ("current", "yt-auto")
+            and (c.get("match") or 0) >= gate and c.get("faLines")]
+    top = max(pool, key=lambda c: (c["score"] * (1.03 if timed(c) else 1.0), c.get("match") or 0)) if pool else None
+    cur_src = (cur or {}).get("src") or ""
+    cur_ts = LC.time_src_of(cur) if cur else ""
+    if cur_c is None:
+        if cur:                                   # FA ให้คะแนนเนื้อเดิมไม่ได้ (เช่นภาษาอื่นล้วน) = ไม่แตะ
+            return {"action": "keep", "reason": "วัดเนื้อเดิมกับเสียงร้องไม่ได้"}
+        if top and top["score"] >= 200:
+            chosen, action = top, "found"
+        else:
+            return {"action": "none", "reason": "ไม่เจอเนื้อที่เข้ากับเสียงร้องจากทุกแหล่ง"}
+    else:
+        cs = cur_c["score"]
+        chosen, action = cur_c, "keep"
+        if top:
+            weak = (cur_c.get("match") or 0) < 30 and (top.get("match") or 0) < 45   # FA ตัดสินเพลงนี้ไม่ได้ (ภาษาที่ไม่มีโมเดล) -> อย่าเปลี่ยน
+            if weak:
+                win = False
+            elif cur_src == "yt-auto":            # ตัวหนังสือเครื่องถอด -> เนื้อที่คนพิมพ์ชนะง่ายกว่า
+                win = top["score"] >= 0.9 * cs
+            elif cur_ts == "self" and timed(cur_c):
+                win = top["score"] >= cs * BEST_WIN_HUMAN and top["score"] >= cs + 3 * BEST_WIN_CHARS
+            elif timed(top) and not timed(cur_c) and top["score"] >= 0.95 * cs:
+                win = True                        # ข้อความเท่า ๆ กัน แต่ตัวนี้มีเวลาที่คนจับและตรงเสียง ของเดิมเวลาเดา
+            else:
+                win = top["score"] >= cs * BEST_WIN_RATIO and top["score"] >= cs + BEST_WIN_CHARS
+            if win:
+                chosen, action = top, "newtext"
+    # --- เวลา: เวลาในตัวของแหล่ง (ถ้าตรงกับเสียงร้องพอ) หรือจับใหม่ด้วย FA
+    if chosen is cur_c and (cur_ts in ("asr", "auto-cap") or cur_src == "yt-auto"):
+        need = BEST_TIME_AI
+    elif chosen is cur_c and cur_src == "yt-sub":
+        need = BEST_TIME_SUB
+    else:
+        need = BEST_TIME_HUMAN
+    ta, t0 = chosen.get("timingAfter"), chosen.get("timing")
+    shift = chosen.get("shift") or 0.0
+    if chosen["synced"] and ta is not None and ta >= need:
+        lines = [dict(l) for l in chosen["lines"]]
+        use_shift = abs(shift) >= BEST_SHIFT_MIN and (ta - (t0 or 0)) >= BEST_SHIFT_GAIN
+        if use_shift:
+            for l in lines:
+                l["t"] = round(max(0.0, l["t"] + shift), 2)
+            if action == "keep":
+                action = "shift"
+        tsrc = cur_ts if chosen is cur_c else "self"
+        why_t = f"เวลาในตัวตรงกับเสียงร้อง {ta:.0f}%" + (f" หลังเลื่อน {shift:+.2f} วิ" if use_shift else "")
+    elif chosen.get("faLines"):
+        lines = [dict(l) for l in chosen["faLines"]]
+        tsrc = "fa"
+        if action == "keep":
+            action = "retime"
+        use_shift = False
+        why_t = "จับเวลาใหม่ด้วย FA" + (f" (เวลาเดิมตรงแค่ {ta:.0f}%)" if ta is not None else "")
+    else:
+        return {"action": "keep", "reason": "FA จับเวลาเนื้อนี้ไม่ได้"}
+    if action == "keep":
+        return {"action": "keep", "reason": f"เนื้อเดิมดีที่สุดแล้ว · {why_t}", "cand": chosen, "score": ta,
+                "shift": shift if not use_shift and abs(shift) >= 0.3 else 0.0}
+    why_x = {"newtext": f"ข้อความจาก {chosen['label']} เข้ากับเสียงร้องมากกว่า ({chosen['score']} vs "
+                        f"{cur_c['score'] if cur_c else 0} ตัวอักษร)",
+             "found": f"เจอเนื้อจาก {chosen['label']}"}.get(action, "")
+    return {"action": action, "reason": " · ".join(x for x in (why_x, why_t) if x), "cand": chosen,
+            "lines": lines, "src": _best_src(chosen, cur), "timeSrc": tsrc, "shift": shift if use_shift else 0.0,
+            "score": ta}
+
+
+def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
+    """เขียนเนื้อที่เลือก + สำรองของเดิม (เห็นใน 🕘 ประวัติของ Studio) คืน hash ของเนื้อใหม่"""
+    d = _song_dir(vid)
+    _backup_lyrics(d, cur)
+    lines = []
+    for l in dec["lines"]:
+        x = " ".join(str(l.get("x") or "").split())
+        if x:
+            lines.append({"t": round(max(0.0, float(l["t"])), 2),
+                          "d": round(max(0.3, min(30.0, float(l.get("d") or 3.0))), 2), "x": x})
+    lines.sort(key=lambda l: l["t"])
+    if not lines:
+        raise RuntimeError("เนื้อที่เลือกว่างเปล่า")
+    c = dec["cand"]
+    dur = float((cur or {}).get("duration") or _song_meta(vid)["duration"] or 0.0)
+    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "PU KARAOKE auto-best",
+           "src": dec["src"], "timeSrc": dec["timeSrc"], "duration": round(dur, 2), "lines": lines,
+           "best": {"action": dec["action"], "from": (cur or {}).get("src") or "", "label": c.get("label") or "",
+                    "match": c.get("match"), "score": c.get("score"), "timing": c.get("timingAfter"),
+                    "shift": dec.get("shift") or 0.0, "at": int(time.time())}}
+    _write_json_atomic(d / "lyrics.json", out)
+    # ผลตรวจ/offset/หมุดไม่มีเนื้อ อ้างเนื้อชุดเก่า — ค้างไว้จะขึ้นป้ายผิดหรือเลื่อนซ้ำ
+    for name in ("lyrics.check.json", "lyrics.nolyr.json", "lyrics.offset.json"):
+        (d / name).unlink(missing_ok=True)
+    _lyr_cache.pop(vid, None)
+    _chk_cache.pop(vid, None)
+    _off_cache.pop(vid, None)
+    _lyr_state[vid] = {"status": "ready", "error": ""}
+    return _lyr_hash(out)
+
+
+def _best_record(vid: str, base: str, out: str, dec: dict, cands: list[dict], partial: bool) -> None:
+    rec = {"at": int(time.time()), "base": base, "out": out, "action": dec["action"], "reason": dec["reason"],
+           "partial": partial,
+           "cands": [{k: c.get(k) for k in ("provider", "label", "synced", "match", "score", "timing",
+                                             "timingAfter", "shift")} for c in cands]}
+    _write_json_atomic(_song_dir(vid) / "lyrics.best.json", rec)
+
+
+async def _ensure_bester() -> None:
+    global _best_task
+    if _best_task is None or _best_task.done():
+        _best_task = asyncio.create_task(_best_worker())
+
+
+async def _enqueue_best(vid: str | None, force: bool = False) -> bool:
+    """เข้าคิวเลือกเนื้อดีที่สุด — รอ vocals ก่อนเหมือนเวลารายคำ (แคช FA ผูกกับเสียงชุดแรกที่วิเคราะห์)"""
+    if not vid or not _fa_ok_cached() or _song_lang(vid)[0] not in LS.FA_LANGS:
+        return False                              # ญี่ปุ่น/เกาหลี/ฯลฯ ยังไม่มีโมเดล FA ให้เทียบ
+    if _best_pending.has(vid) or _best_state.get(vid, {}).get("status") == "working":
+        return False
+    j = _read_lyr(vid)
+    if j and (j.get("src") or "") in BEST_MANUAL:
+        return False                              # เนื้อที่คนใส่เอง ห้ามแตะแม้กดสั่ง
+    if not force:
+        if _best_state.get(vid, {}).get("status") == "failed" or not _best_needed(vid):
+            return False
+        if not _has_stems(vid) and _sep_state.get(vid, {}).get("status") != "failed" \
+                and not _fa_cached(vid):
+            return False                          # เดี๋ยว _sep_worker สั่งให้เองตอนได้ vocals
+    elif not j and not (_song_dir(vid) / "lyrics.nolyr.json").is_file():
+        return False
+    if not _audio_for(vid):
+        return False
+    await _ensure_bester()
+    _best_state[vid] = {"status": "queued", "error": ""}
+    _best_pending.push(vid)
+    return True
+
+
+async def _best_worker() -> None:
+    while True:
+        await _best_pending.wait()
+        hit = _best_pending.best()
+        if not hit:
+            continue
+        vid, rank = hit
+        _best_pending.discard(vid)
+        await _run_best(vid)
+        await room.broadcast()
+        if rank >= _BACKLOG:
+            await asyncio.sleep(BEST_IDLE_GAP)
+
+
+async def _run_best(vid: str) -> None:
+    global _heavy_job
+    _best_state[vid] = {"status": "working", "error": ""}
+    await room.broadcast()
+    t0 = time.monotonic()
+    try:
+        cur = _read_lyr(vid)
+        if cur and (cur.get("src") or "") in BEST_MANUAL:
+            _best_state.pop(vid, None)
+            return
+        base = _lyr_hash(cur)
+        # ดึงเนื้อออนไลน์ก่อน (นอกช่อง GPU — รอเน็ตไม่ควรกันงานอื่น)
+        cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
+        online = sum(1 for c in cands if c["provider"] in ("lrclib", "joox", "netease", "ytmusic"))
+        sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
+        payload = {"sets": sets, "duration": _song_meta(vid)["duration"] or 0}
+        if not cands:
+            r = {"results": []}
+        elif _fa_cached_for(vid, [x for st in sets for x in st]):
+            r = await asyncio.to_thread(_fa_call, vid, payload, "best")
+        else:
+            async with _heavy.slot("best", lambda: _prio(vid) + 0.4):
+                _heavy_job = ("best", vid)
+                try:
+                    r = await asyncio.to_thread(_fa_call, vid, payload, "best")
+                finally:
+                    _heavy_job = None
+        _score_fa(cands, r.get("results") or [])
+        _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
+        dec = _best_decide(cands, cur)
+        if _lyr_hash(_read_lyr(vid)) != base:
+            _best_state.pop(vid, None)             # เนื้อถูกเปลี่ยนระหว่างทำ (Studio/หาเนื้อใหม่) -> ทิ้งผลนี้
+            print(f"[best] {vid} เนื้อเปลี่ยนระหว่างเทียบ ข้ามรอบนี้")
+            return
+        out = base
+        if dec["action"] not in ("keep", "none"):
+            out = await asyncio.to_thread(_best_apply, vid, dec, cur)
+            room.archive_rev += 1
+        # ผลตรวจฟรีจากค่าที่วัดแล้ว (เฉพาะเวลาที่ไม่ได้มาจาก FA เอง ไม่งั้นเป็นการวัดตัวเอง)
+        if dec["action"] != "none" and dec.get("timeSrc", LC.time_src_of(cur) if cur else "") != "fa" \
+                and dec.get("score") is not None:
+            await asyncio.to_thread(_write_check, vid, float(dec["score"]), float(dec.get("shift") or 0.0), "fa",
+                                    len(dec.get("lines") or (cur or {}).get("lines") or []))
+        partial = online == 0
+        if partial:
+            _best_retried.add(vid)
+        await asyncio.to_thread(_best_record, vid, base, out, dec, cands, partial)
+        _best_state.pop(vid, None)
+        print(f"[best] {vid} {dec['action']}: {dec['reason']} | ผู้สมัคร {len(cands)} (ออนไลน์ {online})"
+              f" | {time.monotonic() - t0:.0f}s")
+    except Exception as exc:
+        _best_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
+        print(f"[best] {vid} FAILED: {exc}")
+    await _enqueue_words(vid)                      # ข้อความสุดท้ายนิ่งแล้ว -> ทำเวลารายคำต่อ
+
+
+_act_locks: dict[str, asyncio.Lock] = {}
+
+
+@app.post("/api/studio/song/{vid}/action")
+async def studio_action(vid: str, request: Request):
+    """ปุ่มซ่อมใน Studio — ใช้ได้กับทุกเพลงในเครื่อง ไม่ต้องอยู่ในคิว
+    (ws fix/relyr ผูกกับการ์ดในคิว จึงสั่งเพลงที่ไม่อยู่ในห้องไม่ได้)"""
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    body = await request.json()
+    do = body.get("do")
+    msg = ""
+    # ห้ามถือ room.lock ระหว่างทำคำสั่ง: ปุ่มตั้งภาษารอ yt-dlp ดึงซับ, ปุ่มตรวจภาษารอคิว GPU (อาจนานเท่า demucs
+    # ทั้งเพลง) — ของเดิมถือไว้ตลอด add/next/ended จากทุกเครื่องจึงค้างหมด เพลงจบแล้วไม่ขึ้นเพลงถัดไป
+    # คำสั่งพวกนี้ไม่แตะ queue/current เลย ใช้ lock ต่อเพลงแทน (ปุ่มของเพลงเดียวกันทำทีละอัน)
+    async with _act_locks.setdefault(vid, asyncio.Lock()):
+        if do == "fix":
+            what, why = _fix_target(vid)
+            if what:
+                await _do_fix(vid)
+                msg = f"สั่งซ่อมขั้น {what}: {why}"
+            else:
+                msg = "ไม่เจอขั้นที่พังค้าง — เลือกปุ่มซ่อมเฉพาะขั้นได้"
+        elif do == "redl":
+            for name in ("video.mp4", "audio.m4a"):
+                (d / name).unlink(missing_ok=True)
+            _dl_fails.pop(vid, None)
+            _dl_state.pop(vid, None)
+            _dl_scrub(d)
+            _invalidate_dirs()
+            await _ensure_downloader()
+            _dl_pending.push(vid)
+            msg = "เข้าคิวโหลดใหม่แล้ว"
+        elif do == "resep":
+            for f in _stem_paths(vid):
+                f.unlink(missing_ok=True)
+            _drop_key_files(vid)                       # สเต็มใหม่ = ไฟล์คีย์เก่าใช้ไม่ได้
+            _sep_state.pop(vid, None)
+            await _enqueue_sep(vid)
+            msg = "เข้าคิวแยกเสียงใหม่แล้ว" if (d / "audio.m4a").is_file() else "ยังไม่มีไฟล์เสียง ต้องโหลดก่อน"
+        elif do == "relyr":
+            await _relyr(vid)
+            msg = "เข้าคิวหาเนื้อใหม่แล้ว" + (" (จะได้เนื้อที่แก้เองกลับมา)" if (LYRICS_IN / f"{vid}.json").is_file() else "")
+        elif do == "verify":
+            if _lyr_meta(vid)[1] <= 0:
+                msg = "ยังไม่มีเนื้อให้ตรวจ"
+            else:
+                await _enqueue_verify(vid)
+                msg = "เข้าคิวตรวจเวลาเนื้อแล้ว"
+        elif do == "drop-edit":
+            (LYRICS_IN / f"{vid}.json").unlink(missing_ok=True)
+            await _relyr(vid)
+            msg = "เลิกใช้เนื้อที่แก้เองแล้ว กำลังหาเนื้อจากแหล่งเดิม"
+        elif do == "asrtext":
+            # AI จับเวลาไม่ได้เพราะยังไม่เคยถอดเสียง -> ส่งข้อความเข้าทาง manual-txt เดิม (ใช้ GPU)
+            texts = [" ".join(str(x).split()) for x in (body.get("texts") or [])]
+            texts = [x for x in texts if x]
+            if not texts:
+                raise HTTPException(status_code=400, detail="ไม่มีข้อความ")
+            LYRICS_IN.mkdir(exist_ok=True)
+            (LYRICS_IN / f"{vid}.txt").write_text("\n".join(texts) + "\n", encoding="utf-8")
+            (LYRICS_IN / f"{vid}.json").unlink(missing_ok=True)
+            lrc = LYRICS_IN / f"{vid}.lrc"
+            if lrc.is_file():                    # .lrc มาก่อน .txt -> พักไว้ ไม่ลบทิ้ง
+                lrc.replace(lrc.with_name(lrc.name + ".old"))
+            await _relyr(vid)
+            msg = "ส่งเข้าคิวถอดเสียงร้องแล้ว เสร็จแล้วเนื้อจะเปลี่ยนเอง"
+        elif do == "words":
+            if _lyr_meta(vid)[1] <= 0:
+                msg = "ยังไม่มีเนื้อ"
+            elif not _fa_ok_cached():
+                msg = "ยังไม่ได้ติดตั้งโมเดล FA"
+            else:
+                _words_state.pop(vid, None)
+                ok = await _enqueue_words(vid, force=True)
+                msg = "เข้าคิวทำเวลารายคำแล้ว" if ok else "อยู่ในคิวแล้ว / ไม่มีไฟล์เสียง"
+        elif do == "best":
+            j = _read_lyr(vid)
+            if j and (j.get("src") or "") in BEST_MANUAL:
+                msg = "เนื้อนี้แก้เอง/วางไฟล์เอง — ระบบไม่เปลี่ยนให้ (ใช้ 🔎 หาเนื้อ เลือกเองได้)"
+            elif not _fa_ok_cached():
+                msg = "ยังไม่ได้ติดตั้งโมเดล FA"
+            else:
+                _best_state.pop(vid, None)
+                _best_retried.discard(vid)
+                ok = await _enqueue_best(vid, force=True)
+                msg = "เข้าคิวเทียบเนื้อจากทุกแหล่งแล้ว" if ok else "อยู่ในคิวแล้ว / ยังไม่มีเนื้อหรือไฟล์เสียง"
+        elif do == "best-all":
+            if not _fa_ok_cached():
+                msg = "ยังไม่ได้ติดตั้งโมเดล FA"
+            else:
+                n = 0
+                for v in sorted(_dir_index()):
+                    if _best_state.get(v, {}).get("status") == "failed":
+                        _best_state.pop(v, None)
+                    if await _enqueue_best(v):
+                        n += 1
+                msg = f"เข้าคิวเทียบเนื้อ {n} เพลง" if n else "ทุกเพลงที่ทำได้ เทียบแล้ว"
+        elif do == "lang":
+            lang = LS.norm_lang(body.get("lang"))
+            if not lang:
+                raise HTTPException(status_code=400, detail="รหัสภาษาไม่ถูกต้อง")
+            LS.write_lang(d, lang, "manual")
+            _lang_cache.pop(vid, None)
+            j = _read_lyr(vid)
+            if j and (j.get("src") or "") in BEST_MANUAL:
+                msg = f"ตั้งภาษาเป็น {lang} แล้ว (เนื้อที่แก้เองไม่ถูกแตะ)"
+            else:
+                await asyncio.to_thread(_fetch_subs, d, vid, lang)
+                await asyncio.to_thread(_fetch_auto_caption, d, vid)
+                await _relyr(vid)
+                msg = f"ตั้งภาษาเป็น {lang} แล้ว กำลังหาเนื้อใหม่ด้วยภาษานี้"
+        elif do == "detect-lang":
+            (d / "lang.json").unlink(missing_ok=True)
+            _lang_cache.pop(vid, None)
+            lang = await _ensure_lang(vid)
+            msg = f"ตรวจแล้ว: ภาษา {lang} ({_song_lang(vid)[1]})"
+        elif do == "words-all":
+            if not _fa_ok_cached():
+                msg = "ยังไม่ได้ติดตั้งโมเดล FA"
+            else:
+                n = 0
+                for v in sorted(_dir_index()):
+                    if _words_state.get(v, {}).get("status") == "failed":
+                        _words_state.pop(v, None)
+                    if await _enqueue_words(v):
+                        n += 1
+                msg = f"เข้าคิวทำเวลารายคำ {n} เพลง" if n else "ทุกเพลงที่ทำได้มีเวลารายคำแล้ว"
+        else:
+            raise HTTPException(status_code=400, detail="คำสั่งไม่รู้จัก")
+    async with room.lock:
+        await _reprioritize()
+    print(f"[studio] {vid} {do}: {msg}")
+    await room.broadcast()
+    return {"ok": True, "msg": msg}
+
+
+def _finite(v: Any, lo: float, hi: float) -> float | None:
+    """ตัวเลขจากภายนอก -> float ในช่วง [lo, hi] / None ถ้าไม่ใช่ตัวเลขจริง
+    NaN/Infinity ห้ามหลุดลงไฟล์หรือ state: JSON ของเบราว์เซอร์อ่านไม่ออก (Studio เปิดเพลงนั้นไม่ได้ / ทุกจอพัง)"""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(x):
+        return None
+    return max(lo, min(hi, x))
+
+
+# ปกที่แขกส่งมากับคำสั่งเพิ่มเพลง — รับเฉพาะรูปแบบที่หน้าเว็บของเราสร้างจริง (ผลค้นหา/คลัง/พร็อกซีปก)
+# ไม่งั้น URL อะไรก็ได้ไปโผล่ใน <img>/CSS ของทุกจอ (รั่ว IP เครื่อง Studio ให้เว็บภายนอก)
+_THUMB_OK = re.compile(r"https://i\.ytimg\.com/vi/([A-Za-z0-9_-]{11})/[A-Za-z0-9_]+\.jpg"
+                       r"|/song/([A-Za-z0-9_-]{11})/cover\.jpg|/thumb/([A-Za-z0-9_-]{11})")
+
+
+def _thumb_for(vid: str, thumb: Any) -> str:
+    if isinstance(thumb, str):
+        m = _THUMB_OK.fullmatch(thumb)
+        if m and vid in m.groups():
+            return thumb
+    return f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+
+
+def _targets_current(msg: dict) -> bool:
+    """คำสั่งที่เลื่อนเพลง (ended/next) หมายถึงเพลงที่เล่นอยู่จริงไหม
+    ไม่มี id = ไคลเอนต์รุ่นเก่า -> ยอมไว้ก่อน (รีสตาร์ทเซิร์ฟเวอร์แล้วจอ/มือถือต่อใหม่ แต่ยังรัน JS ชุดเดิมจนกว่าจะรีโหลด)
+    มี id แต่ไม่ตรง = คำสั่งค้าง (ended ซ้ำ / ended มาหลังคนกดข้าม / กดข้ามรัว) -> ไม่ทำ ไม่งั้นข้ามสองเพลง"""
+    if "id" not in msg:
+        return True
+    cur = room.current or {}
+    return msg.get("id") is not None and msg.get("id") == cur.get("id")
+
+
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    # เว็บอื่น (แท็บไหนก็ได้ในเครื่องนี้/มือถือในวงแลน) เปิด WebSocket ข้ามเว็บได้โดยไม่ติด CORS
+    # จึงต้องตรวจ Origin เอง — ปิดก่อน accept = uvicorn ตอบ HTTP 403
+    if not _same_origin(ws.headers):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    room.clients.add(ws)
+    if not await _ws_send(ws, json.dumps(room.state())):
+        _ws_drop(ws)
+        return
+    try:
+        while True:
+            try:
+                raw = await ws.receive_text()
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                # socket ถูกปิดจากฝั่งเราแล้ว (_ws_drop ตอนส่งไม่ทัน) -> receive raise ทันทีทุกรอบ
+                # ห้าม continue: จะกลายเป็นลูปเปล่ากิน CPU 100% จนทั้งเซิร์ฟเวอร์ค้าง
+                break
+            msg = None                     # ให้ except ข้างล่างอ้างถึงได้แม้ parse ยังไม่ผ่าน
+            try:
+                msg = json.loads(raw)
+                if not isinstance(msg, dict):
+                    continue
+                act = msg.get("action")
+                if act == "hello":
+                    # เฉพาะเครื่องนี้เท่านั้นที่เป็นจอหลักได้ และมีได้ทีละตัว ตัวใหม่ชนะ
+                    if msg.get("role") != "player":
+                        continue
+                    if not _is_local(ws.client.host if ws.client else None):
+                        await _ws_send(ws, json.dumps({"type": "evicted", "why": "remote"}))
+                        continue
+                    room.player_id = msg.get("id")
+                    for other in list(room.clients):
+                        if other is not ws and getattr(other, "_is_player", False):
+                            await _ws_send(other, json.dumps({"type": "evicted", "why": "replaced"}))
+                            other._is_player = False
+                    ws._is_player = True
+                    # ยึดจอคืน/ต่อใหม่ -> ส่ง state ให้วาดใหม่ทันที ไม่ต้องรอ broadcast ครั้งถัดไป
+                    await _ws_send(ws, json.dumps(room.state()))
+                    continue
+                if act == "pos":
+                    if getattr(ws, "_is_player", False):
+                        t = _finite(msg.get("t"), 0.0, 86400.0)
+                        if t is not None:
+                            room.pos = t
+                            room.pos_at = time.monotonic()
+                    continue
+                if act == "history":
+                    await _ws_send(ws, json.dumps({"type": "history", "items": room.history}))
+                    continue
+                added = None               # {"type":"added"} ส่งหลัง broadcast ให้ทุกจอมี state ของเพลงนี้ก่อน
+                async with room.lock:
+                    if act == "add":
+                        # ทุกฟิลด์มาจากมือถือใครก็ได้ในวงแลน -> แปลงเป็นสตริง + จำกัดความยาวก่อนเข้าคิว/ประวัติ
+                        singer = " ".join(str(msg.get("singer") or "").split())[:24] or DEFAULT_SINGER
+                        title = " ".join(str(msg.get("title") or "").split())[:200]
+                        if msg.get("source") == "local":
+                            path = msg.get("path")
+                            if not isinstance(path, str) or not path.strip() or len(path) > 500:
+                                raise ValueError("path ไม่ถูกต้อง")
+                            room.add({
+                                "source": "local",
+                                "path": path,
+                                "title": title or path,
+                                "audioOnly": bool(msg.get("audioOnly")),
+                                "singer": singer,
+                            })
+                            it = room.queue[-1] if room.queue else room.current
+                        else:
+                            vid = msg.get("videoId")
+                            if not _vid_ok(vid):
+                                # ต้องตรวจก่อน room.add: ค่าที่ไม่ใช่สตริงเข้าคิวแล้ว room.state() พังทุก broadcast
+                                raise ValueError(f"videoId ไม่ถูกต้อง: {str(vid)[:40]!r}")
+                            room.add({
+                                "source": "yt",
+                                "videoId": vid,
+                                "title": title or vid,
+                                "thumb": _thumb_for(vid, msg.get("thumb")),
+                                "singer": singer,
+                                "dlStatus": "queued",
+                                "dlError": "",
+                            })
+                            it = room.queue[-1] if room.queue else room.current
+                            if not _mark_ready_if_archived(it):
+                                await _ensure_downloader()
+                                _dl_pending.push(it["videoId"])
+                            # เพลงที่มีในอาร์ไคฟ์แล้ว -> แยกเสียงได้เลย
+                            # เพลงที่เพิ่งเข้าคิวโหลด -> no-op เพราะยังไม่มี audio.m4a
+                            # แล้ว _download_worker จะสั่งซ้ำให้เองตอนโหลดเสร็จ
+                            await _enqueue_sep(it.get("videoId"))
+                            # เพลงที่แยกเสียงไว้แล้วแต่ยังไม่มีเนื้อ -> หาเนื้อให้ทันที
+                            await _enqueue_lyr(it.get("videoId"))
+                        room.history.insert(0, {
+                            "videoId": it.get("videoId"),
+                            "path": it.get("path"),
+                            "source": it.get("source"),
+                            "title": it.get("title"),
+                            "thumb": it.get("thumb"),
+                            "singer": it.get("singer") or "",
+                            "at": time.time(),
+                        })
+                        del room.history[HISTORY_MAX:]
+                        await asyncio.to_thread(_save_history)
+                        # cid = แท็บรีโมทที่กด -> เครื่องนั้นเปิดหน้าสถานะเต็มจอ ส่วนจอทีวีขึ้นการ์ด
+                        added = {"type": "added", "id": it.get("id"),
+                                 "cid": str(msg.get("cid") or "")[:40]}
+                    elif act == "mix":
+                        for _k, (_lo, _hi) in MIX_RANGE.items():
+                            if _k in msg:
+                                v = _finite(msg[_k], _lo, _hi)
+                                if v is not None:
+                                    room.mix[_k] = int(round(v))
+                        if "key" in msg and room.current:      # เตรียมสเต็มคีย์ใหม่ให้เพลงที่เล่นอยู่
+                            await _enqueue_key(room.current.get("videoId"), room.mix["key"])
+                    elif act == "lyrmode":
+                        if msg.get("mode") in LYR_MODES:
+                            room.lyr_mode = msg["mode"]
+                    elif act == "ended":
+                        # ต้องมาจากจอหลักเท่านั้น: จอที่ถูกไล่ไปแล้วยังนับถอยหลัง error แล้วส่ง ended ได้
+                        if getattr(ws, "_is_player", False) and _targets_current(msg):
+                            room.next()
+                    elif act == "next":
+                        if _targets_current(msg):
+                            room.next()
+                    elif act == "restart":
+                        room.pos = 0.0
+                        room.pos_at = time.monotonic()
+                        room.restart_token += 1
+                        room.playing = True
+                    elif act == "toggle":
+                        # ตรึงตำแหน่ง ณ ตอนสลับ — ไม่งั้นหยุดนาน ๆ แล้วเล่นต่อ position() กระโดดไปข้างหน้า
+                        # เท่าเวลาที่หยุด (จอใช้ค่านี้ตอนเริ่มสเต็มใหม่ รีโมทใช้เป็นเวลาในรายงาน)
+                        room.pos = room.position()
+                        room.pos_at = time.monotonic()
+                        room.playing = not room.playing
+                    elif act == "remove":
+                        room.remove(msg.get("id") or "")
+                    elif act == "up":
+                        room.move(msg.get("id") or "", -1)
+                    elif act == "down":
+                        room.move(msg.get("id") or "", 1)
+                    elif act == "playnow":
+                        # เล่นเฉพาะตอนเจอ id — กดรัวสองที ครั้งที่สองเพลงนั้นกลายเป็นเพลงที่เล่นอยู่แล้ว
+                        # ของเดิมเรียก next() ทุกกรณี = ข้ามเพลงที่เพิ่งกดเล่นทิ้ง
+                        for i, q in enumerate(room.queue):
+                            if q["id"] == msg.get("id"):
+                                room.queue.insert(0, room.queue.pop(i))
+                                room.next()
+                                break
+                    elif act == "fix":
+                        # "มีอะไรพัง -> กดทีเดียว" เซิร์ฟเวอร์เลือกขั้นที่พังให้เอง
+                        it = room.find(msg.get("id")) or room.current
+                        vid = (it or {}).get("videoId")
+                        if vid and (it or {}).get("source") == "yt":
+                            await _do_fix(vid)
+                    elif act == "report":
+                        # แขกแจ้งซับไม่ตรง -> เก็บไว้ให้คนดูแลแก้ใน Studio (ไม่สั่งตรวจ/ซ่อมอัตโนมัติ)
+                        # ปุ่มอยู่บนการ์ดเพลงที่เล่นอยู่ จึงอ้างจาก room.current เสมอ
+                        vid = (room.current or {}).get("videoId")
+                        if vid and (room.current or {}).get("source") == "yt":
+                            dur = float(_song_meta(vid)["duration"] or 0) or 86400.0
+                            pos = _finite(msg.get("t"), 0.0, dur)
+                            if pos is None:
+                                pos = min(room.position(), dur)
+                            rep = await asyncio.to_thread(_add_user_report, vid, pos, msg.get("tags"),
+                                                          msg.get("note"), msg.get("singer"))
+                            room.archive_rev += 1          # ตัวเลข 🚩 ใน Studio ต้องอัปเดต
+                            print(f"[report] {vid} แจ้งซับไม่ตรงที่ {pos:.0f}s "
+                                  f"{','.join(rep['tags']) or '-'} {rep['note']!r} โดย {rep['by']}")
+                    if act in ("add", "next", "ended", "remove", "up", "down",
+                               "playnow", "fix"):
+                        await _reprioritize()
+                    await room.broadcast()     # คำสั่งที่ถูกเมินก็ broadcast ด้วย ให้เครื่องที่ส่งตามทัน
+                    if added:
+                        await room.send_all(json.dumps(added))
+            except WebSocketDisconnect:
+                break                      # ตัดการเชื่อมต่อจริง -> ออกจากลูป
+            except Exception as exc:
+                # ข้อความเพี้ยน/ฟิลด์หาย ต้องไม่ฆ่า socket ของมือถือเครื่องนั้นทั้งเครื่อง
+                # (ของเดิม KeyError หลุดออกมาแล้วจอรีเฟรชเงียบ ๆ โดยไม่มีอะไรเกิดขึ้น)
+                print(f"[ws] {_printable(msg.get('action'), 20) if isinstance(msg, dict) else '?'} "
+                      f"ล้มเหลว: {type(exc).__name__}: {exc}")
+                continue
+    finally:
+        room.clients.discard(ws)
+
+
+if __name__ == "__main__":
+    if "--migrate-dry-run" in sys.argv:
+        for a, b in _migrate_song_dirs(dry=True):
+            print(f"  {a}\n   -> {b}")
+        raise SystemExit
+    import uvicorn
+    print(f"\n  Player screen : {BASE_URL}/\n  Phone remote  : {BASE_URL}/r"
+          f"\n  Studio        : {BASE_URL}/studio   (PIN {_studio_cfg()['pin']})\n")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

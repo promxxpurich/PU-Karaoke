@@ -1,0 +1,2183 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8"><title>PU KARAOKE Studio</title>
+<!-- ล็อกซูมบนมือถือ: maximum-scale/user-scalable ครอบ Android ส่วน iOS Safari ไม่สน ต้องดัก gesture ใน JS ด้วย -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06060b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+ :root{
+   --bg:#06060b; --panel:#14141f; --panel2:#1b1b29; --panel3:#232336; --fg:#f4f4f8; --dim:#8b8ba4;
+   --accent:#ff4d8d; --accent2:#7c5cff; --line:rgba(255,255,255,.09);
+   --ok:#38d39f; --wait:#ffb648; --bad:#ff6b8f; --off:#5d5d74; --info:#9c86ff;
+ }
+ *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+ html,body{height:100%}
+ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}   /* ไม่มีแตะสองทีซูม */
+ body{margin:0;background:var(--bg);color:var(--fg);font-size:14px;overflow:hidden;
+   font-family:"Noto Sans Thai",-apple-system,system-ui,sans-serif}
+ .hide{display:none!important}
+ input,button,select,textarea{font:inherit;font-family:inherit;color:inherit}
+ button{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:7px 11px;
+   cursor:pointer;transition:background .15s,transform .08s;white-space:nowrap}
+ button:hover{background:var(--panel3)}
+ button:active{transform:scale(.96)}
+ button:disabled{opacity:.45;cursor:default;transform:none}
+ button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+ .primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;
+   color:#fff;font-weight:600}
+ .primary:hover{filter:brightness(1.08);background:linear-gradient(135deg,var(--accent),var(--accent2))}
+ .ghost{background:none}
+ .danger{color:#ffb0c4}
+ input[type=text],input[type=search],input:not([type]),textarea,select{background:var(--panel);
+   border:1px solid var(--line);border-radius:10px;padding:8px 11px;min-width:0}
+ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,77,141,.15)}
+ kbd{font-family:inherit;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--panel3);
+   border:1px solid var(--line);color:var(--dim)}
+
+ /* ---------- layout ---------- */
+ .app{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr);height:100vh;height:100dvh}
+ header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);
+   background:rgba(9,9,16,.92)}
+ .logo{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:700;letter-spacing:.03em}
+ .logo .mk{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;
+   background:linear-gradient(135deg,var(--accent),var(--accent2))}
+ .logo b{background:linear-gradient(90deg,var(--accent),#ffb8d2);-webkit-background-clip:text;
+   background-clip:text;color:transparent}
+ .logo small{font-size:12px;font-weight:600;color:var(--dim);letter-spacing:.12em;margin-left:2px}
+ .st{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);
+   padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+ .st .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+ body.off .st .dot{background:var(--accent);animation:blink 1s infinite}
+ @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+ #back{display:none}
+ .main{display:grid;grid-template-columns:380px minmax(0,1fr);min-height:0}
+
+ /* ---------- ซ้าย: รายการเพลง ---------- */
+ .side{display:flex;flex-direction:column;min-height:0;min-width:0;border-right:1px solid var(--line);background:#09090f}
+ .sidetop{padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
+ .filters{display:flex;flex-wrap:wrap;gap:5px}
+ .filters button{font-size:12px;padding:4px 10px;border-radius:999px;color:var(--dim)}
+ .filters button b{color:var(--fg);font-weight:600;margin-left:3px}
+ .filters button.on b{color:#fff}
+ .srow{display:flex;gap:6px}
+ .srow input{flex:1}
+ .srow select{flex:none;width:118px;font-size:12.5px}
+ #list{flex:1;overflow-y:auto;padding:4px 8px 16px}
+ .it{display:flex;gap:10px;align-items:center;padding:8px;border-radius:12px;cursor:pointer;
+   border:1px solid transparent}
+ .it:hover{background:var(--panel)}
+ .it.on{background:linear-gradient(135deg,rgba(255,77,141,.14),rgba(124,92,255,.12));border-color:rgba(255,77,141,.35)}
+ .it .th{width:68px;height:38px;border-radius:8px;flex:none;background:var(--panel2) center/cover no-repeat}
+ .it .g{flex:1;min-width:0}
+ .it .t{font-size:13px;font-weight:600;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .it .m{font-size:11px;color:var(--dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+ .chip{font-size:10.5px;line-height:1.55;padding:0 7px;border-radius:999px;white-space:nowrap;
+   background:rgba(255,255,255,.07);color:#c9c9dc}
+ .chip.ok{background:rgba(56,211,159,.13);color:#8ff0cb}
+ .chip.wait,.chip.warn{background:rgba(255,182,72,.14);color:#ffd08a}
+ .chip.bad{background:rgba(255,107,143,.15);color:#ffb0c4}
+ .chip.info{background:rgba(156,134,255,.16);color:#cdbfff}
+ .chip.hot{background:rgba(255,77,141,.22);color:#ffc2d8}
+ .empty{color:var(--dim);text-align:center;padding:30px 10px;line-height:1.7}
+
+ /* ---------- ขวา: ตัวแก้ ---------- */
+ .ed{display:grid;grid-template-rows:auto auto auto 1fr;min-height:0;min-width:0;overflow:hidden}
+ .blank{display:grid;place-items:center;color:var(--dim);text-align:center;line-height:1.8;padding:30px}
+ .blank b{color:var(--fg);font-size:17px}
+ .top{display:grid;grid-template-columns:minmax(300px,46%) 1fr;gap:14px;padding:12px 14px 8px;min-width:0}
+ .pv{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000 center/cover no-repeat;
+   container-type:inline-size;box-shadow:0 10px 30px rgba(0,0,0,.4);align-self:start}
+ .pv video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent}
+ .pv.audio video{opacity:0}
+ .pv .shade{position:absolute;inset:auto 0 0;height:62%;pointer-events:none;
+   background:linear-gradient(0deg,rgba(0,0,0,.92),rgba(0,0,0,.5) 58%,transparent)}
+ .pv .ly{position:absolute;left:4%;right:4%;bottom:7%;text-align:center;pointer-events:none}
+ .pv .l1{font-size:4.4cqw;font-weight:700;line-height:1.3;min-height:1.3em;text-shadow:0 2px 12px rgba(0,0,0,.95)}
+ .pv .l2{font-size:2.2cqw;color:rgba(255,255,255,.55);line-height:1.35;min-height:1.35em;margin-top:.6cqw;
+   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .pv.dual .l2{font-size:4.4cqw;font-weight:700;color:rgba(255,255,255,.55);white-space:normal;line-height:1.3;min-height:1.3em}
+ .pv.dual .l1{color:rgba(255,255,255,.55)}
+ .pv.dual .on{color:#fff!important}
+ .pv.kara .ly span{transition:color .12s linear}
+ .pv.kara .ly span.s{color:#ff6fa6!important}       /* สีเดียวกับจอทีวี (--kara ใน player.html) */
+ .pv .tag{position:absolute;left:10px;top:10px;font-size:11px;padding:3px 10px;border-radius:999px;
+   background:rgba(0,0,0,.55);color:#ddd;backdrop-filter:blur(6px)}
+ .pv .trial{left:auto;right:10px;background:rgba(255,182,72,.85);color:#1a1200;font-weight:700}
+ .info{min-width:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:46vh}
+ .info .tt{font-size:17px;font-weight:700;line-height:1.35;word-break:break-word}
+ .info .mm{font-size:12px;color:var(--dim)}
+ .acts{display:flex;flex-wrap:wrap;gap:5px}
+ .acts button{font-size:12px;padding:5px 9px}
+ .err{font-size:12px;color:#ff9db7;background:rgba(255,107,143,.08);border-radius:9px;padding:6px 10px;word-break:break-word}
+ .tip{font-size:12.5px;line-height:1.5;padding:8px 11px;border-radius:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+ .tip.sugg{background:rgba(255,182,72,.1);border:1px solid rgba(255,182,72,.28);color:#ffd9a0}
+ .tip.note{background:rgba(156,134,255,.1);border:1px solid rgba(156,134,255,.25);color:#d9d0ff}
+ .tip.best{background:rgba(56,211,159,.08);border:1px solid rgba(56,211,159,.25);color:#bff0dc}
+ .tip button{font-size:12px;padding:4px 10px}
+ .offrow{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+ .offrow input[type=text]{width:78px;text-align:center;padding:5px 6px;font-variant-numeric:tabular-nums}
+ .offrow button{padding:4px 9px}
+ .offrow label{display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:6px}
+
+ /* ---------- 🚩 รายงานจากรีโมท ---------- */
+ .reps{border:1px solid rgba(255,107,143,.3);background:rgba(255,107,143,.06);border-radius:11px;padding:7px 9px}
+ .reps .hd{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#ffb0c4;font-weight:600}
+ .reps .hd button{margin-left:auto;font-size:11.5px;padding:3px 9px}
+ .rep{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:5px 0;
+   border-top:1px solid var(--line);font-size:12.5px}
+ .rep:first-of-type{border-top:none}
+ .rep .at{font-variant-numeric:tabular-nums;font-weight:700;color:#ffc2d8;background:rgba(255,77,141,.15);
+   border:none;padding:3px 9px;border-radius:8px;font-size:12px}
+ .rep .tx{min-width:0;line-height:1.45}
+ .rep .tx small{color:var(--dim)}
+ .rep button.dn{font-size:11.5px;padding:3px 9px}
+ .rep.done{opacity:.45}
+ .reps .more{font-size:11.5px;color:var(--dim);background:none;border:none;padding:4px 0 0;text-decoration:underline}
+
+ /* ---------- 🗺 แผนที่ความคลาด / 🔎 ห้องหาเนื้อ ---------- */
+ .drift{border:1px solid rgba(124,92,255,.3);background:rgba(124,92,255,.06);border-radius:11px;padding:7px 9px;font-size:12.5px}
+ .drift .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#d9d0ff;font-weight:600}
+ .drift .hd .sp{flex:1}
+ .drift .hd button,.seg1 button{font-size:11.5px;padding:3px 10px}
+ .drift .why{color:var(--dim);margin-top:4px;font-weight:400}
+ .seg1{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--line)}
+ .seg1 .tx{flex:1;min-width:0;line-height:1.45}
+ .seg1 small{color:var(--dim)}
+ #ov{display:block;width:100%;height:40px;cursor:pointer;border-top:1px solid var(--line)}
+ .dlg .card.wide{width:min(780px,100%)}
+ .srcq{display:flex;gap:6px;margin:10px 0 4px}
+ .srcq input{flex:1}
+ .srcused{font-size:11.5px;color:var(--dim);margin:2px 0 4px;line-height:1.9}
+ .srcused .chip{white-space:normal}
+ .src{border:1px solid var(--line);border-radius:12px;padding:9px 11px;margin-top:8px}
+ .src.best{border-color:rgba(56,211,159,.45)}
+ .src .h{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+ .src .h b{font-size:13px;margin-right:4px}
+ .src .p3{font-size:12px;color:var(--dim);margin:6px 0;line-height:1.5;word-break:break-word}
+ .src .bt{display:flex;gap:6px;flex-wrap:wrap}
+ .src .bt button{font-size:12px;padding:5px 10px}
+ #aieng{font-size:12px;padding:5px 6px}
+
+ .tp{display:flex;align-items:center;gap:8px;padding:4px 14px 6px;flex-wrap:wrap}
+ #play{width:40px;height:34px;padding:0;font-size:15px}
+ #tm{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--dim);min-width:124px}
+ #seek{flex:1;min-width:120px;accent-color:var(--accent)}
+ .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+ .seg button{border:none;border-radius:0;padding:5px 9px;font-size:12px;background:var(--panel)}
+ .seg button.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+ .tp .ic{width:34px;height:30px;padding:0}
+
+ .tlw{position:relative;margin:0 14px;border:1px solid var(--line);border-radius:12px;background:#0b0b13;overflow:hidden}
+ #tl{display:block;width:100%;height:132px;cursor:crosshair;touch-action:none}
+ .tlbar{position:absolute;right:6px;top:6px;display:flex;gap:4px}
+ .tlbar button{padding:2px 8px;font-size:12px;background:rgba(20,20,32,.85)}
+ #tlmsg{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font-size:12.5px;pointer-events:none}
+
+ .toolsw{border-bottom:1px solid var(--line);padding:4px 0}
+ .tools{display:flex;align-items:center;gap:5px;padding:4px 14px;flex-wrap:wrap}
+ .tools button{padding:6px 9px;font-size:12.5px}
+ .tools .seg button{padding:6px 8px}
+ .tools .sp{flex:1}
+ .tools .lb{font-size:11.5px;color:var(--dim);margin:0 1px 0 6px}
+ .tools label{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);cursor:pointer}
+ #tapbtn.on{background:linear-gradient(135deg,var(--wait),#ff8a3d);color:#1a1200;border-color:transparent;font-weight:700}
+ #ripbtn.on{background:rgba(124,92,255,.35);color:#fff;border-color:rgba(124,92,255,.6)}
+ #savebtn.dirty{box-shadow:0 0 0 3px rgba(255,77,141,.28)}
+ .tapbar{margin:6px 14px 0;padding:8px 12px;border-radius:10px;background:rgba(255,182,72,.12);
+   border:1px solid rgba(255,182,72,.35);color:#ffd9a0;font-size:12.5px}
+
+ /* ---------- ตารางบรรทัด ---------- */
+ #rows{overflow-y:auto;min-height:0;padding:4px 8px 30px}
+ .row{display:grid;grid-template-columns:36px 92px 62px 1fr auto;gap:6px;align-items:center;
+   padding:3px 6px;border-radius:9px;border:1px solid transparent}
+ .row:hover{background:rgba(255,255,255,.025)}
+ .row.sel{background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.35)}
+ .row.cur{background:rgba(255,77,141,.12)}
+ .row.cur .n{color:var(--accent);font-weight:700}
+ .row.tapnext{box-shadow:inset 3px 0 0 var(--wait)}
+ .row .n{font-size:11.5px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
+ .row input{padding:5px 7px;border-radius:8px;background:transparent;border-color:transparent;width:100%}
+ .row input:hover{border-color:var(--line)}
+ .row input:focus{background:var(--panel)}
+ .row .ti,.row .di{font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right}
+ .row .xi{font-size:14px}
+ .row .rb{display:flex;gap:2px;opacity:.35;transition:opacity .15s}
+ .row:hover .rb,.row.sel .rb{opacity:1}
+ .row .rb button{padding:3px 7px;font-size:12px;border-radius:7px;background:none;border-color:transparent}
+ .row .rb button:hover{background:var(--panel3)}
+ .row.warn .ti{color:var(--wait)}
+ .rowhd{display:grid;grid-template-columns:36px 92px 62px 1fr auto;gap:6px;padding:6px 12px 2px;
+   font-size:11px;color:var(--dim);letter-spacing:.04em}
+
+ /* ---------- ⛶ โหมดแก้เต็มจอ: พรีวิว | ตาราง ด้านบน, แถบคลื่นสูงด้านล่าง ---------- */
+ body.focus .app{grid-template-rows:1fr}
+ body.focus header,body.focus .side,body.focus .rowhd,body.focus #acts,body.focus #meta,
+ body.focus #stchips,body.focus #errbox,body.focus #bestnote{display:none!important}
+ body.focus .main{grid-template-columns:minmax(0,1fr)}
+ body.focus .ed{grid-template-columns:40% 60%;grid-template-rows:minmax(0,1fr) auto auto auto auto auto;
+   grid-template-areas:"pv rows" "info info" "tp tp" "tl tl" "tap tap" "tools tools"}
+ body.focus .top,body.focus #mid{display:contents}
+ body.focus .pv{grid-area:pv;margin:12px 0 6px 14px;max-height:calc(100% - 18px);width:auto}
+ body.focus #rows{grid-area:rows;padding-top:10px}
+ body.focus .info{grid-area:info;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 12px;
+   padding:6px 14px;max-height:22vh;border-top:1px solid var(--line)}
+ body.focus .info .tt{font-size:14px}
+ body.focus .info>div:first-child{flex:0 1 auto}
+ body.focus .reps{flex:1 1 100%;max-height:13vh;overflow-y:auto}
+ body.focus #tp{grid-area:tp}
+ body.focus .tlw{grid-area:tl}
+ body.focus #tl{height:30vh}
+ body.focus #tapbar{grid-area:tap}
+ body.focus .toolsw{grid-area:tools;border-bottom:none}
+ #fsbtn.on{background:rgba(124,92,255,.35)}
+
+ /* ---------- dialog / toast / pin ---------- */
+ .dlg{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(4,4,10,.7);
+   backdrop-filter:blur(8px);padding:16px}
+ .dlg .card{width:min(560px,100%);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid rgba(255,255,255,.12);
+   border-radius:20px;padding:20px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+ .dlg h2{margin:0 0 6px;font-size:18px}
+ .dlg p{margin:6px 0;color:var(--dim);line-height:1.6}
+ .dlg textarea{width:100%;height:260px;resize:vertical;line-height:1.6}
+ .dlg .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+ .pin input{font-size:28px;letter-spacing:.5em;text-align:center;width:100%;padding:12px}
+ .pin .why{color:#ff9db7;min-height:1.4em;margin-top:8px;font-size:13px}
+ #toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,10px);z-index:60;max-width:80vw;
+   padding:10px 18px;border-radius:999px;background:rgba(22,22,36,.97);border:1px solid var(--line);
+   box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
+ #toast.show{opacity:1;transform:translate(-50%,0)}
+ .vers{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+ .vers button{text-align:left;display:flex;justify-content:space-between;gap:10px}
+ .keys{font-size:12px;color:var(--dim);line-height:2}
+
+ /* ---------- แท็บบนหัว: เพลงทั้งหมด / กำลังเล่น & คิว / หน้าจอหลัก ---------- */
+ .tabs{display:flex;gap:4px;margin-left:10px}
+ .tabs button{border-radius:999px;padding:6px 13px;font-size:13px;color:var(--dim);background:none;border-color:transparent}
+ .tabs button.on{color:#fff}
+ .tabs .cnt{font-size:11px;margin-left:4px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.14)}
+ body:not([data-view=songs]) .main, body:not([data-view=songs]) #back{display:none!important}
+ body:not([data-view=queue]) #vqueue, body:not([data-view=tv]) #vtv{display:none}
+ .view{min-height:0;overflow:auto}
+ .vwrap{max-width:980px;margin:0 auto;padding:18px 18px 60px}
+ .vhd h2{margin:0 0 4px;font-size:19px}
+ .vhd p{margin:0 0 14px;color:var(--dim);font-size:13px}
+ /* ---------- ▶ กำลังเล่น & คิว ---------- */
+ .qsec{font-size:12px;letter-spacing:.08em;color:var(--dim);margin:16px 2px 8px}
+ .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+ .qcard.cur{border-color:rgba(255,77,141,.5);box-shadow:0 0 0 3px rgba(255,77,141,.1)}
+ .qhead{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:12px;align-items:center}
+ .qhead img{width:120px;aspect-ratio:16/9;object-fit:cover;border-radius:9px;background:var(--panel3);display:block}
+ .qhead .tt{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .qhead .mm{color:var(--dim);font-size:12px;margin:2px 0 6px}
+ .qhead .from{font-size:13px;margin-bottom:5px}
+ .qhead .from b{color:#ffd0e2}
+ .qbtns{display:flex;flex-direction:column;gap:6px}
+ .qhead .bl{font-size:12px;color:#bff0dc;margin-top:6px;line-height:1.5}
+ .qhead .bl.bad{color:#ffb8ca}
+ /* ---------- 📺 หน้าจอหลัก ---------- */
+ .tvgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:18px;max-width:1280px;margin:0 auto;padding:18px}
+ .tvside{position:sticky;top:0;align-self:start}
+ .tvform fieldset{border:1px solid var(--line);border-radius:14px;padding:12px 14px 14px;margin:0 0 12px;background:var(--panel)}
+ .tvform legend{padding:0 6px;font-weight:600}
+ .fr{display:flex;align-items:center;gap:10px;min-height:36px;flex-wrap:wrap}
+ .fr > label:first-child{min-width:190px;color:#dcdcea}
+ .fr input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+ .fr .val{min-width:52px;text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+ .fr input[type=color]{width:44px;height:30px;border:1px solid var(--line);border-radius:8px;background:none;padding:2px;cursor:pointer}
+ .sw{display:flex;gap:5px}
+ .sw i{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid rgba(255,255,255,.25)}
+ .tog{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+ .tog input{width:18px;height:18px;accent-color:var(--accent)}
+ .chkgrid{display:flex;flex-wrap:wrap;gap:6px 14px}
+ .hint{font-size:12px;color:var(--dim);margin-top:4px}
+ .logobox{display:flex;gap:14px;align-items:center}
+ .logobox .sq{width:96px;aspect-ratio:1;border-radius:12px;border:1px dashed var(--line);display:grid;place-items:center;
+   overflow:hidden;background:repeating-conic-gradient(#1b1b29 0 25%,#232336 0 50%) 0 0/16px 16px;color:var(--dim);font-size:12px}
+ .logobox .sq img{width:100%;height:100%;object-fit:cover}
+ #tvsaved{font-size:12px;color:var(--dim);margin-top:8px;min-height:18px}
+ /* พรีวิวจำลองจอทีวี: หน่วย cqw = % ความกว้างพรีวิว (ทีวีใช้ vw) — ใช้ตัวแปรชุดเดียวกับจอจริง */
+ .tvpv{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;container-type:inline-size;
+   background:#000 center/cover no-repeat;border:1px solid var(--line)}
+ .tvpv .bg{position:absolute;inset:0;background:radial-gradient(120% 90% at 30% 20%,#3a2350,#0d0d18 60%)}
+ .tvpv .tnow{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:1.1cqw;padding:1.6cqw 2cqw 3.5cqw;
+   background:linear-gradient(180deg,rgba(0,0,0,.82),rgba(0,0,0,.35) 55%,transparent);transition:opacity .4s}
+ .tvpv .tnow .ti{font-size:1.95cqw;font-weight:600;white-space:nowrap}
+ .tvpv .tnow .by{font-size:1.3cqw;padding:.45cqw 1.2cqw;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent2))}
+ .tvpv .tnow .gd{font-size:1.1cqw;color:#8b8ba4;padding:.4cqw .9cqw;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
+ .tvpv .tlogo{position:absolute;right:1.7cqw;top:1.7cqw;width:calc(8cqw * var(--logoscale,1));aspect-ratio:1;border-radius:1.1cqw;overflow:hidden;box-shadow:0 .8cqw 2.4cqw rgba(0,0,0,.45)}
+ .tvpv .tlogo img{width:100%;height:100%;object-fit:cover;display:block}
+ .tvpv.logo .tnow{padding-right:calc(2cqw + 8cqw * var(--logoscale,1) + 1.1cqw)}
+ .tvpv .tlyr{position:absolute;left:0;right:0;bottom:0;text-align:center;
+   padding:7.3cqw calc(7cqw * var(--qrscale,1) + 3.4cqw) calc(2.5cqw + var(--lift,0) * .5625cqw);
+   background:linear-gradient(0deg,rgba(0,0,0,calc(.9 * var(--lyrbga,1))),rgba(0,0,0,calc(.55 * var(--lyrbga,1))) 58%,transparent)}
+ .tvpv.noqr .tlyr{padding-left:3.4cqw;padding-right:3.4cqw}
+ .tvpv .tlyr div{font-size:calc(4.2cqw * var(--lyrscale,1));font-weight:700;line-height:1.32;color:var(--lyrdimc);
+   text-shadow:0 .25cqw 1.5cqw rgba(0,0,0,.95),0 0 .3cqw rgba(0,0,0,.9)}
+ .tvpv .tlyr .on{color:var(--lyrcolor)}
+ .tvpv .tlyr .s{color:var(--kara)}
+ .tvpv.sh0 .tlyr div{text-shadow:none}
+ .tvpv.sh1 .tlyr div{text-shadow:0 .15cqw .6cqw rgba(0,0,0,.75)}
+ .tvpv.sh3 .tlyr div{-webkit-text-stroke:.07em rgba(0,0,0,.9);paint-order:stroke fill}
+ .tvpv .tqr{position:absolute;right:1.7cqw;bottom:1.7cqw;width:calc(7cqw * var(--qrscale,1));aspect-ratio:1;background:#fff;border-radius:.9cqw;
+   display:grid;place-items:center;color:#111;font-size:1.2cqw;font-weight:700}
+ .tvpv .ttime{position:absolute;left:1.7cqw;bottom:1.1cqw;font-size:1.15cqw;color:rgba(255,255,255,.55)}
+ .tvpv .tadd{position:absolute;right:1.7cqw;top:1.7cqw;width:30cqw;padding:.8cqw 1cqw;border-radius:1.2cqw;background:rgba(12,12,22,.86);
+   border:1px solid rgba(255,255,255,.14);font-size:1.2cqw}
+ .tvpv.logo .tadd{top:calc(1.7cqw + 8cqw * var(--logoscale,1) + 1cqw)}
+ .tvpv .tadd b{color:var(--accent);font-size:.95cqw;letter-spacing:.06em}
+
+ /* ---------- จอแคบ: รายการ -> หน้าแก้ ---------- */
+ @media (max-width:999px){
+   .main{grid-template-columns:minmax(0,1fr)}
+   .side{border-right:none}
+   body.editing .side{display:none}
+   body:not(.editing) .ed{display:none}
+   body.editing #back{display:inline-block}
+   header{padding:8px 10px;gap:8px}
+   .logo{font-size:14px}.logo small,#ststr,#helpbtn{display:none}
+   .st{padding:6px}
+   .top{grid-template-columns:1fr}
+   .info{max-height:none}
+   .row{grid-template-columns:28px 80px 1fr;grid-template-areas:"n t rb" "x x x"}
+   .row .n{grid-area:n}.row .ti{grid-area:t}.row .di{display:none}.row .xi{grid-area:x}.row .rb{grid-area:rb;opacity:1;justify-content:flex-end}
+   .rowhd{display:none}
+   .tabs{margin-left:0;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}.tabs button{padding:5px 9px;font-size:12px}
+   .fr > label:first-child{min-width:0;flex-basis:100%}
+   .fr input[type=range]{min-width:0}
+   .tvgrid{padding:12px}.vwrap{padding:12px 12px 60px}
+   input,select,textarea{font-size:16px}           /* iOS ซูมเข้าเองตอนแตะช่องที่ตัวเล็กกว่า 16px */
+   .tvgrid{grid-template-columns:1fr}.tvside{position:static}
+   .qhead{grid-template-columns:84px minmax(0,1fr)}.qhead img{width:84px}.qbtns{grid-column:1/-1;flex-direction:row}
+   body{overflow:auto}
+   .app{height:auto;min-height:100vh}
+ }
+</style></head><body>
+<div class="app">
+  <header>
+    <button id="back" class="ghost">← รายการ</button>
+    <div class="logo"><span class="mk">🎤</span><span><b>PU</b> KARAOKE <small>STUDIO</small></span></div>
+    <nav class="tabs" id="tabs">
+      <button data-view="songs" class="on">🎵 เพลงทั้งหมด</button>
+      <button data-view="queue">▶ กำลังเล่น &amp; คิว<span class="cnt hide" id="qcnt"></span></button>
+      <button data-view="tv">📺 หน้าจอหลัก</button>
+    </nav>
+    <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
+    <button class="ghost" id="helpbtn" title="คีย์ลัด">⌨️</button>
+  </header>
+
+  <div class="main">
+    <aside class="side">
+      <div class="sidetop">
+        <div class="filters" id="filters"></div>
+        <div class="srow">
+          <input id="q" type="search" placeholder="ค้นหาชื่อเพลง / ศิลปิน / videoId" autocomplete="off">
+          <select id="sort">
+            <option value="problem">มีปัญหาก่อน</option>
+            <option value="plays">ร้องบ่อย</option>
+            <option value="title">ชื่อเพลง</option>
+          </select>
+        </div>
+      </div>
+      <div id="list"><div class="empty">กำลังโหลด…</div></div>
+    </aside>
+
+    <section class="ed" id="ed">
+      <div class="blank" id="blank" style="grid-row:1/-1"><div><b>เลือกเพลงทางซ้าย</b><br>ดูสถานะ · แก้เนื้อ · ปรับเวลาซับ · กดซ่อมได้ทุกเพลงในเครื่อง</div></div>
+
+      <div class="top hide" id="top">
+        <div class="pv" id="pv">
+          <video id="media" playsinline preload="auto"></video>
+          <div class="shade"></div>
+          <span class="tag" id="pvtag">พรีวิวแบบจอทีวี</span>
+          <span class="tag trial hide" id="trialtag"></span>
+          <div class="ly"><div class="l1" id="l1"></div><div class="l2" id="l2"></div></div>
+        </div>
+        <div class="info">
+          <div>
+            <div class="tt" id="ttl"></div>
+            <div class="mm" id="meta"></div>
+          </div>
+          <div class="chips" id="stchips"></div>
+          <div class="err hide" id="errbox"></div>
+          <div class="reps hide" id="reps"></div>
+          <div class="drift hide" id="drift"></div>
+          <div class="tip best hide" id="bestnote"></div>
+          <div class="tip sugg hide" id="sugg"></div>
+          <div class="tip note hide" id="note"></div>
+          <div class="offrow">⏱ offset ทั้งเพลง
+            <button data-ed="off" data-v="-1">−</button>
+            <input id="offin" type="text" inputmode="decimal">
+            <button data-ed="off" data-v="1">+</button>
+            <span>วิ · บวก = ซับขึ้นช้าลง</span>
+            <label title="ตอนบันทึก ใส่ offset เข้าไปในเวลาทุกบรรทัด แล้วตั้ง offset เป็น 0"><input type="checkbox" id="bake"> รวมเข้าเวลาเนื้อตอนบันทึก</label>
+          </div>
+          <div class="acts" id="acts"></div>
+        </div>
+      </div>
+
+      <div class="tp hide" id="tp">
+        <button id="play" class="primary" title="เล่น/หยุด (Space)">▶</button>
+        <span id="tm">0:00.00 / 0:00</span>
+        <input id="seek" type="range" min="0" max="1" step="0.01" value="0">
+        <button id="loopbtn" class="ic" title="วนบรรทัดที่เลือก (L)">🔁</button>
+        <span class="seg" id="spd"><button data-v="0.25">¼×</button><button data-v="0.5">½×</button><button data-v="0.75">¾×</button><button data-v="1" class="on">1×</button></span>
+        <span class="seg" id="msrc"><button data-v="video" class="on">🎬 วิดีโอ</button><button data-v="vocals">🎤 เสียงร้อง</button></span>
+        <span class="seg" id="pvm"><button data-v="scroll" class="on">เลื่อนขึ้น</button><button data-v="dual">2 บรรทัด</button><button data-v="karaoke" title="ไล่สีตามเวลาที่ร้องจริง (เวลารายตัวอักษรจาก FA) — ขีดสีส้มใต้ก้อนบนแถบคลื่น = จุดที่แต่ละตัวถูกร้อง">🎤 คาราโอเกะ</button></span>
+        <button id="fsbtn" class="ic" title="โหมดแก้เต็มจอ (F)">⛶</button>
+      </div>
+
+      <div class="hide" id="mid">
+        <div class="tlw">
+          <canvas id="tl"></canvas>
+          <canvas id="ov" title="ภาพรวมความคลาดทั้งเพลง (บน = ซับขึ้นเร็วไป, ล่าง = ช้าไป) — คลิกเพื่อข้ามไป"></canvas>
+          <div id="tlmsg">กำลังโหลดคลื่นเสียงร้อง…</div>
+          <div class="tlbar"><button id="zfit" title="ซูมพอดีบรรทัดที่เลือก (Z)">⤢</button><button id="zout" title="ย่อ">－</button><button id="zin" title="ขยาย">＋</button></div>
+        </div>
+        <div class="tapbar hide" id="tapbar"></div>
+        <div class="toolsw">
+          <div class="tools">
+            <button id="tapbtn" title="แตะตามจังหวะ (T) — กด Enter/Space ทุกครั้งที่เริ่มร้องบรรทัดใหม่">⏺ แตะจังหวะ</button>
+            <label title="ตอนแตะ/ลาก ดูดเข้าจุดที่เสียงร้องเริ่มจริง (Alt ค้าง = ปิดการดูดทุกแบบชั่วคราว)"><input type="checkbox" id="snap" checked> 🧲 ดูดจุดเริ่มร้อง</label>
+            <button id="ripbtn" title="ลากก้อนแล้วบรรทัดข้างหลังทั้งหมดเลื่อนตาม (หรือกด Shift ค้างตอนลาก)">🔗 พาทั้งแถบข้างหลัง</button>
+            <span class="lb">ระยะ</span>
+            <span class="seg" id="stepsel"><button data-v="0.01">0.01</button><button data-v="0.05">0.05</button><button data-v="0.1" class="on">0.1</button><button data-v="0.5">0.5</button></span>
+            <span class="lb">ทั้งเพลง</span>
+            <span class="seg"><button data-ed="shiftall" data-v="-1" title="เลื่อนทุกบรรทัดเร็วขึ้น ( Shift+[ )">−</button><button data-ed="shiftall" data-v="1" title="เลื่อนทุกบรรทัดช้าลง ( Shift+] )">+</button></span>
+            <span class="lb">จากบรรทัดนี้</span>
+            <span class="seg"><button data-ed="shiftfrom" data-v="-1" title="เลื่อนบรรทัดที่เลือกและข้างหลังทั้งหมด">−</button><button data-ed="shiftfrom" data-v="1">+</button></span>
+            <button data-ed="closegap" title="บรรทัดที่เลือกและข้างหลังทั้งหมด เลื่อนมาเริ่มพอดีท้ายบรรทัดก่อน (G)">⇤ ต่อท้ายบรรทัดก่อน</button>
+            <button data-ed="toplay" title="บรรทัดที่เลือกและข้างหลังทั้งหมด เลื่อนไปเริ่มที่ตำแหน่งที่เล่นอยู่ (P)">⤓ ย้ายมาที่หัวเล่น</button>
+          </div>
+          <div class="tools">
+            <button id="srcbtn" title="เทียบเนื้อจากทุกแหล่ง (ซับ YouTube, JOOX, NetEase, YouTube Music, LRCLIB, คำอธิบายคลิป) กับเสียงร้องจริง">🔎 หาเนื้อ</button>
+            <button id="aibtn" title="ให้ AI จับเวลาข้อความในตารางใหม่ทั้งเพลง">✨ AI จับเวลา</button>
+            <select id="aieng" class="hide" title="เครื่องจับเวลา"><option value="fa">🎯 FA ละเอียด</option><option value="whisper">whisper (เดิม)</option></select>
+            <button data-ed="redur" title="คำนวณความยาวทุกบรรทัดจากเวลาเริ่มบรรทัดถัดไป">↔ ความยาวอัตโนมัติ</button>
+            <button id="impbtn" title="วาง LRC หรือเนื้อเปล่า">📋 นำเข้า</button>
+            <button id="verbtn" title="ฉบับก่อนหน้าที่เคยบันทึก">🕘 ประวัติ</button>
+            <span class="sp"></span>
+            <button id="undobtn" title="ย้อน (⌘Z)">↶</button>
+            <button id="redobtn" title="ทำซ้ำ (⇧⌘Z)">↷</button>
+            <button id="savebtn" class="primary" title="บันทึก (⌘S)">💾 บันทึก</button>
+          </div>
+        </div>
+        <div class="rowhd"><span>#</span><span style="text-align:right">เริ่ม</span><span style="text-align:right">ยาว</span><span>ข้อความ</span><span></span></div>
+      </div>
+      <div id="rows" class="hide"></div>
+    </section>
+  </div>
+
+  <section class="view" id="vqueue"><div class="vwrap">
+    <div class="vhd"><h2>▶ เพลงที่กำลังเล่น &amp; คิว</h2>
+      <p>ดูว่าเนื้อที่ขึ้นจอมาจากแหล่งไหน ถ้าไม่ตรงกด ✨ เลือกเนื้อดีที่สุด — ระบบเทียบทุกแหล่งกับเสียงร้องจริงแล้วเปลี่ยนให้เอง จอหลักเปลี่ยนตามทันที</p></div>
+    <div id="qlist"><div class="empty">กำลังโหลด…</div></div>
+  </div></section>
+
+  <section class="view" id="vtv"><div class="tvgrid">
+    <div class="tvform" id="tvform"><div class="empty">กำลังโหลด…</div></div>
+    <div class="tvside">
+      <div class="tvpv" id="tvpv">
+        <div class="bg"></div>
+        <div class="tnow" id="pvnow"></div>
+        <div class="tadd" id="pvadd"><b>➕ เพิ่มเข้าคิว · คิวที่ 2</b><div>ตัวอย่างการ์ดตอนมีคนสั่งเพลง</div></div>
+        <div class="tlogo hide" id="pvlogo"><img alt=""></div>
+        <div class="tlyr"><div class="on" id="pvl1"><span class="s">ร้องไปถึงตรงนี้</span> ยังไม่ถึงตรงนี้</div><div id="pvl2">บรรทัดถัดไปรออยู่</div></div>
+        <div class="tqr" id="pvqr">QR</div>
+        <div class="ttime" id="pvtime">1:23 / 4:10</div>
+      </div>
+      <div id="tvsaved">เปลี่ยนค่าแล้วบันทึกเอง · จอหลักเปลี่ยนตามทันที</div>
+    </div>
+  </div></section>
+</div>
+
+<div class="dlg hide" id="pindlg"><div class="card pin">
+  <h2>🔒 ใส่ PIN เพื่อเข้า Studio</h2>
+  <p>PIN ขึ้นที่หน้าต่างเซิร์ฟเวอร์ตอนเปิด (บรรทัด Studio) หรือดูในไฟล์ <code>.studio.json</code></p>
+  <input id="pinin" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
+  <div class="why" id="pinwhy"></div>
+  <div class="btns"><button class="primary" id="pinok">เข้าใช้งาน</button></div>
+</div></div>
+
+<div class="dlg hide" id="dlg"><div class="card" id="dlgcard"></div></div>
+<div id="toast"></div>
+
+<script>
+// ===== 0. ล็อกซูมบนมือถือ ==============================================
+// iOS Safari ไม่สน user-scalable=no -> กัน pinch เอง / แตะสองทีกันด้วย touch-action ใน CSS
+// เฉพาะนิ้วบนจอสัมผัส — คอมยังซูมเบราว์เซอร์ได้ตามปกติ และดับเบิลคลิกเลขบรรทัดยังใช้ได้
+for(const t of ['gesturestart', 'gesturechange', 'gestureend'])
+  document.addEventListener(t, e => e.preventDefault(), {passive:false});
+document.addEventListener('touchmove', e => { if(e.touches.length > 1) e.preventDefault(); }, {passive:false});
+
+// ===== 1. util ======================================================
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const r2 = v => Math.round(v * 100) / 100;
+const fmtT = s => { s = Math.max(0, +s || 0); const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(2).padStart(5, '0')}`; };
+const fmtD = s => { s = Math.max(0, +s || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; };
+const parseT = str => { str = String(str).trim().replace(',', '.'); if(!str) return NaN;
+  if(str.includes(':')){ const [m, s] = str.split(':'); return (+m) * 60 + (+s); } return +str; };
+const sgn = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+const chip = (tone, s) => s ? `<span class="chip ${tone}">${esc(s)}</span>` : '';
+const ago = t => { const s = Math.max(0, Date.now() / 1000 - t);
+  return s < 60 ? 'เมื่อสักครู่' : s < 3600 ? `${Math.floor(s / 60)} นาทีก่อน` : s < 86400 ? `${Math.floor(s / 3600)} ชม.ก่อน` : `${Math.floor(s / 86400)} วันก่อน`; };
+let toastT = 0;
+function toast(msg, ms = 2600){ const el = $('#toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), ms); }
+const isTyping = () => { const a = document.activeElement;
+  return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox','range'].includes(a.type))); };
+
+// ค่าเดียวกับจอทีวี (static/player.html) — พรีวิวจะได้ขึ้นเหมือนจอจริง
+const LYR_LEAD = 0.25, LYR_HOLD = 2.0, LYR_GAP = 6.0;
+const DUR_MIN = 1.0, DUR_MAX = 14.0;          // ความยาวอัตโนมัติ เท่ากับ lyrics_sources._finish
+const MAG_PX = 8;                             // ระยะดูดของแม่เหล็กบนแถบคลื่น (พิกเซล)
+const ZOOM_MIN = 0.5, ZOOM_MAX = 120;
+
+// ===== 2. API + PIN ==================================================
+async function api(path, opt = {}){
+  const r = await fetch(path, {credentials:'same-origin', headers:{'Content-Type':'application/json'}, ...opt});
+  if(r.status === 401){ showPin(); throw new Error('ต้องใส่ PIN'); }
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(j.detail || j.why || ('HTTP ' + r.status));
+  return j;
+}
+function showPin(){ $('#pindlg').classList.remove('hide'); setTimeout(() => $('#pinin').focus(), 50); }
+async function login(){
+  const pin = $('#pinin').value.trim(); if(!pin) return;
+  const r = await fetch('/api/studio/login', {method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({pin})});
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok || !j.ok){ $('#pinwhy').textContent = j.why || 'เข้าไม่ได้'; $('#pinin').select(); return; }
+  $('#pindlg').classList.add('hide'); $('#pinin').value = ''; $('#pinwhy').textContent = '';
+  await loadSongs(); if(S.cur) openSong(S.cur, 'bg');   // 'bg' = ไม่ทับงานที่ยังไม่บันทึก
+}
+$('#pinok').onclick = login;
+$('#pinin').addEventListener('keydown', e => { if(e.key === 'Enter') login(); });
+
+// ===== 3. สถานะเพลง -> ชิป ============================================
+const DL = {ready:null, downloading:['wait','⬇️ กำลังโหลด'], queued:['wait','⏳ รอโหลด'],
+            failed:['bad','⚠️ โหลดไม่ได้'], idle:['bad','⚠️ ไฟล์ไม่ครบ']};
+const SEP = {ready:['ok','🎤 ไกด์'], separating:['wait','🎛 กำลังแยกเสียง'], queued:['wait','⏳ รอแยกเสียง'],
+             failed:['bad','⚠️ แยกเสียงไม่ได้'], idle:['off','🎤 ยังไม่แยกเสียง']};
+const CONF = {good:['ok','✅ ตรงจังหวะ'], check:['ok','📝 พอใช้'], bad:['bad','⚠️ ไม่ตรงจังหวะ'],
+              auto:['warn','🎧 เนื้ออัตโนมัติ'], unknown:['off','📝 ยังไม่ตรวจ'], none:['off','📝 ตรวจไม่ได้']};
+const NOLYR = {nolyr:['bad','🚫 ไม่มีเนื้อ'], failed:['bad','⚠️ หาเนื้อไม่สำเร็จ'], queued:['wait','⏳ รอหาเนื้อ'],
+               working:['wait','📝 กำลังหาเนื้อ'], searching:['wait','📝 กำลังค้นเนื้อ'],
+               na:['off','📝 รอแยกเสียงก่อน'], idle:['off','📝 ยังไม่หาเนื้อ']};
+const CHK = {queued:['wait','🔍 รอตรวจ'], waiting:['wait','🔍 รอเพลงจบ'],
+             checking:['wait','🔍 กำลังตรวจ'], failed:['bad','🔍 ตรวจไม่สำเร็จ'], fixed:['ok','🔧 ซ่อมแล้ว']};
+const WORDS = {ready:['ok','🎤 คาราโอเกะ'], queued:['wait','⏳ รอทำเวลารายคำ'], working:['wait','🎤 กำลังทำเวลารายคำ'],
+               failed:['bad','⚠️ ทำเวลารายคำไม่สำเร็จ'], stale:['off','🎤 เวลารายคำเก่า (รอทำใหม่)'],
+               none:['off','🎤 ยังไม่มีเวลารายคำ']};
+const BEST = {queued:['wait','✨ รอเทียบเนื้อทุกแหล่ง'], working:['wait','✨ กำลังเทียบเนื้อทุกแหล่ง'],
+              failed:['bad','⚠️ เทียบเนื้อไม่สำเร็จ']};
+const BEST_ACT = {shift:'เลื่อนเวลาทั้งเพลง', retime:'จับเวลาใหม่ด้วย FA', newtext:'เปลี่ยนเป็นเนื้อจากแหล่งที่ดีกว่า',
+                  found:'หาเนื้อเจอจากแหล่งออนไลน์'};
+const LANG_LB = {th:'ไทย', en:'อังกฤษ', ja:'ญี่ปุ่น', ko:'เกาหลี', zh:'จีน'};
+const TAGS = {late:'🐢 ซับขึ้นช้า', early:'🐇 ซับขึ้นเร็ว', typo:'✏️ เนื้อผิด/พิมพ์ผิด',
+              missing:'🕳 ขาดบางท่อน', nolyr:'🚫 ไม่มีเนื้อ', wrong:'🎵 เนื้อผิดเพลง'};
+function songChips(i, full){
+  const c = [];
+  if(i.reports) c.push(['bad',`🚩 มีคนแจ้ง ${i.reports}`]);
+  if(i.queuePos === 0) c.push(['hot','▶ กำลังเล่น']); else if(i.queuePos) c.push(['hot',`📋 คิว ${i.queuePos}`]);
+  const dl = DL[i.dlStatus]; if(dl) c.push(dl);
+  const sp = SEP[i.sepStatus]; if(sp) c.push(sp);
+  if(i.lyrLines){
+    c.push(CONF[i.lyrConf] || CONF.check);
+    if(full && i.lyrKind) c.push(['info','📝 ' + i.lyrKind + ` · ${i.lyrLines} บรรทัด`]);
+    if(i.check && i.check.score != null && i.check.verdict !== 'unmeasurable')
+      c.push([i.check.score >= 55 ? 'ok' : i.check.score >= 20 ? 'off' : 'bad', `🔍 ${Math.round(i.check.score)}%`]);
+  }else c.push(NOLYR[i.lyrStatus] || NOLYR.idle);
+  if(CHK[i.lyrCheck]) c.push(CHK[i.lyrCheck]);
+  const w = i.lyrLines && i.words;                  // เวลารายตัวอักษร (โหมดคาราโอเกะ) — รายการย่อโชว์เฉพาะตอนกำลังทำ/พัง
+  if(w && WORDS[w.status] && (full || ['queued','working','failed'].includes(w.status)))
+    c.push(w.status === 'ready' ? ['ok', `🎤 คาราโอเกะ ${w.nk}/${w.n} บรรทัด`] : WORDS[w.status]);
+  const b = i.best;                                 // งานเลือกเนื้อดีที่สุดจากทุกแหล่ง
+  if(b && BEST[b.status]) c.push(BEST[b.status]);
+  else if(b && b.applied) c.push(['info','✨ เลือกอัตโนมัติ']);
+  if(i.lang && i.lang !== 'th') c.push(['info', '🌐 ' + (LANG_LB[i.lang] || i.lang.toUpperCase())]);
+  if(i.edited) c.push(['info','✏️ แก้เอง']);
+  if(i.lyrOffset) c.push(['info',`⏱ ${sgn(i.lyrOffset)}`]);
+  if(i.shiftOk) c.push(['warn',`💡 เลื่อน ${sgn(i.check.shift)}`]);
+  if(i.fix) c.push(['bad','🔧 ต้องซ่อม']);
+  return c.map(([t, s]) => chip(t, s)).join('');
+}
+const isProblem = i => !!(i.fix || ['failed','idle'].includes(i.dlStatus) || i.sepStatus === 'failed'
+                          || ['failed'].includes(i.lyrStatus));
+const FILTERS = [
+  ['all','ทั้งหมด', () => true],
+  ['reports','🚩 มีคนแจ้ง', i => i.reports > 0],
+  ['problem','🔧 มีปัญหา', isProblem],
+  ['nolyr','🚫 ไม่มีเนื้อ', i => !i.lyrLines],
+  ['bad','⚠️ ไม่ตรง', i => i.lyrLines && i.lyrConf === 'bad'],
+  ['unchecked','📝 ยังไม่ตรวจ', i => i.lyrLines && ['unknown','none'].includes(i.lyrConf)],
+  ['hint','💡 มีคำแนะนำ', i => i.shiftOk],
+  ['edited','✏️ แก้เองแล้ว', i => i.edited],
+  ['auto','✨ เปลี่ยนอัตโนมัติ', i => i.best && i.best.applied],
+  ['nowords','🎤 ยังไม่มีคาราโอเกะ', i => i.lyrLines && i.words && ['none','stale','failed'].includes(i.words.status)],
+  ['foreign','🌐 ไม่ใช่ไทย', i => i.lang && i.lang !== 'th'],
+  ['queue','▶ ในคิว', i => i.queuePos != null],
+];
+const rank = i => isProblem(i) ? 0 : i.reports ? 1 : !i.lyrLines ? 2 : i.lyrConf === 'bad' ? 3 : i.shiftOk ? 4 : 5;
+
+// ===== 4. store ======================================================
+const S = { songs:[], filter:'all', cur:null, detail:null,
+            lines:[], offset:0, trial:0, sel:0, saved:'', undo:[], redo:[],
+            tap:false, tapHist:[], pvMode:'scroll', media:'video', step:0.1, ripple:false, loop:false,
+            env:null, envRate:100, pcm:null, pcmRate:8000, pcmRef:1, onsets:[],
+            zoom:16, view:0, hoverT:null, snapHint:null, lyrUrl:'', showDone:false,
+            drift:null, drifting:false, driftSegs:[], srcCands:[] };
+const snapshot = () => JSON.stringify({lines:S.lines, offset:S.offset});
+function pendingInput(){
+  const a = document.activeElement, r = a && a.closest ? a.closest('#rows .row') : null;
+  const l = r && S.lines[+r.dataset.i]; if(!l) return false;
+  if(a.classList.contains('xi')) return a.value.replace(/\s+/g, ' ').trim() !== l.x;
+  if(a.classList.contains('ti')) return a.value !== fmtT(l.t);
+  if(a.classList.contains('di')) return a.value !== l.d.toFixed(2);
+  return false;
+}
+const dirty = () => S.cur && (snapshot() !== S.saved || pendingInput());
+// ช่องที่กำลังพิมพ์ -> commit ก่อนบันทึก (blur ยิง change ทันที) ไม่งั้นข้อความที่พิมพ์ค้างไม่ถูกบันทึกแล้วหายตอนโหลดใหม่
+function commitInput(){ const a = document.activeElement; if(a && a.closest && a.closest('#rows')) a.blur(); }
+
+// ===== 5. รายการเพลง =================================================
+let songsBusy = false, songsAgain = false, songsSig = '';
+async function loadSongs(){
+  // คำขอเดิมยังไม่กลับ -> รอบหน้าค่อยดึงอีกที (ของเดิมยิงซ้อน คำตอบเก่ามาทีหลังทับของใหม่ได้)
+  if(songsBusy){ songsAgain = true; return; }
+  songsBusy = true;
+  try{ await loadSongsNow(); }
+  finally{ songsBusy = false; if(songsAgain){ songsAgain = false; scheduleRefresh(); } }
+}
+async function loadSongsNow(){
+  let j; try{ j = await api('/api/studio/songs'); }catch(e){ return; }
+  const sig = JSON.stringify(j.songs || []);
+  if(sig === songsSig) return;                      // ไม่มีอะไรเปลี่ยน -> ไม่วาดใหม่ (dropdown ไม่หุบ คลิกไม่หาย)
+  songsSig = sig;
+  S.songs = j.songs || [];
+  renderList();
+  renderQueue();
+  if(S.cur){                                        // สถานะเพลงที่เปิดอยู่เปลี่ยน (ซ่อมเสร็จ / มีคนแจ้ง)
+    const it = S.songs.find(x => x.videoId === S.cur);
+    if(it && S.detail){
+      const repChanged = it.reports !== S.detail.item.reports;
+      const wChanged = JSON.stringify(it.words || null) !== JSON.stringify(S.detail.item.words || null);
+      S.detail.item = it; renderInfo();
+      if(repChanged) refreshReports();
+      if(wChanged) refreshWords();
+      // เพลงที่ยังไม่มีเนื้อ เซิร์ฟเวอร์ไม่ส่ง lyricsUrl มา -> ต้องเทียบเป็น '' เหมือนตอนเปิด
+      // (ของเดิม undefined !== '' จริงเสมอ: โหลด editor ใหม่ทุกครั้ง + ขึ้นโน้ตหลอกที่ปุ่มในโน้ตล้างงานทิ้ง)
+      if((it.lyricsUrl || '') !== S.lyrUrl){        // เนื้อในเครื่องเปลี่ยน (หาเนื้อใหม่เสร็จ ฯลฯ)
+        if(!dirty()) openSong(S.cur, 'bg');
+        else showNote('เนื้อในเครื่องเปลี่ยนไปแล้ว (มีงานเบื้องหลังเขียนใหม่) — งานที่แก้ค้างอยู่ยังไม่ได้บันทึก',
+                      '<button data-ed="reload">โหลดฉบับในเครื่อง</button>');
+      }
+    }
+  }
+}
+function renderList(){
+  const q = $('#q').value.trim().toLowerCase();
+  const f = FILTERS.find(x => x[0] === S.filter) || FILTERS[0];
+  $('#filters').innerHTML = FILTERS.map(([k, lb, fn]) =>
+    `<button data-f="${k}" class="${k === S.filter ? 'on' : ''}">${lb}<b>${S.songs.filter(fn).length}</b></button>`).join('');
+  let list = S.songs.filter(f[2]).filter(i => !q || (i.title || '').toLowerCase().includes(q)
+        || (i.channel || '').toLowerCase().includes(q) || i.videoId.toLowerCase().includes(q));
+  const srt = $('#sort').value;
+  list.sort(srt === 'title' ? (a, b) => (a.title || '').localeCompare(b.title || '', 'th')
+          : srt === 'plays' ? (a, b) => b.plays - a.plays || (a.title || '').localeCompare(b.title || '', 'th')
+          : (a, b) => rank(a) - rank(b) || b.plays - a.plays);
+  if(!list.length){ $('#list').innerHTML = '<div class="empty">ไม่มีเพลงตรงเงื่อนไข</div>'; return; }
+  $('#list').innerHTML = list.map(i => `<div class="it ${i.videoId === S.cur ? 'on' : ''}" data-v="${i.videoId}">
+      <div class="th" style="background-image:url('${esc(i.thumb)}')"></div>
+      <div class="g"><div class="t">${esc(i.title)}</div>
+        <div class="m">${esc(i.channel || '')}${i.duration ? ' · ' + fmtD(i.duration) : ''}${i.plays ? ` · ร้อง ${i.plays} ครั้ง` : ''}</div>
+        <div class="chips">${songChips(i, false)}</div></div></div>`).join('');
+}
+$('#filters').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if(!b) return;
+  S.filter = b.dataset.f; renderList(); });
+$('#q').addEventListener('input', renderList);
+$('#sort').addEventListener('change', renderList);
+$('#list').addEventListener('click', e => { const it = e.target.closest('.it'); if(it) openSong(it.dataset.v); });
+$('#back').onclick = () => { if(dirty() && !confirm('ยังไม่ได้บันทึก ออกจากเพลงนี้เลยไหม?')) return;
+  document.body.classList.remove('editing'); media.pause(); };
+
+// ===== 6. เปิดเพลง ===================================================
+const media = $('#media');
+// mode: (ไม่ใส่) = ผู้ใช้กดเปิดเพลง / 'bg' = รีเฟรชเบื้องหลัง — ห้ามทับงานที่ยังไม่บันทึกเด็ดขาด
+//       'force' = ผู้ใช้สั่งโหลดฉบับในเครื่องทับเอง (ยืนยันแล้ว)
+let openTok = 0;
+async function openSong(vid, mode){
+  const bg = mode === 'bg', force = mode === 'force';
+  // กดเพลงที่เปิดอยู่แล้ว (ในรายการ / "เปิดในตัวแก้" ของคิว) = กลับมาหน้าแก้เฉย ๆ ของเดิมโหลดทับ งาน+undo หายไม่ถาม
+  if(!bg && !force && vid === S.cur && S.detail){ document.body.classList.add('editing'); return; }
+  if(!bg && !force && vid !== S.cur && dirty() && !confirm('ยังไม่ได้บันทึกเพลงที่แก้อยู่ เปลี่ยนเพลงเลยไหม?')) return;
+  if(bg && dirty()) return;
+  const my = ++openTok;
+  let d; try{ d = await api('/api/studio/song/' + vid); }catch(e){ if(!bg) toast('⚠️ ' + e.message); return; }
+  if(my !== openTok) return;                        // มีคำขอใหม่กว่า (ผู้ใช้สลับเพลงไปแล้ว) -> ทิ้ง ไม่งั้นเด้งกลับเพลงเก่า
+  if(bg && (vid !== S.cur || dirty())) return;      // ระหว่างรอ ผู้ใช้เริ่มแก้/สลับเพลง -> ห้ามทับ
+  const changed = vid !== S.cur;
+  S.cur = vid; S.detail = d;
+  S.lines = ((d.lyrics && d.lyrics.lines) || []).map(l => ({t:+l.t, d:+l.d, x:String(l.x)}));
+  S.offset = +d.offset || 0; S.trial = 0; S.saved = snapshot(); S.undo = []; S.redo = [];
+  $('#trialtag').classList.add('hide');
+  S.lyrUrl = d.item.lyricsUrl || '';
+  kwBuild();
+  if(changed){ S.sel = 0; setTap(false); setLoop(false); S.env = null; S.pcm = null; S.onsets = []; S.view = 0; }
+  S.sel = clamp(S.sel, 0, Math.max(0, S.lines.length - 1));
+  document.body.classList.add('editing');
+  for(const id of ['#top','#tp','#mid','#rows']) $(id).classList.remove('hide');
+  $('#blank').classList.add('hide');
+  hideNote();
+  if(changed){ S.drift = null; S.srcCands = []; }
+  $('#aieng').classList.toggle('hide', !(d.fa && d.fa.ready));
+  renderList(); renderInfo(); renderReports(); renderRows(); updateUndo(); renderDrift();
+  if(changed || !driftFresh()) measureDrift('auto');
+  if(changed){
+    const f = d.files || {};
+    if(!f['video.mp4'] && S.media === 'video' && f['vocals.m4a']) S.media = 'vocals';
+    setMedia(S.media, 0, true);
+    loadEnvelope(vid);
+  }
+}
+
+// ===== 7. หัวเพลง: สถานะ / คำแนะนำ / ปุ่มซ่อม =========================
+const ACT_INFO = {
+  fix:    ['🔧 ซ่อมอัตโนมัติ', 'ให้ระบบเลือกขั้นที่พังแล้วทำใหม่ให้เอง'],
+  redl:   ['⬇️ โหลดใหม่', 'ลบวิดีโอ/เสียงของเพลงนี้แล้วโหลดจาก YouTube ใหม่ (ระหว่างโหลดเพลงนี้จะเล่นไม่ได้)'],
+  resep:  ['🎛 แยกเสียงใหม่', 'ลบไฟล์ไกด์เสียงร้องแล้วแยกใหม่ (ใช้ GPU ราว 2-3 นาที)'],
+  relyr:  ['📝 หาเนื้อใหม่', 'ล้างเนื้อปัจจุบันแล้วหาจากทุกแหล่งใหม่ (ถ้ามีเนื้อที่แก้เองไว้ จะได้ฉบับที่แก้เองกลับมา)'],
+  verify: ['🔍 ตรวจเวลาเนื้อ', 'เทียบเวลาเนื้อกับเสียงร้องจริง ได้คะแนน % และคำแนะนำเลื่อน (ถ้าเพลงกำลังเล่นจะรอให้จบก่อน)'],
+  'drop-edit': ['🗑 เลิกใช้เนื้อที่แก้เอง', 'ลบเนื้อที่แก้ใน Studio แล้วกลับไปหาเนื้อจากแหล่งเดิม (ยังย้อนกลับได้จากประวัติ)'],
+  best:   ['✨ เลือกเนื้อดีที่สุด', 'ดึงเนื้อจากทุกแหล่ง (ซับ YouTube, lrclib, JOOX, NetEase, YouTube Music, คำอธิบายคลิป) ให้ FA เทียบกับเสียงร้องจริง แล้วเปลี่ยนให้ถ้าดีกว่าชัดเจน (ของเดิมอยู่ใน 🕘 ประวัติ)'],
+  'best-all': ['✨ เลือกเนื้อดีที่สุดทุกเพลง', 'เข้าคิวเทียบเนื้อให้ทุกเพลงที่ยังไม่เคยเทียบ (ข้ามเพลงที่แก้เอง) ทำตอนเครื่องว่าง เพลงในคิวห้องได้ก่อน'],
+  words:  ['🎤 ทำเวลารายคำ', 'ให้ FA หาเวลาที่ร้องแต่ละตัวอักษร ไว้ไล่สีในโหมดคาราโอเกะ (ทำใหม่ทับของเดิม — ปกติระบบทำให้เองหลังได้เนื้อ/บันทึก)'],
+  'words-all': ['🎤 ทำเวลารายคำทุกเพลง', 'เข้าคิวทำเวลารายคำให้ทุกเพลงที่ยังไม่มี (ใช้ GPU เพลงละ ~10 วิ ทำตอนเครื่องว่าง เพลงที่อยู่ในคิวห้องได้ก่อน)'],
+};
+function renderInfo(){
+  const d = S.detail; if(!d) return;
+  const i = d.item;
+  $('#ttl').textContent = i.title || i.videoId;
+  $('#meta').innerHTML = esc([i.channel, i.duration ? fmtD(i.duration) : '', i.videoId,
+    i.plays ? `ร้อง ${i.plays} ครั้ง` : ''].filter(Boolean).join(' · '))
+    // 🌐 ภาษาของเพลง: ทุกขั้น (whisper/ซับ/คำบรรยาย/FA) ใช้ตามนี้ — ผิดก็เลือกเองได้ แล้วระบบหาเนื้อใหม่ให้
+    + ` · 🌐 <select id="langsel" title="ภาษาของเพลง (ที่มา: ${esc(i.langBy || '-')}) — เปลี่ยนแล้วระบบจะหาเนื้อใหม่ด้วยภาษานั้น">`
+    + Object.entries(LANG_LB).map(([k, v]) => `<option value="${k}" ${k === (i.lang || 'th') ? 'selected' : ''}>${v}</option>`).join('')
+    + (LANG_LB[i.lang] ? '' : `<option value="${esc(i.lang)}" selected>${esc(i.lang)}</option>`) + `</select>`
+    + (i.langBy === 'manual' ? ' <small>(ตั้งเอง)</small>' : i.langBy === 'unknown' ? ` <button class="mini" data-act="detect-lang" title="ให้ whisper ฟังแล้วบอกภาษา">🎧 ตรวจภาษา</button>` : '');
+  $('#stchips').innerHTML = songChips(i, true);
+  $('#pv').style.backgroundImage = `url('${i.thumb}')`;
+  const err = i.fixWhy || (i.dlStatus === 'failed' && i.dlError) || (i.sepStatus === 'failed' && i.sepError)
+            || (i.lyrStatus === 'failed' && i.lyrError) || (d.nolyr != null && !i.lyrLines ? 'หาเนื้อไม่เจอทุกแหล่ง: ' + d.nolyr : '');
+  $('#errbox').classList.toggle('hide', !err); $('#errbox').textContent = err || '';
+  // 💡 คำแนะนำเลื่อนทั้งเพลงจากผลตรวจ (เฉพาะผลตรวจที่ใหม่กว่าเนื้อ/offset ปัจจุบัน)
+  const sh = i.shiftOk && i.check ? i.check.shift : 0;
+  $('#sugg').classList.toggle('hide', !sh);
+  if(sh) $('#sugg').innerHTML = `💡 ผลตรวจแนะนำให้เลื่อนทั้งเพลง <b>${sgn(sh)} วิ</b>`
+      + (i.check.score != null ? ` (ตอนนี้ตรงจังหวะ ${Math.round(i.check.score)}%)` : '')
+      + ` <button data-ed="trial" data-v="${sh}">${S.trial ? '⏹ เลิกลอง' : '▶ ลองฟัง'}</button>`
+      + `<button class="primary" data-ed="usesugg" data-v="${sh}">ใช้เลย</button>`;
+  if(document.activeElement !== $('#offin')) $('#offin').value = S.offset.toFixed(2);
+  const fa = d.fa && d.fa.ready, manual = ['manual-edit','manual-lrc','manual-txt'].includes(i.lyrSrc);
+  const acts = ['fix','redl','resep','relyr','verify'].concat(fa && !manual && (i.lyrLines || i.lyrStatus === 'nolyr') ? ['best'] : [],
+                                                          i.lyrLines && fa ? ['words'] : [],
+                                                          i.edited ? ['drop-edit'] : [],
+                                                          fa ? ['best-all', 'words-all'] : []);
+  // ✨ ผลเลือกเนื้ออัตโนมัติ: บอกว่าเปลี่ยนอะไรเพราะอะไร + ของเดิมอยู่ในประวัติ
+  const b = i.best;
+  const bn = b && b.applied && b.action !== 'keep' ? `✨ <b>${esc(BEST_ACT[b.action] || 'เลือกอัตโนมัติ')}</b> — ${esc(b.reason)} · ของเดิมอยู่ใน 🕘 ประวัติ`
+           : b && b.status === 'failed' ? `⚠️ เทียบเนื้อไม่สำเร็จ: ${esc(b.error)}`
+           : b && b.status === 'done' && b.action === 'keep' ? `✨ เทียบกับทุกแหล่งแล้ว: ${esc(b.reason)}` : '';
+  $('#bestnote').classList.toggle('hide', !bn);
+  $('#bestnote').innerHTML = bn;
+  $('#acts').innerHTML = acts.map(k => `<button data-act="${k}" title="${esc(ACT_INFO[k][1])}"
+      class="${k === 'fix' && i.fix ? 'primary' : k === 'drop-edit' ? 'danger' : ''}">${ACT_INFO[k][0]}</button>`).join('');
+}
+function showNote(html, btns){ $('#note').innerHTML = html + ' ' + (btns || ''); $('#note').classList.remove('hide'); }
+function hideNote(){ $('#note').classList.add('hide'); }
+$('#meta').addEventListener('change', async e => {
+  if(e.target.id !== 'langsel' || !S.cur) return;
+  const lang = e.target.value;
+  if(!confirm(`ตั้งภาษาของเพลงนี้เป็น "${LANG_LB[lang] || lang}"?\n\nระบบจะดึงซับ/คำบรรยายภาษานั้น แล้วหาเนื้อใหม่ตั้งแต่ต้น (เนื้อที่แก้เองไม่ถูกแตะ)`)){ renderInfo(); return; }
+  try{ const r = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:'lang', lang})});
+       toast('✓ ' + r.msg); }
+  catch(err){ toast('⚠️ ' + err.message); }
+  loadSongs();
+});
+$('#meta').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act=detect-lang]'); if(!b || !S.cur) return;
+  b.disabled = true;
+  try{ const r = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:'detect-lang'})});
+       toast('✓ ' + r.msg); }
+  catch(err){ toast('⚠️ ' + err.message); }
+  loadSongs();
+});
+$('#acts').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if(!b || !S.cur) return;
+  const k = b.dataset.act, [lb, why] = ACT_INFO[k];
+  if(!confirm(`${lb}\n\n${why}\n\nทำเลยไหม?`)) return;
+  b.disabled = true;
+  try{ const r = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:k})});
+       toast('✓ ' + (r.msg || 'สั่งแล้ว')); }
+  catch(err){ toast('⚠️ ' + err.message); }
+  b.disabled = false; loadSongs();
+});
+
+// ===== 7a. 🎤 เวลารายตัวอักษร (โหมดคาราโอเกะ) ============================
+// k = [[ตำแหน่งตัวอักษร, วินาทีในเสียง], ...] ต่อบรรทัด ผูกกับข้อความตอนที่บันทึกไว้ในเครื่อง
+// บรรทัดที่กำลังแก้ใช้ k ได้เมื่อข้อความตรงกันเป๊ะ และ k อยู่ใกล้เวลาบรรทัด (แทรก/ลบบรรทัดแล้วยังหาเจอ)
+const KARA_LEAD = 0.06, KARA_GAP = 3.0;       // เท่ากับ player.html
+const kSeg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter('th', {granularity:'grapheme'}) : null;
+function kwBuild(){
+  const d = S.detail, w = d && d.words, L = (d && d.lyrics && d.lyrics.lines) || [];
+  S.wk = w && w.k ? L.map((l, i) => ({x: String(l.x), k: w.k[i]})).filter(e => e.k && e.k.length) : [];
+  lastKey = '';
+}
+async function refreshWords(){
+  const vid = S.cur; if(!vid) return;
+  try{ const d = await api('/api/studio/song/' + vid);
+       if(vid !== S.cur || !S.detail) return;       // สลับเพลงระหว่างรอ -> ห้ามเอาเวลารายคำของเพลงก่อนมาใส่
+       S.detail.words = d.words; kwBuild(); drawTL(); }
+  catch(e){}
+}
+function kFor(l){
+  let best = null, bd = KARA_GAP;
+  for(const e of S.wk || []){
+    if(e.x !== l.x) continue;
+    const dd = Math.abs(e.k[0][1] - (l.t + effOff()));
+    if(dd <= bd){ bd = dd; best = e.k; }
+  }
+  return best;
+}
+const kcCache = new WeakMap();
+function kClusters(x, k){                    // ตรรกะเดียวกับ kClusters ใน player.html
+  if(kcCache.has(k)) return kcCache.get(k);
+  const s = x.normalize('NFC');
+  const segs = kSeg ? Array.from(kSeg.segment(s), g => g.segment) : [...s];
+  const kt = new Map(k.map(([p, t]) => [p, t]));
+  let cp = 0;
+  const out = segs.map(g => { const n = [...g].length; let t = null;
+    for(let q = cp; q < cp + n; q++) if(kt.has(q)){ t = kt.get(q); break; }
+    cp += n; return {g, t}; });
+  let prev = -1;
+  for(let i = 0; i <= out.length; i++){
+    if(i < out.length && out[i].t == null) continue;
+    const a = prev >= 0 ? out[prev].t : null, b = i < out.length ? out[i].t : null;
+    for(let j = prev + 1; j < i; j++)
+      out[j].t = a == null ? b : b == null ? a + 0.12 * (j - prev) : a + (b - a) * (j - prev) / (i - prev);
+    prev = i;
+  }
+  for(let i = 1; i < out.length; i++) if(out[i].t < out[i-1].t) out[i].t = out[i-1].t;
+  const r = out.some(c => c.t == null) ? [] : out;
+  kcCache.set(k, r);
+  return r;
+}
+function pvRow(el, text, j){                  // แถวพรีวิว: ข้อความเปล่า หรือแตกเป็นกลุ่มอักษรไว้ไล่สี
+  const l = S.pvMode === 'karaoke' && j >= 0 ? S.lines[j] : null, k = l ? kFor(l) : null;
+  const kc = k ? kClusters(l.x, k) : null;
+  if(!kc || !kc.length){ el._k = null; el.textContent = text; return; }
+  const spans = kc.map(c => { const sp = document.createElement('span'); sp.textContent = c.g; return sp; });
+  el.textContent = ''; el.append(...spans);
+  el._k = {spans, ts: kc.map(c => c.t), n: 0};
+}
+function pvPaint(el, pos){
+  const K = el._k; if(!K) return;
+  let n = 0; while(n < K.ts.length && K.ts[n] <= pos + KARA_LEAD) n++;
+  if(n === K.n) return;
+  for(let q = Math.min(n, K.n); q < Math.max(n, K.n); q++) K.spans[q].classList.toggle('s', q < n);
+  K.n = n;
+}
+
+// ===== 7b. 🚩 รายงานจากรีโมท ==========================================
+// แขกกด "แจ้งซับไม่ตรง" บนรีโมท -> มาที่นี่ พร้อมตำแหน่งในเพลงตอนที่เห็นว่าเพี้ยน
+async function refreshReports(){
+  const vid = S.cur; if(!vid) return;
+  try{ const d = await api('/api/studio/song/' + vid);
+       if(vid !== S.cur || !S.detail) return;
+       S.detail.reports = d.reports || []; renderReports(); drawTL(); }
+  catch(e){}
+}
+function renderReports(){
+  const reps = ((S.detail && S.detail.reports) || []).slice().sort((a, b) => b.at - a.at);
+  const open = reps.filter(r => !r.done), done = reps.filter(r => r.done);
+  const box = $('#reps');
+  box.classList.toggle('hide', !reps.length);
+  if(!reps.length) return;
+  const row = r => `<div class="rep ${r.done ? 'done' : ''}">
+      <button class="at" data-rep="seek" data-pos="${r.pos}" title="ข้ามไปก่อนจุดนี้ 3 วิ">${fmtD(r.pos)}</button>
+      <div class="tx">${(r.tags || []).map(t => chip('bad', TAGS[t] || t)).join(' ')} ${esc(r.note || '')}
+        <small>· ${esc(r.by || '')} · ${ago(r.at)}</small></div>
+      <button class="dn" data-rep="${r.done ? 'reopen' : 'done'}" data-id="${esc(r.id || '')}">${r.done ? '↺' : '✓ แก้แล้ว'}</button></div>`;
+  box.innerHTML = `<div class="hd">🚩 มีคนแจ้งซับไม่ตรง ${open.length} รายการ`
+      + (open.length > 1 ? `<button data-rep="alldone">✓ แก้แล้วทั้งหมด</button>` : '') + `</div>`
+      + open.map(row).join('')
+      + (done.length ? (S.showDone ? done.map(row).join('') + `<button class="more" data-rep="hidedone">ซ่อนที่แก้แล้ว</button>`
+                                   : `<button class="more" data-rep="showdone">ดูที่แก้แล้ว ${done.length} รายการ</button>`) : '');
+}
+$('#reps').addEventListener('click', async e => {
+  const b = e.target.closest('[data-rep]'); if(!b) return;
+  const k = b.dataset.rep;
+  if(k === 'seek'){ const pos = +b.dataset.pos;
+    media.currentTime = Math.max(0, pos - 3); const i = lyIdx(pos); if(i >= 0) selectRow(i, true);
+    S.view = Math.max(0, pos - S.zoom * 0.35); drawTL(); media.play().catch(() => {}); return; }
+  if(k === 'showdone' || k === 'hidedone'){ S.showDone = k === 'showdone'; renderReports(); return; }
+  const body = k === 'alldone' ? {all_done:true} : {id:b.dataset.id, done:k === 'done'};
+  try{ await api(`/api/studio/song/${S.cur}/reports`, {method:'POST', body:JSON.stringify(body)});
+       for(const r of S.detail.reports) if(body.all_done || r.id === body.id) r.done = body.all_done ? true : body.done;
+       renderReports(); drawTL(); }
+  catch(err){ toast('⚠️ ' + err.message); }
+});
+
+// ===== 7c. 🗺 แผนที่ความคลาด ==========================================
+// เซิร์ฟเวอร์ส่ง "เวลาที่เสียงร้องบอก" ของแต่ละบรรทัดมาแบบสัมบูรณ์ -> ความคลาดคำนวณใหม่ได้สด
+// ทุกครั้งที่ลาก/เลื่อนเวลา ตราบใดที่ข้อความยังเหมือนเดิม (เปลี่ยนข้อความแล้วค่อยวัดใหม่)
+// ความคลาด = วัดได้ − ขึ้นจอ: บวก = ซับขึ้นก่อนร้อง (เร็วไป), ลบ = ขึ้นหลังร้อง (ช้าไป)
+const normX = x => String(x || '').replace(/\s+/g, ' ').trim();
+const driftFresh = () => !!(S.drift && S.drift.meas && S.drift.meas.length === S.lines.length
+  && S.drift.texts.every((x, i) => x === normX(S.lines[i].x)));
+function driftDeltas(){
+  if(!driftFresh()) return null;
+  return S.drift.meas.map((m, i) => m == null ? null : r2(m - (S.lines[i].t + effOff())));
+}
+// ท่อนที่ข้อความซ้ำกับบรรทัดข้าง ๆ (ฮุควนท้ายเพลง "ฝัน ฝัน… / กอดเธอ…" สลับกัน) — ทุกบรรทัดหน้าตาเหมือนกัน
+// เครื่องวัดจึงวางเลื่อนไปทั้งรอบได้ (เจอจริง: คลาดทีละ ~8 วิ) -> ไม่นับเป็นค่าที่วัดได้ ไม่เอาไปเสนอให้เลื่อน
+const driftAmb = i => { const x = normX(S.lines[i] && S.lines[i].x);
+  return [-2, -1, 1, 2].some(k => S.lines[i + k] && normX(S.lines[i + k].x) === x); };
+const driftUsable = () => { const ds = driftDeltas(); return ds && ds.map((d, i) => driftAmb(i) ? null : d); };
+const driftCol = (d, a) => { const v = Math.abs(d);
+  return v <= 0.4 ? `rgba(56,211,159,${a})` : v <= 1.2 ? `rgba(255,182,72,${a})` : `rgba(255,107,143,${a})`; };
+let driftTok = 0, remeasureT = 0;
+async function measureDrift(engine){
+  if(!S.cur || !S.lines.length){ S.drift = null; renderDrift(); drawTL(); return; }
+  const my = ++driftTok; S.drifting = engine; renderDrift();
+  try{
+    const r = await api(`/api/studio/song/${S.cur}/drift`, {method:'POST',
+      body:JSON.stringify({lines:S.lines, offset:effOff(), engine})});
+    if(my !== driftTok) return;
+    const any = (r.meas || []).some(m => m != null);
+    S.drift = any ? {by:r.by, texts:r.texts, meas:r.meas, conf:r.conf || []}
+      : {by:'', texts:r.texts || [], meas:null,
+         why:r.why || 'ยังไม่มีไม้บรรทัดให้วัด — ต้องแยกเสียง/ถอดเสียงก่อน หรือกด 🎯 วัดละเอียด'};
+    if(r.fa && S.detail) S.detail.fa = r.fa;
+  }catch(e){ if(my === driftTok) S.drift = {by:'', texts:[], meas:null, why:e.message}; }
+  if(my === driftTok){ S.drifting = false; renderDrift(); drawTL(); }
+}
+function scheduleRemeasure(){                         // ข้อความเปลี่ยน -> วัดใหม่ (รวบหลายครั้งเป็นครั้งเดียว)
+  if(!S.drift || !S.drift.meas || S.drifting || driftFresh()) return;     // ไม่มีไม้บรรทัด = วัดซ้ำก็ไม่ได้อะไร
+  clearTimeout(remeasureT);
+  remeasureT = setTimeout(() => { if(!driftFresh()) measureDrift(S.drift && S.drift.by === 'fa' ? 'fa' : 'auto'); }, 1500);
+}
+// แบ่งความคลาดเป็นช่วงค่าคงที่ (DP: ผลรวม |ค่า − มัธยฐาน| + ค่าปรับต่อช่วง, ช่วงละ ≥ 4 บรรทัดที่วัดได้)
+// ช่วงติดกันที่ต่างกัน < 0.35 วิ รวมกัน -> เสนอเฉพาะช่วงที่ต้องเลื่อน ≥ 0.3 วิ และทำให้ตรงขึ้นจริง
+// (วัดกับคลังจริงแล้ว: เลื่อนเป็นช่วงช่วยบางเพลงมากแต่ทำบางเพลงพัง จึงเสนอให้คนกดเอง ไม่ทำอัตโนมัติ)
+const median = v => { const a = [...v].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+function segmentsOf(ds){
+  const pts = ds.map((d, i) => [i, d]).filter(p => p[1] != null), n = pts.length, MIN = 4, PEN = 2.5;
+  if(n < MIN) return [];
+  const cost = (a, b) => { const v = pts.slice(a, b).map(p => p[1]), m = median(v); return v.reduce((s, x) => s + Math.abs(x - m), 0); };
+  const dp = [0], back = [0];
+  for(let b = 1; b <= n; b++){ dp[b] = Infinity; back[b] = 0; }
+  for(let b = MIN; b <= n; b++) for(let a = 0; a <= b - MIN; a++){
+    if(dp[a] === Infinity) continue; const c = dp[a] + cost(a, b) + PEN; if(c < dp[b]){ dp[b] = c; back[b] = a; } }
+  if(dp[n] === Infinity) return [];
+  const cuts = []; for(let b = n; b > 0; b = back[b]) cuts.unshift([back[b], b]);
+  const merged = [];
+  for(const [a, b] of cuts){
+    const m = median(pts.slice(a, b).map(p => p[1]));
+    if(merged.length && Math.abs(merged[merged.length - 1].m - m) < 0.35){
+      const g = merged[merged.length - 1]; g.b = b; g.m = median(pts.slice(g.a, b).map(p => p[1])); }
+    else merged.push({a, b, m});
+  }
+  return merged.map((g, k) => {
+    const v = pts.slice(g.a, g.b).map(p => p[1]), m = r2(g.m);
+    const from = k === 0 ? 0 : pts[g.a][0], to = k === merged.length - 1 ? ds.length - 1 : pts[merged[k + 1].a][0] - 1;
+    const before = v.filter(x => Math.abs(x) <= 0.5).length, after = v.filter(x => Math.abs(x - m) <= 0.5).length;
+    return {from, to, shift:m, n:v.length, before, after, need:Math.abs(m) >= 0.3 && after > before};
+  });
+}
+function renderDrift(){
+  const box = $('#drift'); if(!S.cur){ box.classList.add('hide'); return; }
+  box.classList.remove('hide');
+  const fa = (S.detail && S.detail.fa) || {};
+  const BY = {fa:'🎯 FA (ละเอียด)', asr:'whisper', 'auto-cap':'คำบรรยายอัตโนมัติ'};
+  if(S.drifting){ box.innerHTML = `<div class="hd">🗺 กำลังวัดความคลาด${S.drifting === 'fa' && !fa.cached ? ' — วิเคราะห์เสียงร้องครั้งแรก ~10-30 วิ' : ''}…</div>`; return; }
+  const ds = driftUsable();
+  const faBtn = fa.ready && (!S.drift || S.drift.by !== 'fa') ? `<button data-dr="fa" title="วัดด้วย forced alignment (ละเอียดกว่า whisper มาก)">🎯 วัดละเอียด</button>` : '';
+  if(!ds){
+    box.innerHTML = `<div class="hd">🗺 ความคลาด<span class="sp"></span><button data-dr="auto">${S.drift ? 'วัดใหม่' : 'วัด'}</button>${faBtn}</div>`
+      + (S.drift && S.drift.why ? `<div class="why">${esc(S.drift.why)}</div>` : '');
+    S.driftSegs = []; return;
+  }
+  const known = ds.filter(d => d != null), ok = known.filter(d => Math.abs(d) <= 0.4).length;
+  const segs = segmentsOf(ds).filter(g => g.need);
+  const amb = S.lines.filter((_, i) => driftAmb(i)).length;
+  S.driftSegs = segs;
+  box.innerHTML = `<div class="hd">🗺 ความคลาด · วัดด้วย ${BY[S.drift.by] || S.drift.by} · ตรง ±0.4 วิ ${ok}/${known.length} บรรทัด
+      <span class="sp"></span><button data-dr="auto" title="วัดใหม่">↻</button>${faBtn}${segs.length > 1 ? '<button data-dr="all">ใช้ทุกช่วง</button>' : ''}</div>`
+    + (segs.length ? segs.map((g, k) => `<div class="seg1"><div class="tx">บรรทัด ${g.from + 1}–${g.to + 1}
+          ซับขึ้น${g.shift > 0 ? 'เร็ว' : 'ช้า'}ไป <b>${Math.abs(g.shift).toFixed(2)} วิ</b>
+          <small>(ตรง ${g.before} → ${g.after} จาก ${g.n} บรรทัดที่วัดได้)</small></div>
+          <button data-dr="play" data-k="${k}">▶ ฟัง</button><button class="primary" data-dr="use" data-k="${k}">ใช้</button></div>`).join('')
+      : `<div class="why">${known.length ? '✓ ไม่เจอช่วงที่เลื่อนทั้งท่อน — บรรทัดที่ยังไม่ตรงดูจากจุดสีบนแถบคลื่น (แดง = คลาดเกิน 1.2 วิ)' : 'วัดไม่ได้สักบรรทัด'}</div>`)
+    + (amb ? `<div class="why">🟣 ${amb} บรรทัดเป็นท่อนซ้ำติดกัน เครื่องวัดได้ไม่แน่นอน (อาจคลาดไปทั้งรอบ) — ฟังแล้วแตะจังหวะเองจะชัวร์กว่า</div>` : '');
+}
+function applySeg(g){
+  const nx = S.lines[g.to + 1];
+  for(let i = g.from; i <= g.to; i++){
+    const p = S.lines[i - 1];
+    let t = Math.max(p ? p.t + 0.05 : 0, S.lines[i].t + g.shift);
+    if(nx) t = Math.min(t, nx.t - 0.05 * (g.to + 1 - i));
+    S.lines[i].t = r2(Math.max(p ? p.t : 0, t));
+  }
+}
+$('#drift').addEventListener('click', e => {
+  const b = e.target.closest('[data-dr]'); if(!b) return;
+  const k = b.dataset.dr, g = S.driftSegs[+b.dataset.k];
+  if(k === 'auto' || k === 'fa'){ measureDrift(k); return; }
+  if(k === 'play' && g){ selectRow(g.from, true); playFrom(S.lines[g.from].t + effOff() - 2); return; }
+  if(k === 'use' && g){ mutate(() => applySeg(g)); selectRow(g.from, true);
+    playFrom(S.lines[g.from].t + effOff() - 2);
+    toast(`✓ เลื่อนบรรทัด ${g.from + 1}–${g.to + 1} ${sgn(g.shift)} วิ — กด ↶ ถ้าไม่ดีขึ้น`); return; }
+  if(k === 'all'){ const segs = S.driftSegs.slice(); mutate(() => segs.forEach(applySeg));
+    toast(`✓ เลื่อน ${segs.length} ช่วงแล้ว — กด ↶ ถ้าไม่ดีขึ้น`); }
+});
+// กราฟภาพรวมทั้งเพลง: แกนนอน = เวลา, แกนตั้ง = ความคลาด (±3 วิ) — เห็นทันทีว่าเริ่มเพี้ยนตรงไหน
+const ov = $('#ov'), ox = ov.getContext('2d');
+function paintOV(){
+  const dpr = devicePixelRatio || 1, W = ov.clientWidth || 1, H = ov.clientHeight || 40;
+  if(ov.width !== Math.round(W * dpr) || ov.height !== Math.round(H * dpr)){ ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr); }
+  ox.setTransform(dpr, 0, 0, dpr, 0, 0); ox.clearRect(0, 0, W, H);
+  if(!S.cur) return;
+  const dur = media.duration || (S.detail && S.detail.item.duration) || 1, mid = H / 2, k = (H / 2 - 4) / 3;
+  const X = t => t / dur * W;
+  ox.fillStyle = 'rgba(255,255,255,.04)'; ox.fillRect(X(S.view), 0, Math.max(2, X(S.view + S.zoom) - X(S.view)), H);
+  ox.fillStyle = 'rgba(255,255,255,.12)'; ox.fillRect(0, mid, W, 1);
+  ox.fillStyle = 'rgba(56,211,159,.08)'; ox.fillRect(0, mid - 0.4 * k, W, 0.8 * k);
+  const ds = driftDeltas();
+  if(ds) ds.forEach((d, i) => {
+    const x = X(S.lines[i].t + effOff());
+    if(d == null){ ox.fillStyle = 'rgba(160,160,180,.35)'; ox.fillRect(x - 1, mid - 1, 2, 2); return; }
+    ox.fillStyle = driftAmb(i) ? 'rgba(156,134,255,.8)' : driftCol(d, .95); ox.beginPath();
+    ox.arc(x, mid - Math.max(-3, Math.min(3, d)) * k, i === S.sel ? 3.5 : 2.2, 0, Math.PI * 2); ox.fill();
+  });
+  else { ox.fillStyle = 'rgba(255,255,255,.3)'; ox.font = '10px "Noto Sans Thai",sans-serif';
+         ox.fillText(S.drifting ? 'กำลังวัดความคลาด…' : 'ยังไม่ได้วัดความคลาด', 8, mid + 3); }
+  ox.fillStyle = '#fff'; ox.fillRect(X(media.currentTime || 0) - 0.5, 0, 1, H);
+}
+ov.addEventListener('click', e => {
+  const r = ov.getBoundingClientRect(), dur = media.duration || (S.detail && S.detail.item.duration) || 0;
+  if(!dur) return;
+  const t = (e.clientX - r.left) / r.width * dur;
+  media.currentTime = Math.max(0, t); S.view = Math.max(0, t - S.zoom * 0.3); drawTL();
+});
+new ResizeObserver(() => drawTL()).observe(ov);
+
+// ===== 7d. 🔎 ห้องหาเนื้อ =============================================
+const PROV = {current:'ใช้อยู่', 'yt-sub':'ซับ YouTube', joox:'JOOX', netease:'NetEase', ytmusic:'YouTube Music',
+              lrclib:'LRCLIB', 'yt-auto':'YouTube อัตโนมัติ', 'web/description':'คำอธิบายคลิป'};
+let srcTok = 0;
+async function openSources(opts = {}){
+  const fa = (S.detail && S.detail.fa) || {};
+  openDlg(`<h2>🔎 หาเนื้อจากทุกแหล่ง</h2>
+    <p>เทียบเนื้อจากซับ YouTube · JOOX · NetEase · YouTube Music · LRCLIB · คำอธิบายคลิป กับเสียงร้องจริง${fa.ready ? ' ด้วย 🎯 FA' : ''}
+       เรียงตามว่าข้อความเข้ากับเพลงนี้แค่ไหน — กดใช้แล้วยังไม่บันทึกจนกว่าจะกด 💾 (↶ ย้อนได้)</p>
+    <div class="srcq"><input id="sqt" placeholder="ชื่อเพลง (ค้นเองถ้าหาไม่เจอ)" value="${esc(opts.track || '')}">
+      <input id="sqa" placeholder="ศิลปิน" value="${esc(opts.artist || '')}"><button id="sqgo">ค้นใหม่</button></div>
+    <div class="srcused" id="srcused"></div>
+    <div id="srclist"><div class="empty">กำลังค้นทุกแหล่ง…${fa.ready && !fa.cached ? '<br>(ครั้งแรกของเพลงนี้ต้องวิเคราะห์เสียงร้องด้วย ~10-30 วิ)' : ''}</div></div>
+    <div class="btns"><button data-dlg="close">ปิด</button></div>`, 'wide');
+  $('#sqgo').onclick = () => openSources({track:$('#sqt').value.trim(), artist:$('#sqa').value.trim(), fresh:true});
+  const my = ++srcTok;
+  try{
+    const r = await api(`/api/studio/song/${S.cur}/sources`, {method:'POST',
+      body:JSON.stringify({track:opts.track || '', artist:opts.artist || '', fresh:!!opts.fresh})});
+    if(my !== srcTok || $('#dlg').classList.contains('hide')) return;
+    if(r.fa && S.detail) S.detail.fa = r.fa;
+    S.srcCands = r.candidates || [];
+    // บอกให้รู้ว่าระบบค้นด้วยอะไรไปบ้าง (ชื่อที่เดาจากชื่อคลิป + ท่อนเนื้อ) — ไม่เจอก็พิมพ์ชื่อเองด้านบน
+    const u = r.queries || {};
+    $('#srcused').innerHTML = 'ค้นด้วย: ' + (u.title || []).map(q => chip('', q)).join(' ')
+      + ((u.lyric || []).length ? ' · ท่อนเนื้อ: ' + u.lyric.map(q => chip('info', '“' + q + '”')).join(' ') : '');
+    renderSources();
+  }catch(e){ if(my === srcTok) $('#srclist').innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`; }
+}
+function renderSources(){
+  const L = S.srcCands;
+  if(!L.length){ $('#srclist').innerHTML = '<div class="empty">ไม่เจอเนื้อจากแหล่งไหนเลย — ลองพิมพ์ชื่อเพลง/ศิลปินแล้วกดค้นใหม่</div>'; return; }
+  const tone = (v, g, w) => v >= g ? 'ok' : v >= w ? 'warn' : 'bad';
+  $('#srclist').innerHTML = L.map((c, k) => {
+    const texts = c.synced ? c.lines.map(l => l.x) : c.texts;
+    const timing = c.synced && c.timing != null
+      ? chip(tone(c.timingAfter, 70, 40), `เวลาตรง ${c.timing}%` + (c.shift ? ` → เลื่อน ${sgn(c.shift)} วิ = ${c.timingAfter}%` : '')) : '';
+    return `<div class="src ${k === 0 && (c.match || 0) >= 30 ? 'best' : ''}">
+      <div class="h"><b>${esc(c.label)}</b>${chip(c.synced ? 'info' : '', c.synced ? 'มีเวลา' : 'เนื้อเปล่า')}
+        ${c.via === 'lyric' ? chip('warn', '🎵 เจอจากท่อนเนื้อ') : ''}
+        ${c.match != null ? chip(tone(c.match, 45, 20), `เข้ากับเพลง ${c.match}%`) : ''}${timing}
+        ${chip('', `${texts.length} บรรทัด`)}${c.meta && c.meta.duration ? chip('', `ยาว ${fmtD(c.meta.duration)}`) : ''}</div>
+      <div class="p3">${esc(texts.slice(0, 3).join(' / '))}${texts.length > 3 ? ' …' : ''}</div>
+      <div class="bt">
+        ${c.faLines ? `<button class="primary" data-src="fa" data-k="${k}" title="ใช้ข้อความของแหล่งนี้ แล้วใช้เวลาที่ FA จับจากเสียงร้องจริง">🎯 ใช้ข้อความนี้ + เวลา FA</button>` : ''}
+        ${c.synced ? `<button data-src="own" data-k="${k}">ใช้เวลาของแหล่งนี้${c.shift ? ` (เลื่อน ${sgn(c.shift)} วิ)` : ''}</button>` : ''}
+        ${!c.faLines && !c.synced ? `<button data-src="text" data-k="${k}">ใช้ข้อความ แล้วจับเวลา</button>` : ''}
+      </div></div>`; }).join('');
+}
+$('#dlg').addEventListener('click', e => {
+  const b = e.target.closest('[data-src]'); if(!b) return;
+  const c = S.srcCands[+b.dataset.k]; if(!c) return;
+  const how = b.dataset.src;
+  closeDlg();
+  if(how === 'fa') mutate(() => { S.lines = c.faLines.map(l => ({t:+l.t, d:+l.d, x:l.x})); S.offset = 0; S.sel = 0; });
+  else if(how === 'own') mutate(() => { S.lines = c.lines.map(l => ({t:r2(Math.max(0, +l.t + (c.shift || 0))), d:+l.d, x:l.x})); S.offset = 0; S.sel = 0; });
+  else { mutate(() => { let t = 0; S.lines = c.texts.map((x, i) => { const o = S.lines[i]; t = o ? o.t : t + 3; return {t:r2(t), d:o ? o.d : 3, x}; }); S.sel = 0; });
+         $('#aibtn').click(); return; }
+  toast(`✓ ใช้ ${PROV[c.provider] || c.provider}${how === 'fa' ? ' + เวลา FA' : ''} แล้ว — ▶ ฟังในพรีวิว แล้วกด 💾 เมื่อพอใจ`, 4000);
+});
+$('#srcbtn').onclick = () => openSources();
+
+// ===== 8. แก้ไข (undo/redo) ==========================================
+function mutate(fn, keepRows){
+  S.undo.push(snapshot()); if(S.undo.length > 100) S.undo.shift(); S.redo = [];
+  fn(); after(keepRows);
+}
+function after(keepRows){ if(!keepRows) renderRows(); updateUndo(); renderInfo(); renderDrift(); drawTL(); scheduleRemeasure(); }
+function restore(snap){ const o = JSON.parse(snap); S.lines = o.lines; S.offset = o.offset;
+  S.sel = clamp(S.sel, 0, Math.max(0, S.lines.length - 1)); }
+function undo(){ if(!S.undo.length) return; S.redo.push(snapshot()); restore(S.undo.pop()); after(); }
+function redo(){ if(!S.redo.length) return; S.undo.push(snapshot()); restore(S.redo.pop()); after(); }
+function updateUndo(){
+  $('#undobtn').disabled = !S.undo.length; $('#redobtn').disabled = !S.redo.length;
+  $('#savebtn').classList.toggle('dirty', !!dirty());
+  $('#savebtn').textContent = dirty() ? '💾 บันทึก •' : '💾 บันทึกแล้ว';
+}
+const sortLines = () => { const cur = S.lines[S.sel]; S.lines.sort((a, b) => a.t - b.t);
+  if(cur) S.sel = S.lines.indexOf(cur); };
+const autoDur = (i) => { const l = S.lines[i], n = S.lines[i + 1];
+  if(l && n) l.d = r2(clamp(n.t - l.t, DUR_MIN, DUR_MAX)); };
+// เลื่อนบรรทัด i ถึงบรรทัดสุดท้ายด้วยระยะเท่ากัน ("พาทั้งแถบข้างหลัง")
+// ห้ามล้ำไปก่อนบรรทัด i-1 ไม่งั้นลำดับเนื้อจะสลับ
+function rippleFrom(i, delta){
+  const prev = S.lines[i - 1], l = S.lines[i]; if(!l) return 0;
+  const min = prev ? prev.t + 0.05 : 0;
+  delta = Math.max(delta, min - l.t);
+  for(let k = i; k < S.lines.length; k++) S.lines[k].t = r2(Math.max(0, S.lines[k].t + delta));
+  return delta;
+}
+$('#undobtn').onclick = undo; $('#redobtn').onclick = redo;
+
+// ===== 9. ตารางบรรทัด ================================================
+function renderRows(){
+  const box = $('#rows'), st = box.scrollTop;
+  if(!S.lines.length){
+    box.innerHTML = `<div class="empty">ยังไม่มีเนื้อเพลง — กด <b>📋 นำเข้า</b> เพื่อวางเนื้อ (LRC หรือข้อความเปล่า)<br>
+      หรือ <button data-ed="addfirst">＋ เพิ่มบรรทัดแรก</button></div>`; return; }
+  box.innerHTML = S.lines.map((l, i) => {
+    const bad = i > 0 && l.t < S.lines[i - 1].t;
+    return `<div class="row ${i === S.sel ? 'sel' : ''} ${bad ? 'warn' : ''}" data-i="${i}">
+      <span class="n" title="ดับเบิลคลิก = ฟังจากบรรทัดนี้">${i + 1}</span>
+      <input class="ti" value="${fmtT(l.t)}" title="เวลาเริ่ม (นาที:วินาที.ร้อย) — ในไฟล์ ไม่รวม offset">
+      <input class="di" value="${l.d.toFixed(2)}" title="ความยาว (วินาที)">
+      <input class="xi" value="${esc(l.x)}">
+      <span class="rb">
+        <button data-r="play" title="ฟังบรรทัดนี้">▶</button>
+        <button data-r="m" title="เร็วขึ้นตามระยะที่เลือก">−</button><button data-r="p" title="ช้าลงตามระยะที่เลือก">＋</button>
+        <button data-r="now" title="ตั้งเวลาเริ่ม = ตำแหน่งที่เล่นอยู่ (เฉพาะบรรทัดนี้)">⏱</button>
+        <button data-r="ins" title="แทรกบรรทัดใหม่ต่อจากนี้">⤵</button>
+        <button data-r="del" title="ลบบรรทัดนี้">✕</button>
+      </span></div>`; }).join('');
+  box.scrollTop = st; lastCur = -2;
+  if(S.tap) updTapBar();
+}
+function selectRow(i, scroll){
+  i = clamp(i, 0, S.lines.length - 1); if(i === S.sel && !scroll) return;
+  const rows = $('#rows').children;
+  rows[S.sel] && rows[S.sel].classList.remove('sel');
+  S.sel = i; rows[i] && rows[i].classList.add('sel');
+  if(scroll && rows[i]) rows[i].scrollIntoView({block:'nearest'});
+  drawTL();
+}
+$('#rows').addEventListener('focusin', e => { const r = e.target.closest('.row'); if(r) selectRow(+r.dataset.i); });
+$('#rows').addEventListener('click', e => {
+  const r = e.target.closest('.row'); const b = e.target.closest('[data-r]');
+  if(r && !b){ selectRow(+r.dataset.i); return; }
+  if(!r || !b) return;
+  const i = +r.dataset.i, l = S.lines[i];
+  selectRow(i);
+  switch(b.dataset.r){
+    case 'play': playFrom(l.t + effOff() - 0.6); break;
+    case 'm': mutate(() => { l.t = r2(Math.max(0, l.t - S.step)); sortLines(); }); break;
+    case 'p': mutate(() => { l.t = r2(l.t + S.step); sortLines(); }); break;
+    case 'now': mutate(() => { l.t = r2(Math.max(0, media.currentTime - effOff())); sortLines(); }); break;
+    case 'ins': mutate(() => { const n = S.lines[i + 1];
+      const t = n ? Math.min(l.t + l.d, n.t - 0.3) : l.t + l.d + 0.5;
+      S.lines.splice(i + 1, 0, {t:r2(Math.max(t, l.t + 0.05)), d:2, x:'…'}); S.sel = i + 1; sortLines(); });
+      setTimeout(() => { const x = $('#rows').children[S.sel]; x && x.querySelector('.xi').select(); }, 0); break;
+    case 'del': mutate(() => { S.lines.splice(i, 1); S.sel = clamp(i, 0, S.lines.length - 1); }); break;
+  }
+});
+$('#rows').addEventListener('dblclick', e => { const n = e.target.closest('.n'); if(!n) return;
+  const l = S.lines[+n.closest('.row').dataset.i]; playFrom(l.t + effOff() - 0.6); });
+$('#rows').addEventListener('change', e => {
+  const r = e.target.closest('.row'); if(!r) return;
+  const i = +r.dataset.i, l = S.lines[i], el = e.target;
+  if(el.classList.contains('ti')){
+    const v = parseT(el.value);
+    if(!isFinite(v) || v < 0){ el.value = fmtT(l.t); toast('⚠️ เวลาไม่ถูกต้อง ใช้แบบ 1:23.45 หรือ 83.45'); return; }
+    mutate(() => { l.t = r2(v); sortLines(); });
+  }else if(el.classList.contains('di')){
+    const v = +el.value;
+    if(!isFinite(v) || v <= 0){ el.value = l.d.toFixed(2); return; }
+    mutate(() => { l.d = r2(clamp(v, 0.3, 30)); });
+  }else if(el.classList.contains('xi')){
+    const v = el.value.replace(/\s+/g, ' ').trim();
+    if(!v){ el.value = l.x; toast('ข้อความว่างไม่ได้ — ถ้าไม่ต้องการบรรทัดนี้กด ✕'); return; }
+    if(v !== l.x) mutate(() => { l.x = v; }, true);
+  }
+});
+$('#rows').addEventListener('keydown', e => {           // Enter ในช่องข้อความ = ไปบรรทัดถัดไป
+  if(e.key !== 'Enter' || !e.target.classList.contains('xi')) return;
+  e.preventDefault(); const i = +e.target.closest('.row').dataset.i;
+  e.target.blur();
+  setTimeout(() => { const nx = $('#rows').children[i + 1]; nx && nx.querySelector('.xi').focus(); }, 0);
+});
+
+// ===== 10. เครื่องมือ =================================================
+$('#stepsel').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return;
+  S.step = +b.dataset.v; $('#stepsel').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+$('#ripbtn').onclick = () => { S.ripple = !S.ripple; $('#ripbtn').classList.toggle('on', S.ripple); };
+function closeGap(){                                    // ⇤ บรรทัดนี้+ข้างหลัง มาเริ่มพอดีท้ายบรรทัดก่อน
+  const i = S.sel, l = S.lines[i], p = S.lines[i - 1];
+  if(!l || !p){ toast('เลือกบรรทัดที่มีบรรทัดก่อนหน้าก่อน'); return; }
+  const target = r2(p.t + p.d);
+  if(Math.abs(target - l.t) < 0.005){ toast('ติดกันอยู่แล้ว'); return; }
+  mutate(() => rippleFrom(i, target - l.t));
+  toast(`⇤ บรรทัด ${i + 1} ถึงท้ายเพลง เลื่อน ${sgn(target - l.t)} วิ มาต่อท้ายบรรทัด ${i}`);
+}
+function toPlayhead(){                                  // ⤓ บรรทัดนี้+ข้างหลัง ไปเริ่มที่หัวเล่น
+  const i = S.sel, l = S.lines[i]; if(!l) return;
+  const target = snapTap(media.currentTime) - effOff();
+  let moved = 0; mutate(() => { moved = rippleFrom(i, target - l.t); });
+  toast(`⤓ บรรทัด ${i + 1} ถึงท้ายเพลง เลื่อน ${sgn(moved)} วิ`);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-ed]'); if(!b) return;
+  const v = +b.dataset.v, st = S.step;
+  switch(b.dataset.ed){
+    case 'off': mutate(() => { S.offset = r2(clamp(S.offset + v * st, -15, 15)); }, true); break;
+    case 'shiftall': mutate(() => S.lines.forEach(l => l.t = r2(Math.max(0, l.t + v * st)))); break;
+    case 'shiftfrom': mutate(() => rippleFrom(S.sel, v * st)); break;
+    case 'closegap': closeGap(); break;
+    case 'toplay': toPlayhead(); break;
+    case 'redur': mutate(() => S.lines.forEach((_, i) => autoDur(i))); toast('↔ คำนวณความยาวจากบรรทัดถัดไปแล้ว'); break;
+    case 'trial':
+      S.trial = S.trial ? 0 : v; $('#trialtag').classList.toggle('hide', !S.trial);
+      $('#trialtag').textContent = `กำลังลองเลื่อน ${sgn(S.trial)} วิ`;
+      if(S.trial) playFrom((S.lines[0] ? S.lines[0].t : 0) + S.offset + S.trial - 1.5);
+      renderInfo(); drawTL(); break;
+    case 'usesugg':
+      S.trial = 0; $('#trialtag').classList.add('hide');
+      mutate(() => { S.offset = r2(clamp(S.offset + v, -15, 15)); }, true);
+      toast(`💡 ใส่ offset ${sgn(v)} วิ แล้ว — กดบันทึกเพื่อใช้บนทีวี`); break;
+    case 'reload':
+      if(dirty() && !confirm('ทิ้งงานที่แก้ค้างไว้ แล้วโหลดฉบับในเครื่องมาแทนเลยไหม?')) break;
+      hideNote(); openSong(S.cur, 'force'); break;
+    case 'addfirst': mutate(() => { S.lines = [{t:r2(media.currentTime || 0), d:3, x:'…'}]; S.sel = 0; }); break;
+  }
+});
+$('#offin').addEventListener('change', () => {
+  const v = +$('#offin').value;
+  if(!isFinite(v)){ $('#offin').value = S.offset.toFixed(2); return; }
+  mutate(() => { S.offset = r2(clamp(v, -15, 15)); }, true);
+});
+
+// --- บันทึก
+async function save(){
+  if(!S.cur || $('#savebtn').disabled) return;       // กำลังบันทึกอยู่ (⌘S รัว) -> ไม่ส่งซ้ำ
+  commitInput();
+  if(!S.lines.length){ toast('⚠️ ยังไม่มีเนื้อให้บันทึก'); return; }
+  // ไม่ได้แก้อะไร -> ไม่ส่ง: บันทึกแล้วเพลงกลายเป็น "แก้เอง" หลุดจากระบบเลือกเนื้ออัตโนมัติ และผลตรวจเดิมถูกลบ
+  if(!dirty() && !$('#bake').checked){ toast('ยังไม่ได้แก้อะไร — ไม่ต้องบันทึก'); return; }
+  const vid = S.cur, sent = snapshot();
+  let lines = S.lines.map(l => ({t:l.t, d:l.d, x:l.x})), offset = S.offset;
+  if($('#bake').checked && offset){
+    lines = lines.map(l => ({...l, t:r2(Math.max(0, l.t + offset))})); offset = 0;
+  }
+  $('#savebtn').disabled = true;
+  try{
+    const r = await api(`/api/studio/song/${vid}/lyrics`, {method:'PUT', body:JSON.stringify({lines, offset})});
+    toast('✓ บันทึกแล้ว — จอทีวีใช้ฉบับนี้ทันทีถ้ากำลังเล่นเพลงนี้');
+    $('#bake').checked = false;
+    if(vid === S.cur){
+      S.saved = sent;                               // แก้ต่อระหว่างรอคำตอบ = ยังนับว่าค้างอยู่ (ไม่ถูกโหลดทับ)
+      if(r.lyricsUrl) S.lyrUrl = r.lyricsUrl;       // การบันทึกของเราเองต้องไม่ขึ้นโน้ต "เนื้อในเครื่องเปลี่ยน"
+      updateUndo();
+      await openSong(vid, 'bg');
+    }
+    loadSongs();
+  }catch(e){ toast('⚠️ บันทึกไม่ได้: ' + e.message, 4000); }
+  $('#savebtn').disabled = false;
+}
+$('#savebtn').onclick = save;
+window.addEventListener('beforeunload', e => { if(dirty()){ e.preventDefault(); e.returnValue = ''; } });
+
+// --- ✨ AI จับเวลา
+$('#aibtn').onclick = async () => {
+  if(!S.lines.length){ toast('ต้องมีข้อความก่อน — กด 📋 นำเข้า เพื่อวางเนื้อ'); return; }
+  const texts = S.lines.map(l => l.x);
+  const fa = (S.detail && S.detail.fa) || {}, engine = fa.ready ? $('#aieng').value : 'whisper';
+  $('#aibtn').disabled = true;
+  $('#aibtn').textContent = engine === 'fa' && !fa.cached ? '🎯 วิเคราะห์เสียงร้องครั้งแรก… (~10-30 วิ)' : '✨ กำลังจับเวลา…';
+  try{
+    const r = await api(`/api/studio/song/${S.cur}/autotime`, {method:'POST', body:JSON.stringify({texts, engine})});
+    if(r.lines){
+      if(r.by === 'fa' && S.detail) S.detail.fa = {...(S.detail.fa || {}), cached:true};
+      const by = r.by === 'fa' ? 'เสียงร้อง (🎯 FA)' : r.by === 'asr' ? 'เสียงร้องที่ถอดไว้' : 'คำบรรยายอัตโนมัติของ YouTube';
+      const warn = r.ok ? '' : `\n\n⚠️ ผลนี้ไม่ผ่านเกณฑ์อัตโนมัติ (จับคู่ได้น้อยหรือบรรทัดทับกัน) อาจผิดหลายจุด — ลองฟังในพรีวิวก่อนบันทึก`;
+      const note = r.by === 'fa' ? 'FA วัดกับเพลงที่คนจับเวลาไว้ ตรงภายใน 0.5 วิ ราว 9 ใน 10 บรรทัด — จุดสีบนแถบคลื่นจะบอกบรรทัดที่ยังน่าสงสัย'
+                                 : 'AI มักคลาดราว 1 วิ — ใช้เป็นร่างแรก แล้วเก็บจุดที่ผิดด้วยแตะตามจังหวะ/ลากบนแถบคลื่น';
+      if(confirm(`✨ จับเวลาเสร็จ (จับคู่ข้อความกับ${by}ได้ ${r.cov}%)${warn}\n\nแทนที่เวลาทุกบรรทัด และตั้ง offset เป็น 0?\n${note}\n(ยังไม่บันทึกจนกว่าจะกด 💾 · กด ↶ ย้อนได้)`)){
+        mutate(() => { S.lines = r.lines.map(l => ({t:+l.t, d:+l.d, x:l.x})); S.offset = 0; });
+        toast('✨ ใส่เวลาจาก AI แล้ว — กด ▶ ฟังในพรีวิวแล้วเก็บจุดที่ไม่ตรง', 4000);
+      }
+    }else if(r.need === 'asr'){
+      if(confirm('เพลงนี้ยังไม่เคยถอดเสียงร้อง จึงจับเวลาทันทีไม่ได้\n\nส่งข้อความนี้เข้าคิวถอดเสียง (ใช้ GPU สักครู่) แล้วระบบจะใส่เนื้อพร้อมเวลาให้เองไหม?\n(เนื้อที่ได้จะมาแทนฉบับปัจจุบัน)')){
+        const a = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:'asrtext', texts})});
+        toast('✓ ' + a.msg, 4000); S.saved = snapshot(); updateUndo();
+      }
+    }else toast('⚠️ ' + (r.why || 'จับเวลาไม่ได้'), 4500);
+  }catch(e){ toast('⚠️ ' + e.message); }
+  $('#aibtn').disabled = false; $('#aibtn').textContent = '✨ AI จับเวลา';
+};
+
+// --- 📋 นำเข้า (LRC หรือข้อความเปล่า)
+function parseLRC(txt){
+  const out = [];
+  for(const raw of txt.split(/\r?\n/)){
+    const tags = [...raw.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)];
+    const x = raw.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim();
+    if(!tags.length || !x) continue;
+    for(const m of tags) out.push({t:r2(+m[1] * 60 + parseFloat(m[2].replace(':', '.'))), d:3, x});
+  }
+  out.sort((a, b) => a.t - b.t);
+  out.forEach((l, i) => { const n = out[i + 1]; l.d = r2(n ? clamp(n.t - l.t, DUR_MIN, DUR_MAX) : 4); });
+  return out;
+}
+$('#impbtn').onclick = () => {
+  openDlg(`<h2>📋 นำเข้าเนื้อเพลง</h2>
+    <p>วาง <b>LRC</b> (มี <code>[01:23.45]</code> นำหน้า) = ได้เวลาด้วย · หรือวาง <b>เนื้อเปล่า</b> 1 บรรทัดต่อ 1 ท่อนบนจอ
+       แล้วกด ✨ AI จับเวลา ต่อ</p>
+    <textarea id="impt" placeholder="วางเนื้อที่นี่"></textarea>
+    <div class="btns"><button data-dlg="close">ยกเลิก</button><button class="primary" id="impok">แทนที่เนื้อทั้งหมด</button></div>`);
+  $('#impt').focus();
+  $('#impok').onclick = () => {
+    const txt = $('#impt').value; if(!txt.trim()) return;
+    let lines = parseLRC(txt), timed = lines.length > 0;
+    if(!timed){                                     // เนื้อเปล่า: ยืมเวลาเดิมตามลำดับไปก่อน
+      const xs = txt.split(/\r?\n/).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      let t = 0;
+      lines = xs.map((x, i) => { const o = S.lines[i]; t = o ? o.t : t + 3; return {t:r2(t), d:o ? o.d : 3, x}; });
+    }
+    closeDlg();
+    mutate(() => { S.lines = lines; S.sel = 0; });
+    toast(timed ? `✓ นำเข้า LRC ${lines.length} บรรทัด` : `✓ นำเข้า ${lines.length} บรรทัด — กด ✨ AI จับเวลา เพื่อใส่เวลาให้ตรงเสียงร้อง`, 4500);
+  };
+};
+// --- 🕘 ประวัติ
+$('#verbtn').onclick = () => {
+  const ed = (S.detail && S.detail.edits) || [];
+  openDlg(`<h2>🕘 ประวัติการแก้</h2><p>ทุกครั้งที่บันทึก ฉบับก่อนหน้าถูกเก็บไว้ (20 รุ่นล่าสุด) เลือกแล้วจะโหลดเข้าตัวแก้ — ยังต้องกด 💾 เพื่อใช้</p>
+    <div class="vers">${ed.length ? ed.map(v => `<button data-ver="${v.ts}"><span>${esc(v.ts.replace(/^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d).*/, '$3/$2/$1 $4:$5:$6'))}</span>
+      <span class="chip">${esc(v.src)} · ${v.n} บรรทัด</span></button>`).join('') : '<div class="empty">ยังไม่มีประวัติ</div>'}</div>
+    <div class="btns"><button data-dlg="close">ปิด</button></div>`);
+};
+$('#dlg').addEventListener('click', async e => {
+  if(e.target.id === 'dlg' || e.target.closest('[data-dlg=close]')){ closeDlg(); return; }
+  const v = e.target.closest('[data-ver]'); if(!v) return;
+  try{ const j = await api(`/api/studio/song/${S.cur}/edit/${v.dataset.ver}`);
+       closeDlg(); mutate(() => { S.lines = (j.lines || []).map(l => ({t:+l.t, d:+l.d, x:String(l.x)})); S.sel = 0; });
+       toast('✓ โหลดรุ่นเก่าแล้ว — กด 💾 เพื่อใช้'); }
+  catch(err){ toast('⚠️ ' + err.message); }
+});
+function openDlg(html, cls){ $('#dlgcard').className = 'card' + (cls ? ' ' + cls : ''); $('#dlgcard').innerHTML = html; $('#dlg').classList.remove('hide'); }
+function closeDlg(){ $('#dlg').classList.add('hide'); }
+$('#helpbtn').onclick = () => openDlg(`<h2>⌨️ คีย์ลัด</h2><div class="keys">
+  <kbd>Space</kbd> เล่น/หยุด · <kbd>←</kbd><kbd>→</kbd> 1 วิ (<kbd>Shift</kbd> 0.1 · <kbd>Alt</kbd> 0.01 วิ)<br>
+  <kbd>↑</kbd><kbd>↓</kbd> เลือกบรรทัด · <kbd>Enter</kbd> ฟังบรรทัดที่เลือก · <kbd>L</kbd> วนบรรทัดที่เลือก<br>
+  <kbd>[</kbd><kbd>]</kbd> เลื่อนบรรทัดที่เลือกตามระยะที่เลือก (<kbd>Shift</kbd> = ทั้งเพลง)<br>
+  <kbd>G</kbd> ต่อท้ายบรรทัดก่อน · <kbd>P</kbd> ย้ายมาที่หัวเล่น (ทั้งสองแบบพาทั้งแถบข้างหลังไปด้วย)<br>
+  <kbd>T</kbd> แตะตามจังหวะ → <kbd>Enter</kbd>/<kbd>Space</kbd> แตะ · <kbd>⌫</kbd> ย้อนการแตะ · <kbd>Esc</kbd> ออก<br>
+  <kbd>Z</kbd> ซูมพอดีบรรทัด · <kbd>F</kbd> โหมดแก้เต็มจอ · <kbd>⌘Z</kbd> ย้อน · <kbd>⇧⌘Z</kbd> ทำซ้ำ · <kbd>⌘S</kbd> บันทึก<br>
+  แถบคลื่นเสียง: ลากขอบซ้ายก้อน = เวลาเริ่ม · ขอบขวา = ความยาว · กลางก้อน = ย้าย
+  · ขอบจะ <b>ดูดติด</b> ท้าย/ต้นบรรทัดข้าง ๆ, จุดเริ่มร้อง และหัวเล่น (<kbd>Alt</kbd> ค้าง = ไม่ดูด)
+  · <kbd>Shift</kbd> ค้างตอนลาก หรือเปิด 🔗 = บรรทัดข้างหลังทั้งหมดเลื่อนตาม
+  · คลิกที่ว่าง = ข้ามไปเวลานั้น · ล้อเมาส์ = เลื่อน · <kbd>Ctrl</kbd>+ล้อ = ซูม</div>
+  <div class="btns"><button data-dlg="close">ปิด</button></div>`);
+
+// ===== 11. สื่อ + พรีวิวแบบจอทีวี =====================================
+function setMedia(kind, at, first){
+  const f = (S.detail && S.detail.files) || {};
+  if(!f['video.mp4'] && !f['audio.m4a'] && !f['vocals.m4a']){       // โหลดไม่ครบ: ไม่มีอะไรให้เล่น
+    media.removeAttribute('src'); media.load(); $('#pv').classList.add('audio'); return; }
+  if(kind === 'vocals' && !f['vocals.m4a']){ if(!first) toast('เพลงนี้ยังไม่มีเสียงร้องแยก'); kind = 'video'; }
+  if(kind === 'video' && !f['video.mp4']) kind = f['audio.m4a'] ? 'audio' : 'vocals';
+  S.media = kind === 'audio' ? 'video' : kind;
+  const src = `/song/${S.cur}/${kind === 'video' ? 'video.mp4' : kind === 'audio' ? 'audio.m4a' : 'vocals.m4a'}`;
+  const was = !media.paused && !first, t = at != null ? at : media.currentTime;
+  if(media._onmeta) media.removeEventListener('loadedmetadata', media._onmeta);
+  media._onmeta = () => { media._onmeta = null; media.currentTime = t || 0; media.playbackRate = curRate;
+    if(was) media.play().catch(() => {}); };
+  media.addEventListener('loadedmetadata', media._onmeta, {once:true});
+  media.src = src; media.playbackRate = curRate;
+  $('#pv').classList.toggle('audio', kind !== 'video');
+  $('#msrc').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === S.media));
+}
+let curRate = 1;
+$('#spd').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return;
+  curRate = +b.dataset.v; media.playbackRate = curRate;
+  $('#spd').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+$('#msrc').addEventListener('click', e => { const b = e.target.closest('button'); if(b) setMedia(b.dataset.v); });
+$('#pvm').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return;
+  S.pvMode = b.dataset.v; lastKey = '';
+  $('#pv').classList.toggle('dual', S.pvMode === 'dual' || S.pvMode === 'karaoke');
+  $('#pv').classList.toggle('kara', S.pvMode === 'karaoke');
+  if(S.pvMode === 'karaoke' && !(S.wk && S.wk.length)){
+    const w = S.detail && S.detail.item.words;
+    toast(w && ['queued','working'].includes(w.status) ? '⏳ กำลังทำเวลารายคำของเพลงนี้ — เสร็จแล้วจะไล่สีเอง'
+          : '🎤 เพลงนี้ยังไม่มีเวลารายคำ — กดปุ่ม "🎤 ทำเวลารายคำ" ด้านบน (ระหว่างนี้แสดงแบบ 2 บรรทัด)', 4200);
+  }
+  $('#pvm').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+$('#play').onclick = () => media.paused ? media.play().catch(() => {}) : media.pause();
+media.addEventListener('play', () => $('#play').textContent = '⏸');
+media.addEventListener('pause', () => $('#play').textContent = '▶');
+$('#seek').addEventListener('input', () => { media.currentTime = +$('#seek').value; });
+function playFrom(t){ media.currentTime = Math.max(0, t); media.play().catch(() => {}); }
+
+// 🔁 วนบรรทัดที่เลือก — ฟังซ้ำช่วงสั้น ๆ ตอนจูนละเอียด
+const loopRange = () => { const l = S.lines[S.sel]; if(!l) return null;
+  const a = l.t + effOff(); return [Math.max(0, a - 0.4), a + l.d + 0.3]; };
+function setLoop(on){
+  S.loop = !!on && !!S.lines[S.sel]; $('#loopbtn').classList.toggle('on', S.loop);
+  if(S.loop){ const r = loopRange(); if(media.currentTime < r[0] || media.currentTime > r[1]) playFrom(r[0]);
+              else media.play().catch(() => {}); }
+}
+$('#loopbtn').onclick = () => setLoop(!S.loop);
+
+const effOff = () => S.offset + S.trial;
+// บรรทัดที่จอทีวีจะแสดงตอนนี้ — ตรรกะเดียวกับ lyIndexAt/lyrTick ใน player.html
+function lyIdx(pos){
+  const L = S.lines, off = effOff(); let lo = 0, hi = L.length - 1, r = -1;
+  while(lo <= hi){ const m = (lo + hi) >> 1; if(L[m].t + off - LYR_LEAD <= pos){ r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+const LYR_FS = w => w <= 16 ? 5.0 : w <= 24 ? 4.4 : w <= 32 ? 3.8 : 3.2;
+let lastKey = '', lastCur = -2;
+function renderPreview(pos){
+  const L = S.lines, off = effOff(), i = lyIdx(pos);
+  let gap = false;
+  if(i >= 0){ const l = L[i], n = L[i + 1];
+    if(pos > l.t + off + l.d + LYR_HOLD && (!n || n.t + off - LYR_LEAD - pos > LYR_GAP)) gap = true; }
+  // ♪ ● ● ● นับถอยหลังเหมือนจอทีวี (countdown() ใน player.html)
+  let cd = 0;
+  if((i < 0 || gap) && !(TV.cur && TV.cur.countdown === false)){
+    const nx = L[i < 0 ? 0 : i + 1];
+    const rem = nx ? nx.t + off - LYR_LEAD - pos : -1;
+    if(rem > 0 && rem <= 3) cd = Math.min(3, Math.ceil(rem));
+  }
+  const note = '♪' + (cd ? ' ' + '●'.repeat(cd) : '');
+  const key = S.pvMode + i + (gap ? 'g' : '') + cd + (L[i] ? L[i].x : '') + (L[i + 1] ? L[i + 1].x : '');
+  if(key !== lastKey){
+    lastKey = key;
+    const l1 = $('#l1'), l2 = $('#l2');
+    if(S.pvMode === 'dual' || S.pvMode === 'karaoke'){
+      const p = i < 0 ? 0 : i - (i % 2);
+      pvRow(l1, gap ? note : (L[p] || {}).x || '', gap ? -1 : p);
+      pvRow(l2, gap ? '' : (L[p + 1] || {}).x || '', gap || !L[p + 1] ? -1 : p + 1);
+      l1.classList.toggle('on', i === p && !gap); l2.classList.toggle('on', i === p + 1);
+      l1.style.fontSize = l2.style.fontSize = '4.4cqw';
+    }else{
+      const cur = i < 0 ? (cd ? note : '') : gap ? note : L[i].x, nx = (L[i + 1] || {}).x || '';
+      pvRow(l1, cur, -1); pvRow(l2, nx, -1); l1.classList.remove('on'); l2.classList.remove('on');
+      l1.style.fontSize = LYR_FS([...cur].filter(c => !/\p{Mn}/u.test(c)).length) + 'cqw'; l2.style.fontSize = '';
+    }
+  }
+  return i;
+}
+function tick(){
+  if(S.cur && S.detail){
+    let pos = media.currentTime || 0;
+    if(S.loop && !media.paused){ const r = loopRange();
+      if(r && (pos > r[1] || pos < r[0] - 0.5)){ media.currentTime = r[0]; pos = r[0]; } }
+    const dur = media.duration || (S.detail.item.duration || 0);
+    $('#tm').textContent = `${fmtT(pos)} / ${fmtD(dur)}`;
+    if(document.activeElement !== $('#seek')){ $('#seek').max = dur || 1; $('#seek').value = pos; }
+    const i = renderPreview(pos);
+    if(S.pvMode === 'karaoke'){ pvPaint($('#l1'), pos); pvPaint($('#l2'), pos); }
+    if(i !== lastCur){                                 // ไฮไลต์แถวที่กำลังร้อง + เลื่อนตาม
+      const rows = $('#rows').children;
+      rows[lastCur] && rows[lastCur].classList && rows[lastCur].classList.remove('cur');
+      if(rows[i] && rows[i].classList){ rows[i].classList.add('cur');
+        if(!media.paused && !isTyping() && !S.loop) rows[i].scrollIntoView({block:'nearest'}); }
+      lastCur = i;
+    }
+    if(!media.paused){ follow(pos); drawTL(); }
+  }
+  requestAnimationFrame(tick);
+}
+
+// ===== 12. เสียงร้อง: PCM ละเอียด + envelope + จุดเริ่มร้อง (onset) ======
+// decode เป็นโมโน 8 kHz ครั้งเดียว -> ซูมลึกวาดจากตัวอย่างเสียงจริง, ซูมกว้าง/หา onset ใช้ RMS 100 Hz
+// คนแตะช้ากว่าเสียงจริงราว 0.1-0.3 วิเสมอ จึงใช้ onset ช่วยดูดเวลาตอนแตะ/ลาก
+let envTok = 0;
+async function loadEnvelope(vid){
+  const my = ++envTok, f = (S.detail && S.detail.files) || {};
+  const file = f['vocals.m4a'] ? 'vocals.m4a' : f['audio.m4a'] ? 'audio.m4a' : null;
+  $('#tlmsg').textContent = file ? 'กำลังโหลดคลื่นเสียงร้อง…' : 'ไม่มีไฟล์เสียงให้วาดคลื่น (ยังแตะ/แก้เวลาได้ตามปกติ)';
+  $('#tlmsg').classList.remove('hide');
+  drawTL();
+  if(!file) return;
+  try{
+    const buf = await (await fetch(`/song/${vid}/${file}`)).arrayBuffer();
+    if(my !== envTok) return;
+    const ac = new OfflineAudioContext(1, 1, S.pcmRate);
+    const ab = await ac.decodeAudioData(buf);                 // resample เป็น 8 kHz ให้เอง
+    if(my !== envTok) return;
+    const n = ab.length, pcm = new Float32Array(n), chs = ab.numberOfChannels;
+    for(let c = 0; c < chs; c++){ const d = ab.getChannelData(c); for(let i = 0; i < n; i++) pcm[i] += d[i] / chs; }
+    const hop = Math.round(ab.sampleRate / S.envRate), m = Math.floor(n / hop), env = new Float32Array(m);
+    for(let i = 0; i < m; i++){ let s = 0; const o = i * hop; for(let k = 0; k < hop; k++){ const v = pcm[o + k]; s += v * v; }
+      env[i] = Math.sqrt(s / hop); }
+    const ref = Float32Array.from(env).sort()[Math.floor(m * 0.98)] || 1;
+    for(let i = 0; i < m; i++) env[i] = Math.min(1, env[i] / ref);
+    S.pcm = pcm; S.pcmRate = ab.sampleRate; S.pcmRef = ref * 2.2;   // RMS -> ยอดคลื่นโดยประมาณ
+    S.env = env; S.onsets = findOnsets(env);
+    $('#tlmsg').classList.add('hide');
+    if(file !== 'vocals.m4a'){ $('#tlmsg').textContent = 'ไม่มีเสียงร้องแยก — คลื่นเป็นเสียงเต็ม การดูดจุดเริ่มร้องจะแม่นน้อยลง'; $('#tlmsg').classList.remove('hide'); }
+    drawTL();
+  }catch(e){ if(my === envTok){ $('#tlmsg').textContent = 'วาดคลื่นเสียงไม่ได้: ' + e.message; } }
+}
+function findOnsets(env){
+  const R = S.envRate, out = [], sm = new Float32Array(env.length);
+  for(let i = 2; i < env.length - 2; i++) sm[i] = (env[i-2] + env[i-1] + env[i] + env[i+1] + env[i+2]) / 5;
+  const hi = 0.14, lo = 0.07; let quiet = 0;
+  for(let i = 1; i < sm.length; i++){
+    if(sm[i] < lo) quiet++;
+    else if(sm[i] >= hi && quiet >= 0.15 * R){      // เงียบมาอย่างน้อย 150ms แล้วเสียงดังขึ้น
+      let j = i; while(j > 0 && sm[j - 1] < sm[j] && sm[j - 1] > lo * 0.5) j--;   // ถอยไปจุดเริ่มไต่ขึ้น
+      out.push(j / R); quiet = 0;
+    }else if(sm[i] >= lo) quiet = 0;
+    // เสียงไม่ขาดแต่ดังพุ่งขึ้นชัด ๆ (ขึ้นท่อนใหม่ติดกัน)
+    if(i > 12 && sm[i] - sm[i - 12] > 0.32 && sm[i] > hi && (!out.length || i / R - out[out.length - 1] > 0.6))
+      out.push((i - 10) / R);
+  }
+  return out.sort((a, b) => a - b);
+}
+// ดูดเข้าจุดเริ่มร้อง (ตอนแตะ): คนแตะช้าเสมอ -> มองย้อนหลังไกลกว่ามองไปข้างหน้า
+function snapTap(t){
+  if(!$('#snap').checked || !S.onsets.length || altDown) return t;
+  let best = null;
+  for(const o of S.onsets){ if(o < t - 0.6) continue; if(o > t + 0.15) break; best = o; }
+  return best == null ? t : best;
+}
+let altDown = false;
+addEventListener('keydown', e => { if(e.key === 'Alt') altDown = true; });
+addEventListener('keyup', e => { if(e.key === 'Alt') altDown = false; });
+addEventListener('blur', () => { altDown = false; });
+
+// ===== 13. แถบคลื่นเสียง (timeline) ===================================
+const cv = $('#tl'), cx = cv.getContext('2d');
+const tlW = () => cv.clientWidth || 1;
+const x2t = x => S.view + x / tlW() * S.zoom, t2x = t => (t - S.view) / S.zoom * tlW();
+let drawQ = false;
+function drawTL(){ if(drawQ) return; drawQ = true; requestAnimationFrame(() => { drawQ = false; paintTL(); }); }
+const TICKS = [[60,10],[30,5],[12,2],[5,1],[2,0.5],[0,0.1]];
+function paintTL(){
+  const dpr = devicePixelRatio || 1, W = tlW(), H = cv.clientHeight || 132;
+  if(cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)){ cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0); cx.clearRect(0, 0, W, H);
+  if(!S.cur) return;
+  const t0 = S.view, t1 = S.view + S.zoom, blockH = 30, mid = blockH + 12 + (H - blockH - 30) / 2, amp = (H - blockH - 34) / 2;
+  // ขีดเวลา — ละเอียดขึ้นตามระดับซูม
+  cx.font = '10px "Noto Sans Thai",sans-serif';
+  const step = TICKS.find(([z]) => S.zoom > z)[1];
+  for(let s = Math.ceil(t0 / step) * step; s < t1; s += step){ const x = t2x(s);
+    cx.fillStyle = 'rgba(255,255,255,.06)'; cx.fillRect(x, 0, 1, H);
+    cx.fillStyle = 'rgba(255,255,255,.35)';
+    cx.fillText(step < 1 ? fmtT(s).slice(0, -1) : fmtD(s), x + 3, H - 4); }
+  // คลื่นเสียง: ซูมลึกวาด min/max จากตัวอย่างเสียงจริง ซูมกว้างใช้ envelope
+  if(S.pcm){
+    const spp = S.zoom * S.pcmRate / W;
+    cx.fillStyle = 'rgba(124,92,255,.6)';
+    if(spp < 240){
+      const P = S.pcm, k = amp / S.pcmRef;
+      for(let x = 0; x < W; x++){
+        const a = Math.floor(x2t(x) * S.pcmRate), b = Math.max(a + 1, Math.floor(x2t(x + 1) * S.pcmRate));
+        let lo = 0, hi = 0; for(let i = Math.max(0, a); i < Math.min(P.length, b); i++){ const v = P[i]; if(v < lo) lo = v; if(v > hi) hi = v; }
+        const y1 = mid - Math.min(amp, hi * k), y2 = mid - Math.max(-amp, lo * k);
+        cx.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+      }
+    }else{
+      const R = S.envRate;
+      for(let x = 0; x < W; x++){
+        const a = Math.floor(x2t(x) * R), b = Math.max(a + 1, Math.floor(x2t(x + 1) * R));
+        let m = 0; for(let i = Math.max(0, a); i < Math.min(S.env.length, b); i++) m = Math.max(m, S.env[i]);
+        const h = m * amp; cx.fillRect(x, mid - h, 1, h * 2);
+      }
+    }
+    cx.fillStyle = 'rgba(56,211,159,.8)';
+    for(const o of S.onsets){ if(o < t0 || o > t1) continue; cx.fillRect(t2x(o), H - 22, 1.5, 8); }
+  }
+  // ก้อนบรรทัด (เวลาที่ขึ้นจอจริง = t + offset)
+  const off = effOff(), pos = media.currentTime || 0, curI = lyIdx(pos);
+  const ds = driftDeltas();
+  if(ds) S.drift.meas.forEach((m, i) => {          // ขีดบอก "ควรเริ่มตรงนี้" (จากเสียงร้องจริง)
+    if(m == null || m < t0 - 1 || m > t1 + 1 || Math.abs(ds[i]) <= 0.4 || driftAmb(i)) return;
+    const x = t2x(m); cx.fillStyle = driftCol(ds[i], .8); cx.fillRect(x - 1, 6, 2, blockH + 4);
+    const bx = t2x(S.lines[i].t + off); cx.fillStyle = driftCol(ds[i], .35);
+    cx.fillRect(Math.min(x, bx), blockH + 9, Math.abs(x - bx), 2);
+  });
+  S.lines.forEach((l, i) => {
+    const a = l.t + off, b = a + l.d; if(b < t0 || a > t1) return;
+    const x = t2x(a), w = Math.max(3, t2x(b) - x);
+    const sel = i === S.sel, cur = i === curI;
+    cx.fillStyle = sel ? 'rgba(255,77,141,.85)' : cur ? 'rgba(255,77,141,.45)' : 'rgba(255,255,255,.12)';
+    roundRect(x, 8, w, blockH, 6); cx.fill();
+    cx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,.85)';
+    cx.fillRect(x, 8, 2.5, blockH);                    // ขอบเริ่ม = จับลากได้
+    cx.fillStyle = 'rgba(255,255,255,.5)'; cx.fillRect(x + w - 2, 8, 2, blockH);   // ขอบท้าย
+    if(ds && ds[i] !== undefined){                     // จุดสีความคลาด: เขียว/เหลือง/แดง/เทา (ม่วง = ท่อนซ้ำ ไม่แน่นอน)
+      cx.fillStyle = ds[i] == null ? 'rgba(160,160,180,.55)' : driftAmb(i) ? 'rgba(156,134,255,.9)' : driftCol(ds[i], 1);
+      cx.beginPath(); cx.arc(x + 6, 5, 3.5, 0, Math.PI * 2); cx.fill(); }
+    cx.save(); cx.beginPath(); cx.rect(x + 5, 8, w - 8, blockH); cx.clip();
+    cx.font = '600 12px "Noto Sans Thai",sans-serif'; cx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,.9)';
+    cx.fillText(`${i + 1}. ${l.x}`, x + 7, 28); cx.restore();
+    if(S.zoom <= 40){                                  // 🎤 ขีดส้ม = จุดที่ร้องแต่ละตัวอักษรจริง (เวลาในเสียง ไม่บวก offset)
+      const k = kFor(l);
+      if(k){ cx.fillStyle = 'rgba(255,190,110,.8)';
+        for(const [, kt] of k) if(kt >= t0 && kt <= t1) cx.fillRect(t2x(kt), 8 + blockH + 1, 1, 5); }
+    }
+  });
+  // 🚩 จุดที่มีคนแจ้งจากรีโมท
+  for(const r of (S.detail && S.detail.reports) || []){
+    if(r.pos < t0 || r.pos > t1) continue; const x = t2x(r.pos);
+    cx.fillStyle = r.done ? 'rgba(255,255,255,.25)' : '#ff4d6d';
+    cx.fillRect(x, 0, 1.5, H);
+    cx.beginPath(); cx.moveTo(x, 40); cx.lineTo(x + 10, 44); cx.lineTo(x, 48); cx.closePath(); cx.fill();
+  }
+  // เส้นแม่เหล็ก (กำลังดูดเข้าอะไร)
+  if(S.snapHint){ const x = t2x(S.snapHint.t);
+    cx.save(); cx.setLineDash([4, 3]); cx.strokeStyle = '#ffd08a'; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.moveTo(x, 0); cx.lineTo(x, H); cx.stroke(); cx.restore();
+    label(S.snapHint.label, x + 4, 52, '#ffd08a'); }
+  // เวลาใต้เมาส์
+  if(S.hoverT != null && !drag){ const x = t2x(S.hoverT);
+    cx.fillStyle = 'rgba(255,255,255,.25)'; cx.fillRect(x, blockH + 10, 1, H);
+    label(fmtT(S.hoverT), Math.min(x + 4, W - 64), H - 30, '#fff'); }
+  // หัวเล่น
+  const px = t2x(pos); cx.fillStyle = '#fff'; cx.fillRect(px - 0.75, 0, 1.5, H);
+  paintOV();
+}
+function label(s, x, y, col){
+  cx.font = '600 11px "Noto Sans Thai",sans-serif'; const w = cx.measureText(s).width + 8;
+  cx.fillStyle = 'rgba(10,10,18,.85)'; cx.fillRect(x - 2, y - 11, w, 15); cx.fillStyle = col; cx.fillText(s, x + 2, y); }
+function roundRect(x, y, w, h, r){ cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r);
+  cx.arcTo(x + w, y + h, x, y + h, r); cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath(); }
+function follow(pos){                                   // ให้หัวเล่นอยู่ในจอเสมอตอนเล่น
+  if(drag) return;
+  if(pos < S.view || pos > S.view + S.zoom * 0.8) S.view = Math.max(0, pos - S.zoom * 0.25);
+}
+function zoomTo(z, anchorT, anchorX){
+  S.zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
+  S.view = Math.max(0, anchorT - anchorX / tlW() * S.zoom); drawTL();
+}
+function zoomFit(){ const l = S.lines[S.sel]; if(!l) return;
+  const a = l.t + effOff(); S.zoom = clamp(l.d + 3, ZOOM_MIN, ZOOM_MAX); S.view = Math.max(0, a - 1.5); drawTL(); }
+function hit(x, y){
+  const off = effOff();
+  if(y > 44) return null;
+  for(let i = S.lines.length - 1; i >= 0; i--){
+    const l = S.lines[i], a = t2x(l.t + off), b = t2x(l.t + off + l.d);
+    if(x >= a - 5 && x <= b + 5){
+      if(Math.abs(x - a) <= 6) return {i, part:'start'};
+      if(Math.abs(x - b) <= 6) return {i, part:'end'};
+      if(x > a && x < b) return {i, part:'move'};
+    }
+  }
+  return null;
+}
+// 🧲 แม่เหล็ก: หาเป้าที่ใกล้สุดในระยะ MAG_PX — ท้าย/ต้นบรรทัดข้าง ๆ ("ติดกัน"), จุดเริ่มร้อง, หัวเล่น
+function magnet(t, targets){
+  if(altDown) return {t, hint:null};
+  const tol = MAG_PX * S.zoom / tlW(); let best = null;
+  for(const g of targets){ const d = Math.abs(g.t - t); if(d <= tol && (!best || d < best.d)) best = {...g, d}; }
+  return best ? {t:best.t, hint:{t:best.t, label:best.label}} : {t, hint:null};
+}
+function startTargets(i, off){
+  const g = [], p = S.lines[i - 1];
+  const m = driftFresh() && !driftAmb(i) ? S.drift.meas[i] : null;
+  if(m != null) g.push({t:m, label:'จุดที่วัดได้ ' + (S.drift.by === 'fa' ? '🎯' : '')});
+  if(p) g.push({t:p.t + off + p.d, label:`ติดท้ายบรรทัด ${i}`});
+  if($('#snap').checked) for(const o of S.onsets) g.push({t:o, label:'จุดเริ่มร้อง'});
+  g.push({t:media.currentTime, label:'หัวเล่น'});
+  return g;
+}
+function endTargets(i, off){
+  const g = [], n = S.lines[i + 1];
+  if(n) g.push({t:n.t + off, label:`ติดต้นบรรทัด ${i + 2}`});
+  g.push({t:media.currentTime, label:'หัวเล่น'});
+  return g;
+}
+let drag = null;
+cv.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if(!drag){ const h = hit(x, y); cv.style.cursor = !h ? 'crosshair' : h.part === 'move' ? 'grab' : 'ew-resize';
+             S.hoverT = x2t(x); drawTL(); return; }
+  const dt = (x - drag.x0) / tlW() * S.zoom, off = effOff();
+  if(drag.part === 'pan'){ S.view = Math.max(0, drag.v0 - dt); drawTL(); return; }
+  if(!drag.snap){ S.undo.push(snapshot()); if(S.undo.length > 100) S.undo.shift(); S.redo = []; drag.snap = true; }
+  const i = drag.i, l = S.lines[i], prev = S.lines[i - 1], next = S.lines[i + 1];
+  const ripple = S.ripple || e.shiftKey;
+  // เริ่มจากตำแหน่งตอนกดทุกครั้ง (ไม่สะสม) -> ลากกลับไปมาแล้วไม่เพี้ยน
+  drag.orig.forEach((t, k) => { S.lines[k].t = t; });
+  l.d = drag.d0;
+  let hint = null;
+  if(drag.part === 'end'){
+    const m = magnet(drag.t0 + off + drag.d0 + dt, endTargets(i, off)); hint = m.hint;
+    l.d = r2(clamp(m.t - off - drag.t0, 0.3, 30));
+  }else if(drag.part === 'start' && !ripple){
+    const end = drag.t0 + drag.d0;
+    const m = magnet(drag.t0 + off + dt, startTargets(i, off)); hint = m.hint;
+    const a = clamp(m.t - off, prev ? prev.t + 0.05 : 0, end - 0.3);
+    l.t = r2(a); l.d = r2(end - a);
+  }else{                                              // ย้ายทั้งก้อน (หรือขอบเริ่ม + พาทั้งแถบ)
+    let a = drag.t0 + dt;
+    const ms = magnet(a + off, startTargets(i, off));
+    const me = drag.part === 'move' ? magnet(a + off + drag.d0, endTargets(i, off)) : {hint:null};
+    if(ms.hint && (!me.hint || Math.abs(ms.t - (a + off)) <= Math.abs(me.t - (a + off + drag.d0)))){ a = ms.t - off; hint = ms.hint; }
+    else if(me.hint){ a = me.t - off - drag.d0; hint = me.hint; }
+    if(ripple) rippleFrom(i, a - drag.t0);
+    else l.t = r2(clamp(a, prev ? prev.t + 0.05 : 0, next ? next.t - 0.05 : 1e9));
+    if(ripple) hint = hint ? {...hint, label:hint.label + ' · พาทั้งแถบ'} : {t:S.lines[i].t + off, label:'🔗 พาทั้งแถบ'};
+  }
+  S.snapHint = hint;
+  drawTL();
+});
+cv.addEventListener('pointerleave', () => { if(!drag){ S.hoverT = null; drawTL(); } });
+cv.addEventListener('pointerdown', e => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const h = hit(x, y);
+  cv.setPointerCapture(e.pointerId);
+  if(h){ selectRow(h.i, true); const l = S.lines[h.i];
+         drag = {...h, x0:x, t0:l.t, d0:l.d, snap:false, orig:S.lines.map(q => q.t)};
+         cv.style.cursor = h.part === 'move' ? 'grabbing' : 'ew-resize'; }
+  else drag = {part:'pan', x0:x, v0:S.view, t:x2t(x)};
+});
+cv.addEventListener('pointerup', e => {
+  if(!drag) return;
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left;
+  if(drag.part === 'pan' && Math.abs(x - drag.x0) < 4) media.currentTime = Math.max(0, drag.t);   // คลิกเฉย ๆ = ข้ามไปเวลานั้น
+  else if(drag.snap){ renderRows(); updateUndo(); renderInfo(); renderDrift(); }
+  drag = null; S.snapHint = null; drawTL();
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), ax = e.clientX - r.left;
+  if(e.ctrlKey || e.metaKey) zoomTo(S.zoom * (e.deltaY > 0 ? 1.15 : 1 / 1.15), x2t(ax), ax);
+  else { S.view = Math.max(0, S.view + (e.deltaX || e.deltaY) / tlW() * S.zoom); drawTL(); }
+}, {passive:false});
+$('#zin').onclick = () => zoomTo(S.zoom / 1.6, media.currentTime, t2x(media.currentTime));
+$('#zout').onclick = () => zoomTo(S.zoom * 1.6, media.currentTime, t2x(media.currentTime));
+$('#zfit').onclick = zoomFit;
+new ResizeObserver(drawTL).observe(cv);
+
+// ===== 14. โหมดแตะตามจังหวะ ===========================================
+// แตะ 1 ครั้ง = บรรทัดนี้เริ่มร้องตอนนี้ -> บรรทัดที่เหลือเลื่อนตามด้วยระยะเท่ากัน (พาทั้งแถบ)
+// เพลงที่เวลาเลื่อนทั้งเพลงจึงดีขึ้นทันทีตั้งแต่แตะแรก แล้วแตะต่อเพื่อเก็บรายละเอียด
+function setTap(on){
+  S.tap = on; S.tapHist = [];
+  $('#tapbtn').classList.toggle('on', on);
+  $('#tapbtn').textContent = on ? '⏹ หยุดแตะ' : '⏺ แตะจังหวะ';
+  $('#tapbar').classList.toggle('hide', !on);
+  if(on) setLoop(false);
+  updTapBar();
+}
+function updTapBar(){
+  [...$('#rows').children].forEach((r, i) => r.classList && r.classList.toggle('tapnext', S.tap && i === S.sel));
+  if(!S.tap) return;
+  const l = S.lines[S.sel];
+  $('#tapbar').innerHTML = l ? `⏺ โหมดแตะ: กด <kbd>Enter</kbd> หรือ <kbd>Space</kbd> ตอนเริ่มร้อง <b>บรรทัด ${S.sel + 1}</b> “${esc(l.x)}”
+    · <kbd>⌫</kbd> ย้อน · <kbd>Esc</kbd> ออก${media.paused ? ' · <b>กด ▶ เพื่อเริ่มเล่น</b>' : ''}` : 'แตะครบทุกบรรทัดแล้ว';
+}
+$('#tapbtn').onclick = () => {
+  if(!S.lines.length){ toast('ต้องมีข้อความก่อน'); return; }
+  setTap(!S.tap);
+  if(S.tap && media.paused){ const l = S.lines[S.sel]; playFrom((l ? l.t + effOff() : 0) - 3); }
+};
+function tapStamp(){
+  const i = S.sel, l = S.lines[i]; if(!l){ setTap(false); return; }
+  if(media.paused){ media.play().catch(() => {}); return; }
+  S.tapHist.push({snap:snapshot(), sel:i});
+  S.undo.push(snapshot()); if(S.undo.length > 100) S.undo.shift(); S.redo = [];
+  const prev = S.lines[i - 1];
+  rippleFrom(i, snapTap(media.currentTime) - effOff() - l.t);
+  if(prev) prev.d = r2(clamp(l.t - prev.t, 0.3, DUR_MAX));
+  renderRows(); updateUndo(); renderInfo(); renderDrift();
+  if(i + 1 < S.lines.length) selectRow(i + 1, true); else { toast('✓ แตะครบทุกบรรทัดแล้ว — ตรวจแล้วกด 💾'); setTap(false); }
+  updTapBar(); drawTL();
+}
+function tapBack(){
+  const h = S.tapHist.pop(); if(!h) return;
+  S.undo.pop(); restore(h.snap); renderRows(); updateUndo(); renderDrift(); selectRow(h.sel, true);
+  media.currentTime = Math.max(0, S.lines[h.sel].t + effOff() - 2.5);
+  updTapBar(); drawTL();
+}
+
+// ===== 15. ⛶ โหมดแก้เต็มจอ ===========================================
+function setFocus(on){
+  document.body.classList.toggle('focus', on);
+  $('#fsbtn').classList.toggle('on', on);
+  try{
+    if(on && !document.fullscreenElement && document.documentElement.requestFullscreen)
+      document.documentElement.requestFullscreen().catch(() => {});
+    if(!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }catch(e){}
+  setTimeout(() => { drawTL(); const r = $('#rows').children[S.sel]; r && r.scrollIntoView && r.scrollIntoView({block:'nearest'}); }, 60);
+}
+$('#fsbtn').onclick = () => setFocus(!document.body.classList.contains('focus'));
+// ออกจาก fullscreen ด้วยปุ่มของเบราว์เซอร์ (Esc) = ออกจากโหมดแก้เต็มจอด้วย
+document.addEventListener('fullscreenchange', () => {
+  if(!document.fullscreenElement && document.body.classList.contains('focus')) setFocus(false); });
+
+// ===== 16. คีย์ลัด ===================================================
+document.addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey;
+  if(mod && e.key.toLowerCase() === 's'){ e.preventDefault(); save(); return; }   // save() กันส่งซ้ำ/ไม่มีอะไรเปลี่ยนเอง
+  if(!$('#dlg').classList.contains('hide') || !$('#pindlg').classList.contains('hide')){
+    if(e.key === 'Escape') closeDlg(); return; }
+  if(!S.cur || isTyping() || document.body.dataset.view !== 'songs') return;
+  if(mod && e.key.toLowerCase() === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if(S.tap){
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); tapStamp(); return; }
+    if(e.key === 'Backspace'){ e.preventDefault(); tapBack(); return; }
+    if(e.key === 'Escape'){ setTap(false); return; }
+  }
+  if(mod) return;
+  const l = S.lines[S.sel], seekBy = e.altKey ? 0.01 : e.shiftKey ? 0.1 : 1;
+  // ปุ่มตัวอักษร/วงเล็บใช้ตำแหน่งปุ่ม (e.code) — คีย์บอร์ดภาษาไทยก็ยังใช้คีย์ลัดได้
+  const k = /^(Key|Bracket)/.test(e.code) ? e.code : e.key;
+  switch(k){
+    case ' ': e.preventDefault(); $('#play').click(); break;
+    case 'ArrowLeft': e.preventDefault(); media.currentTime = Math.max(0, media.currentTime - seekBy); drawTL(); break;
+    case 'ArrowRight': e.preventDefault(); media.currentTime += seekBy; drawTL(); break;
+    case 'ArrowUp': e.preventDefault(); selectRow(S.sel - 1, true); updTapBar(); break;
+    case 'ArrowDown': e.preventDefault(); selectRow(S.sel + 1, true); updTapBar(); break;
+    case 'Enter': if(l){ e.preventDefault(); playFrom(l.t + effOff() - 0.6); } break;
+    case 'Escape': if(document.body.classList.contains('focus')) setFocus(false); else if(S.loop) setLoop(false); break;
+    case 'BracketLeft': case 'BracketRight': {
+      e.preventDefault(); const v = k === 'BracketLeft' ? -S.step : S.step;
+      if(e.shiftKey) mutate(() => S.lines.forEach(x => x.t = r2(Math.max(0, x.t + v))));
+      else if(l) mutate(() => { l.t = r2(Math.max(0, l.t + v)); sortLines(); });
+      break; }
+    case 'KeyT': $('#tapbtn').click(); break;
+    case 'KeyL': setLoop(!S.loop); break;
+    case 'KeyZ': zoomFit(); break;
+    case 'KeyF': e.preventDefault(); setFocus(!document.body.classList.contains('focus')); break;
+    case 'KeyG': closeGap(); break;
+    case 'KeyP': toPlayhead(); break;
+  }
+});
+
+// ===== 16b. แท็บ: เพลงทั้งหมด / กำลังเล่น & คิว / หน้าจอหลัก =================
+const VIEWS = ['songs', 'queue', 'tv'];
+function setView(v){
+  if(!VIEWS.includes(v)) v = 'songs';
+  document.body.dataset.view = v;
+  $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  try{ localStorage.setItem('studioView', v); }catch(e){}
+  if(v !== 'songs' && typeof media !== 'undefined' && !media.paused) media.pause();   // ไม่ให้พรีวิวเล่นค้างหลังแท็บ
+  if(v === 'queue') renderQueue();
+  if(v === 'tv') loadTv();
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
+
+// ===== 16c. ▶ กำลังเล่น & คิว: เนื้อมาจากไหน + ✨ เลือกเนื้อดีที่สุด =============
+// ข้อมูลสดจาก ws state (current/queue มีฟิลด์เนื้อครบ) + ผลเทียบล่าสุดจากรายการเพลงของ Studio
+// ปุ่มเดียวกับหน้าแก้เพลง: ระบบเทียบทุกแหล่งกับเสียงร้องแล้วเปลี่ยนให้เฉพาะตอนที่ดีกว่าชัดเจน
+const QS = {busy: {}};
+const MANUAL_SRC = ['manual-edit', 'manual-lrc', 'manual-txt'];
+function fromText(i){
+  if(!i.lyrLines) return i.lyrStatus === 'nolyr' ? '🚫 ยังไม่มีเนื้อ' : '⏳ ยังไม่มีเนื้อ (' + (i.lyrStatus || 'รอ') + ')';
+  const f = i.lyrFrom;
+  if(f && f.kind === 'picked') return `เนื้อจาก: <b>เลือกเองจาก ${esc(f.label.replace(/^เนื้อ(จาก)?/, '').trim())}</b>`;
+  if(f && f.kind === 'best') return `เนื้อจาก: <b>✨ ระบบเลือกจาก ${esc(f.label.replace(/^เนื้อที่ใช้อยู่ตอนนี้ · /, ''))}</b>`;
+  return `เนื้อจาก: <b>${esc(i.lyrKind || i.lyrSrc || '?')}</b>`;
+}
+function bestLine(i){                              // ผลเทียบล่าสุดของเพลงนี้ (จาก /api/studio/songs)
+  const it = (S.songs || []).find(x => x.videoId === i.videoId), b = it && it.best;
+  if(!b || ['queued', 'working'].includes(b.status)) return '';
+  if(b.status === 'failed') return `<div class="bl bad">⚠️ เทียบเนื้อไม่สำเร็จ: ${esc(b.error)}</div>`;
+  const changed = b.applied && b.action !== 'keep';   // เทียบซ้ำแล้วได้ keep = ไม่ได้เปลี่ยนอะไรรอบนี้
+  return `<div class="bl">✨ ${changed ? esc(BEST_ACT[b.action] || 'เลือกอัตโนมัติ') : 'เทียบกับทุกแหล่งแล้ว'} — ${esc(b.reason)}</div>`;
+}
+function qHead(i, pos){
+  const art = i.localThumb || i.thumb || (i.videoId ? '/thumb/' + i.videoId : '');
+  const c = [];
+  if(i.lyrLines){ c.push(CONF[i.lyrConf] || CONF.check); c.push(['info', `${i.lyrLines} บรรทัด`]); }
+  if(i.wordsUrl) c.push(['ok', '🎤 ไล่สีได้']);
+  const working = ['queued', 'working'].includes(i.lyrBest) || (QS.busy[i.videoId] && Date.now() - QS.busy[i.videoId] < 6000);
+  if(working) c.push(['wait', '✨ กำลังเทียบเนื้อทุกแหล่ง']);
+  const dl = DL[i.dlStatus]; if(dl) c.push(dl);
+  const can = i.source === 'yt' && i.videoId && i.dlStatus !== 'downloading' && i.dlStatus !== 'queued';
+  const manual = MANUAL_SRC.includes(i.lyrSrc);
+  const bestBtn = manual
+    ? `<button data-q="best" disabled title="เนื้อที่แก้เอง/เลือกเอง — ระบบไม่เปลี่ยนให้ (แก้ต่อได้ในตัวแก้)">✨ เนื้อที่แก้เองแล้ว</button>`
+    : `<button data-q="best" class="primary" ${working || (!i.lyrLines && i.lyrStatus !== 'nolyr') ? 'disabled' : ''}
+         title="เทียบเนื้อจากทุกแหล่ง (ซับ YouTube, lrclib, JOOX, NetEase, YouTube Music, คำอธิบายคลิป) กับเสียงร้องจริง แล้วเปลี่ยนให้ถ้าดีกว่าชัดเจน">
+         ${working ? '✨ กำลังเทียบ…' : '✨ เลือกเนื้อดีที่สุด'}</button>`;
+  return `<img src="${esc(art)}" alt="" onerror="this.style.visibility='hidden'">
+    <div style="min-width:0"><div class="tt">${esc(i.title || i.videoId || i.path)}</div>
+      <div class="mm">${pos === 0 ? '▶ กำลังเล่น' : `คิวที่ ${pos}`}${i.singer ? ' · 🎤 ' + esc(i.singer) : ''}</div>
+      <div class="from">${fromText(i)}</div>
+      <div class="chips">${c.map(([t, x]) => chip(t, x)).join('')}</div>${bestLine(i)}</div>
+    <div class="qbtns">${can ? `${bestBtn}<button data-q="edit">✏️ เปิดในตัวแก้</button>` : ''}</div>`;
+}
+function renderQueue(){
+  if(document.body.dataset.view !== 'queue') return;
+  const st = S.room, box = $('#qlist');
+  if(!st){ box.innerHTML = '<div class="empty">กำลังเชื่อมต่อ…</div>'; return; }
+  const items = (st.current ? [st.current] : []).concat(st.queue || []);
+  if(!items.length){ box.innerHTML = '<div class="empty">ยังไม่มีเพลงเล่นอยู่หรือในคิว — สั่งเพลงจากรีโมทแล้วจะขึ้นที่นี่</div>'; return; }
+  box.querySelector('.empty') && (box.innerHTML = '');
+  const keep = new Set();
+  items.forEach((it, k) => {
+    const key = it.id || it.videoId; keep.add(key);
+    let card = box.querySelector(`.qcard[data-id="${CSS.escape(key)}"]`);
+    if(!card){
+      card = document.createElement('div'); card.className = 'qcard'; card.dataset.id = key;
+      card.innerHTML = '<div class="qhead"></div>';
+    }
+    card.dataset.vid = it.videoId || '';
+    card.classList.toggle('cur', k === 0 && !!st.current);
+    const pos = st.current ? k : k + 1;
+    const h = qHead(it, pos);
+    const hd = card.querySelector('.qhead');
+    if(hd._h !== h){ hd.innerHTML = h; hd._h = h; }
+    box.appendChild(card);                       // เรียงตามคิวล่าสุด (appendChild ย้ายของเดิม ไม่สร้างใหม่)
+  });
+  box.querySelectorAll('.qcard').forEach(c => { if(!keep.has(c.dataset.id)) c.remove(); });
+}
+$('#qlist').addEventListener('click', async e => {
+  const b = e.target.closest('[data-q]'); if(!b || b.disabled) return;
+  const card = b.closest('.qcard'), vid = card && card.dataset.vid; if(!vid) return;
+  const q = b.dataset.q;
+  if(q === 'edit'){ setView('songs'); openSong(vid); return; }
+  if(q === 'best'){
+    if(!confirm('✨ เลือกเนื้อดีที่สุด\n\nเทียบเนื้อจากทุกแหล่งกับเสียงร้องจริงของเพลงนี้ ถ้าเจอที่ดีกว่าชัดเจนจะเปลี่ยนให้เอง'
+                + ' (ถ้าเพลงกำลังเล่น จอหลักเปลี่ยนตามทันที)\nของเดิมย้อนได้ใน 🕘 ประวัติ\n\nทำเลยไหม?')) return;
+    QS.busy[vid] = Date.now(); renderQueue();
+    try{ const r = await api(`/api/studio/song/${vid}/action`, {method:'POST', body:JSON.stringify({do:'best'})});
+         toast('✓ ' + (r.msg || 'สั่งแล้ว'), 3500); }
+    catch(err){ toast('⚠️ ' + err.message); delete QS.busy[vid]; renderQueue(); }
+    loadSongs();
+  }
+});
+function updateQCount(){
+  const st = S.room, n = st ? (st.current ? 1 : 0) + (st.queue || []).length : 0;
+  $('#qcnt').textContent = n; $('#qcnt').classList.toggle('hide', !n);
+}
+
+// ===== 16d. 📺 ตั้งค่าหน้าจอหลัก ==============================================
+// บันทึกเองทุกครั้งที่เปลี่ยน (หน่วง 300ms) -> เซิร์ฟเวอร์ broadcast -> ทีวีเปลี่ยนตามสด
+const TV = {cur: null, def: null, t: 0, pending: {}, loaded: false};
+const TV_CHIP_LB = {guide:'🎤 ไกด์เสียงร้อง %', master:'🔊 เสียงรวม %', music:'🎵 เสียงดนตรี %',
+                    key:'🎹 คีย์ (เมื่อไม่ใช่คีย์เดิม)', lyrsrc:'📝 ที่มาของเนื้อ', next:'⏭ เพลงถัดไป'};
+const SWATCH = ['#ffffff', '#fff3a8', '#ffd0e2', '#b8f1ff', '#ff6fa6', '#ffb648', '#38d39f', '#7cc7ff'];
+async function loadTv(){
+  if(TV.loaded){ renderTvPreview(); return; }
+  try{ const r = await api('/api/studio/tv'); TV.cur = r.tv; TV.def = r.default; TV.loaded = true; renderTvForm(); }
+  catch(e){ $('#tvform').innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`; }
+}
+const tog = (k, lb) => `<label class="tog"><input type="checkbox" data-tv="${k}"> ${lb}</label>`;
+const rng = (k, lb, a, b, st, unit) => `<div class="fr"><label>${lb}</label><input type="range" data-tv="${k}" min="${a}" max="${b}" step="${st || 1}"><span class="val" data-val="${k}"></span><span class="hint">${unit || ''}</span></div>`;
+const col = k => `<input type="color" data-tv="${k}"><span class="sw">${SWATCH.map(c => `<i style="background:${c}" data-sw="${k}" data-c="${c}"></i>`).join('')}</span>`;
+function renderTvForm(){
+  $('#tvform').innerHTML = `
+    <fieldset><legend>แถบชื่อเพลง (บนสุด)</legend>
+      <div class="fr">${tog('title', 'แสดงชื่อเพลง')} ${tog('singer', 'แสดงชื่อคนร้อง')} ${tog('countdown', '♪ ● ● ● นับถอยหลังก่อนเข้าท่อน')}</div>
+      <div class="fr"><label>ซ่อนแถบเองหลังเริ่มเพลง</label><select data-tv="titleHide">
+        <option value="0">ไม่ซ่อน (โชว์ตลอด)</option>${[5, 10, 15, 20, 30, 60].map(v => `<option value="${v}">${v} วินาที</option>`).join('')}</select></div>
+      <div class="fr"><label>สถานะหลังชื่อเพลง</label><span class="chkgrid">${Object.entries(TV_CHIP_LB).map(([k, lb]) =>
+        `<label class="tog"><input type="checkbox" data-chip="${k}"> ${lb}</label>`).join('')}</span></div>
+      <div class="hint">คำเตือนของระบบ (เช่น แตะจอเพื่อเปิดเสียง / กำลังเตรียมเสียง) ขึ้นเสมอ</div>
+    </fieldset>
+    <fieldset><legend>เนื้อเพลง</legend>
+      ${rng('lyrScale', 'ขนาดตัวอักษร', 60, 160, 5, '%')}
+      <div class="hint">เกิน 100% บรรทัดยาว ๆ จะขึ้นเป็น 2 บรรทัด (ตัวใหญ่อ่านง่ายขึ้น แต่กินพื้นที่จอมากขึ้น)</div>
+      <div class="fr"><label>สีตัวอักษร</label>${col('lyrColor')}</div>
+      <div class="fr"><label>สีที่ร้องไปแล้ว (โหมดคาราโอเกะ)</label>${col('karaColor')}</div>
+      ${rng('lyrDim', 'ความสว่างบรรทัดที่ยังไม่ถึง', 15, 100, 5, '%')}
+      ${rng('lyrBg', 'ความเข้มพื้นหลังใต้ซับ', 0, 100, 5, '%')}
+      <div class="fr"><label>เงา/ขอบตัวอักษร</label><span class="seg" data-seg="lyrShadow">
+        <button data-v="0">ไม่มี</button><button data-v="1">บาง</button><button data-v="2">ปกติ</button><button data-v="3">ขอบหนา</button></span></div>
+      ${rng('lyrLift', 'ยกซับขึ้นจากขอบล่าง', 0, 20, 1, '% ความสูงจอ')}
+      <div class="hint">รูปแบบการขึ้นเนื้อ (เลื่อนขึ้น / 2 บรรทัด / คาราโอเกะ) เลือกได้ที่รีโมท</div>
+    </fieldset>
+    <fieldset><legend>มุมจอ</legend>
+      <div class="fr">${tog('qr', 'QR มุมขวาล่าง (ตอนเล่นเพลง)')}</div>
+      ${rng('qrSize', 'ขนาด QR', 60, 200, 10, '%')}
+      <div class="fr">${tog('time', 'เวลาเพลงมุมซ้ายล่าง')} ${tog('next', 'การ์ด "ต่อไป" (ตอนไม่มีเนื้อ)')} ${tog('addCard', 'การ์ด "เพิ่มเข้าคิว" ตอนมีคนสั่งเพลง')}</div>
+      <div class="hint">QR กลางจอตอนไม่มีเพลงขึ้นเสมอ (ทางเดียวที่คนเข้ามาสั่งเพลงได้)</div>
+    </fieldset>
+    <fieldset><legend>รูปมุมขวาบน (1:1)</legend>
+      <div class="logobox"><div class="sq" id="tvlogosq">ยังไม่มีรูป</div>
+        <div><div class="fr"><button id="tvlogopick">📁 เลือกรูป</button><button id="tvlogodel" class="danger">🗑 ลบรูป</button>
+          <input type="file" id="tvlogofile" accept="image/*" class="hide"></div>
+          <div class="fr">${tog('logo', 'แสดงรูปบนจอ')}</div>
+          <div class="hint">รูปไม่จัตุรัสจะถูกครอปตรงกลางให้เป็น 1:1 อัตโนมัติ (สูงสุด 10 MB)</div></div></div>
+      ${rng('logoSize', 'ขนาดรูป', 60, 200, 10, '%')}
+    </fieldset>
+    <fieldset><legend>หน้าจอว่าง (ตอนไม่มีเพลง)</legend>
+      <div class="fr"><label>ข้อความใต้หัวข้อ</label><input data-tv="idleText" maxlength="80" placeholder="เช่น ยินดีต้อนรับสู่ห้อง 5 · สั่งเพลงได้เลย" style="flex:1"></div>
+    </fieldset>
+    <div class="fr"><button id="tvreset">↺ คืนค่าเริ่มต้นทั้งหมด</button><span class="hint">รูปที่อัปไว้ไม่ถูกลบ</span></div>`;
+  fillTvForm(); renderTvPreview();
+}
+function fillTvForm(){
+  const t = TV.cur; if(!t) return;
+  const f = $('#tvform');
+  f.querySelectorAll('[data-tv]').forEach(el => {
+    const k = el.dataset.tv, v = t[k];
+    if(el.type === 'checkbox') el.checked = !!v;
+    else if(document.activeElement !== el) el.value = v;
+  });
+  f.querySelectorAll('[data-val]').forEach(el => { el.textContent = t[el.dataset.val]; });
+  f.querySelectorAll('[data-chip]').forEach(el => { el.checked = (t.chips || []).includes(el.dataset.chip); });
+  f.querySelectorAll('[data-seg]').forEach(sg => sg.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', +b.dataset.v === t[sg.dataset.seg])));
+  const sq = $('#tvlogosq');
+  sq.innerHTML = t.logoUrl ? `<img src="${esc(t.logoUrl)}" alt="">` : 'ยังไม่มีรูป';
+  $('#tvlogodel').disabled = !t.logoUrl;
+}
+function tvSet(patch){
+  Object.assign(TV.cur, patch); Object.assign(TV.pending, patch);
+  fillTvForm(); renderTvPreview();
+  $('#tvsaved').textContent = 'กำลังบันทึก…';
+  clearTimeout(TV.t);
+  TV.t = setTimeout(async () => {
+    const body = TV.pending; TV.pending = {};
+    try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify(body)});
+         if(!Object.keys(TV.pending).length){ TV.cur = r.tv; fillTvForm(); renderTvPreview(); }
+         $('#tvsaved').textContent = '✓ บันทึกแล้ว · จอหลักเปลี่ยนตามทันที'; }
+    catch(e){ $('#tvsaved').textContent = '⚠️ ' + e.message; }
+  }, 300);
+}
+$('#tvform').addEventListener('input', e => {
+  const el = e.target, k = el.dataset.tv;
+  if(el.dataset.chip){
+    const on = [...$('#tvform').querySelectorAll('[data-chip]')].filter(x => x.checked).map(x => x.dataset.chip);
+    tvSet({chips: on}); return;
+  }
+  if(!k) return;
+  if(el.type === 'checkbox') tvSet({[k]: el.checked});
+  else if(el.type === 'range' || el.tagName === 'SELECT') tvSet({[k]: +el.value});
+  else tvSet({[k]: el.value});
+});
+$('#tvform').addEventListener('click', async e => {
+  const sw = e.target.closest('[data-sw]'); if(sw){ tvSet({[sw.dataset.sw]: sw.dataset.c}); return; }
+  const sb = e.target.closest('[data-seg] button'); if(sb){ tvSet({[sb.closest('[data-seg]').dataset.seg]: +sb.dataset.v}); return; }
+  if(e.target.id === 'tvlogopick'){ $('#tvlogofile').click(); return; }
+  if(e.target.id === 'tvlogodel'){
+    if(!confirm('ลบรูปมุมขวาบน?')) return;
+    try{ const r = await api('/api/studio/tv/logo', {method:'DELETE'}); TV.cur = r.tv; fillTvForm(); renderTvPreview(); toast('✓ ลบรูปแล้ว'); }
+    catch(err){ toast('⚠️ ' + err.message); }
+    return;
+  }
+  if(e.target.id === 'tvreset'){
+    if(!confirm('คืนค่าหน้าจอหลักเป็นค่าเริ่มต้นทั้งหมด?')) return;
+    try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify({reset:true})});
+         TV.cur = r.tv; fillTvForm(); renderTvPreview(); toast('✓ คืนค่าเริ่มต้นแล้ว'); }
+    catch(err){ toast('⚠️ ' + err.message); }
+  }
+});
+$('#tvform').addEventListener('change', async e => {
+  if(e.target.id !== 'tvlogofile') return;
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if(!f) return;
+  if(f.size > 10 * 1024 * 1024){ toast('⚠️ รูปใหญ่เกิน 10 MB'); return; }
+  $('#tvsaved').textContent = 'กำลังอัปรูป…';
+  try{
+    const r = await fetch('/api/studio/tv/logo', {method:'PUT', credentials:'same-origin',
+      headers:{'Content-Type': f.type || 'application/octet-stream'}, body:f});
+    const j = await r.json().catch(() => ({}));
+    if(r.status === 401){ showPin(); throw new Error('ต้องใส่ PIN'); }
+    if(!r.ok) throw new Error(j.detail || ('HTTP ' + r.status));
+    TV.cur = j.tv; fillTvForm(); renderTvPreview();
+    $('#tvsaved').textContent = '✓ อัปรูปแล้ว · ขึ้นมุมขวาบนของจอหลักแล้ว';
+  }catch(err){ $('#tvsaved').textContent = '⚠️ ' + err.message; }
+});
+// พรีวิวจำลอง: ใช้ตัวแปร CSS ชุดเดียวกับทีวี + เนื้อหาของเพลงที่เล่นอยู่จริง (ถ้ามี)
+function renderTvPreview(){
+  const t = TV.cur; if(!t) return;
+  const pv = $('#tvpv'), R = pv.style;
+  const rgba = (hex, a) => { const n = parseInt(String(hex || '#ffffff').slice(1), 16) || 0xffffff;
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+  R.setProperty('--lyrscale', t.lyrScale / 100); R.setProperty('--lyrcolor', t.lyrColor);
+  R.setProperty('--lyrdimc', rgba(t.lyrColor, t.lyrDim / 100)); R.setProperty('--kara', t.karaColor);
+  R.setProperty('--lyrbga', t.lyrBg / 100); R.setProperty('--lift', t.lyrLift);
+  R.setProperty('--qrscale', t.qrSize / 100); R.setProperty('--logoscale', t.logoSize / 100);
+  for(let i = 0; i < 4; i++) pv.classList.toggle('sh' + i, t.lyrShadow === i);
+  const logoOn = !!(t.logo && t.logoUrl);
+  pv.classList.toggle('logo', logoOn); pv.classList.toggle('noqr', !t.qr);
+  $('#pvlogo').classList.toggle('hide', !logoOn);
+  if(logoOn) $('#pvlogo img').src = t.logoUrl;
+  $('#pvqr').classList.toggle('hide', !t.qr);
+  $('#pvtime').classList.toggle('hide', !t.time);
+  $('#pvadd').classList.toggle('hide', !t.addCard);
+  const st = S.room || {}, c = st.current, m = st.mix || {};
+  const nx = (st.queue || [])[0];
+  const CH = {guide: `🎤 ไกด์ ${m.vocal != null ? m.vocal : 100}%`, master: `🔊 เสียงรวม ${m.master != null ? m.master : 80}%`,
+              key: `🎹 คีย์ ${(m.key || 0) > 0 ? '+' : ''}${m.key || 0}`,
+              music: `🎵 ดนตรี ${m.music != null ? m.music : 100}%`,
+              lyrsrc: '📝 ' + ((c && c.lyrKind) || 'ซับที่คนทำบน YouTube').split(' · ')[0],
+              next: '⏭ ' + (nx ? nx.title.slice(0, 30) : 'เพลงถัดไป')};
+  $('#pvnow').classList.toggle('hide', !t.title);
+  $('#pvnow').innerHTML = `<span class="ti">${esc(c ? c.title : 'ชื่อเพลงที่กำลังเล่น')}</span>`
+    + (t.singer ? `<span class="by">🎤 ${esc((c && c.singer) || 'noname')}</span>` : '')
+    + (t.chips || []).map(k => `<span class="gd">${esc(CH[k])}</span>`).join('');
+  pv.style.backgroundImage = c && (c.localThumb || c.thumb) ? `url('${c.localThumb || c.thumb}')` : '';
+  pv.querySelector('.bg').classList.toggle('hide', !!(c && (c.localThumb || c.thumb)));
+}
+
+// ===== 17. websocket: สัญญาณว่ามีอะไรเปลี่ยน -> ดึงรายการใหม่ ===========
+let ws = null, retry = 1500, refT = 0, lastRef = 0;
+function scheduleRefresh(){
+  if(refT) return;
+  const wait = Math.max(0, 1500 - (Date.now() - lastRef));
+  refT = setTimeout(() => { refT = 0; lastRef = Date.now(); loadSongs(); }, wait);
+}
+function connect(){
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { retry = 1500; document.body.classList.remove('off'); $('#ststr').textContent = 'เชื่อมต่อแล้ว · อัปเดตสด'; };
+  ws.onmessage = ev => { let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
+    if(m.type === 'state'){
+      const sig = [m.archiveRev, m.jobsRev, m.current && m.current.id, (m.queue || []).map(q => q.id).join(',')].join('|');
+      if(sig !== S.roomSig){ S.roomSig = sig; scheduleRefresh(); }
+      S.room = m; updateQCount(); renderQueue();
+      // Studio อีกเครื่องเปลี่ยนค่าจอ -> ตามให้ทัน (ยกเว้นตอนเรากำลังแก้/รอบันทึกเอง)
+      if(TV.loaded && m.tv && !Object.keys(TV.pending).length){
+        if(JSON.stringify(m.tv) !== JSON.stringify(TV.cur)){ TV.cur = m.tv; fillTvForm(); }
+        renderTvPreview();
+      }
+    } };
+  ws.onclose = () => { document.body.classList.add('off'); $('#ststr').textContent = 'กำลังเชื่อมต่อ…';
+    setTimeout(connect, retry); retry = Math.min(retry * 1.5, 8000); };
+  ws.onerror = () => { try{ ws.close(); }catch(e){} };
+}
+
+loadSongs(); connect(); requestAnimationFrame(tick);
+try{ setView(localStorage.getItem('studioView') || 'songs'); }catch(e){ setView('songs'); }
+</script></body></html>
