@@ -305,16 +305,21 @@ async def _lifespan(_app: FastAPI):
             if (d / "audio.m4a").is_file() and not _has_stems(vid):
                 await _enqueue_sep(vid)
                 n += 1
-            elif _lyr_meta(vid)[1] <= 0:
+                continue
+            if _lyr_meta(vid)[1] <= 0:
                 await _enqueue_lyr(vid)
                 m += 1
-            elif await _enqueue_best(vid):         # เลือกเนื้อดีที่สุดก่อน เสร็จแล้วมันสั่งเวลารายคำต่อเอง
+                continue
+            if await _enqueue_best(vid):           # เลือกเนื้อดีที่สุดก่อน เสร็จแล้วมันสั่งเวลารายคำ + ตรวจเวลาต่อเอง
                 b += 1
-            elif await _enqueue_words(vid):
+                continue
+            if await _enqueue_words(vid, force=_words_stale_auto(vid)):
                 w += 1
-            elif _chk_info(vid).get("measuredBy") != "fa" and _song_lang(vid)[0] in LS.FA_LANGS \
-                    and _fa_scriptable(vid) and _audio_for(vid):
-                await _enqueue_verify(vid)     # ป้ายความมั่นใจของเพลงเก่ายังมาจาก whisper -> วัดใหม่ด้วย FA
+            ck = _chk_info(vid)
+            if (ck.get("measuredBy") != "fa" or int(ck.get("v") or 1) < CHECK_VERSION) \
+                    and _song_lang(vid)[0] in LS.FA_LANGS and _fa_scriptable(vid) and _audio_for(vid):
+                # ป้ายความมั่นใจของเพลงเก่ายังมาจาก whisper / ตัวตรวจรุ่นเก่า / ยังไม่เคยตรวจ -> วัดใหม่ (CPU ลำดับต่ำสุด)
+                await _enqueue_verify(vid)
         if n:
             print(f"[sep] backfill: เข้าคิวแยกเสียงเพลงเก่า {n} เพลง")
         if m:
@@ -1384,7 +1389,8 @@ def _lyr_fields(item: dict) -> None:
             src, tsrc,
             ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
             ck.get("measuredBy") or "",
-            measurable=ck.get("verdict") != "unmeasurable")
+            measurable=ck.get("verdict") != "unmeasurable",
+            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1))
         return
     if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
         item["lyrStatus"] = "nolyr"   # ลองครบทุกแหล่งแล้วจริง ๆ ไม่ใช่ "ยังไม่ได้ลอง"
@@ -2083,7 +2089,11 @@ def _add_user_report(vid: str, pos: float, tags: Any, note: Any, by: Any) -> dic
     return rep
 
 
-def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, note: str = "") -> dict:
+CHECK_VERSION = 2            # 2 = lyrics_refine.check_timing (มีหมุดกันฮุคไหล + นับบรรทัดบกพร่อง)
+
+
+def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, note: str = "",
+                 v2: dict | None = None) -> dict:
     """ผลตรวจเวลาเนื้อ -> lyrics.check.json (ป้ายความมั่นใจบนรีโมท/Studio อ่านจากนี่)
     เก็บรายงานจากรีโมทที่ค้างอยู่ในไฟล์เดิมไว้ด้วย"""
     d = _song_dir(vid)
@@ -2091,10 +2101,14 @@ def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, n
     old = _chk_info(vid)
     rec = {"vid": vid, "at": time.time(), "src": j.get("src") or "", "timeSrc": LC.time_src_of(j) if j else "",
            "measuredBy": by, "lines": n, "shift": round(shift, 2), "note": note}
+    defects = list((v2 or {}).get("defects") or [])
+    if v2 is not None:
+        rec.update(v=CHECK_VERSION, defects=defects, g=v2.get("g") or 0.0)
+    ok_at = LC.OK_SCORE_V2 if v2 is not None else LC.OK_SCORE
     if score is None:
         rec.update(verdict="unmeasurable", score=None)
     else:
-        rec.update(verdict="ok" if score >= LC.OK_SCORE else "bad", score=round(score, 1))
+        rec.update(verdict="ok" if score >= ok_at and len(defects) < LC.DEFECT_MIN else "bad", score=round(score, 1))
     for k in ("reports",):
         if old.get(k):
             rec[k] = old[k]
@@ -2103,17 +2117,10 @@ def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, n
     return rec
 
 
-def _fa_measure(vid: str, lines: list[dict], off: float, fl: list[dict]) -> tuple[float | None, float, int, float | None]:
-    """เทียบเวลาที่ขึ้นจอ (t+offset) กับที่ FA ได้ยิน -> (% ตรงใน 0.5 วิ, เลื่อนแนะนำ, จำนวนบรรทัดที่วัดได้, % หลังเลื่อน)"""
-    ds = [l2["t"] - (float(l1.get("t") or 0) + off) for l1, l2 in zip(lines, fl)
-          if (l2.get("conf") or 0) >= FA_MIN_CONF]
-    if len(ds) < max(4, len(lines) * 0.3):
-        return None, 0.0, len(ds), None
-    score = 100.0 * sum(abs(x) <= 0.5 for x in ds) / len(ds)
-    med = sorted(ds)[len(ds) // 2]
-    shift = round(med, 2) if abs(med) >= 0.3 else 0.0
-    after = 100.0 * sum(abs(x - shift) <= 0.5 for x in ds) / len(ds) if shift else score
-    return score, shift, len(ds), after
+def _fa_measure2(vid: str, lines: list[dict], off: float, dur: float, kind: str = "verify") -> dict:
+    """ตรวจเวลา v2 (scripts/lyrics_refine.check_timing) — FA สองรอบผ่าน subprocess เดิม (แคชเสียงแล้ว = CPU ไม่กี่วิ)"""
+    import lyrics_refine as RF
+    return RF.check_timing(lambda p: _fa_call(vid, p, kind=kind), lines, off, dur, FA_MIN_CONF)
 
 
 def _verify_one(vid: str) -> str:
@@ -2126,14 +2133,14 @@ def _verify_one(vid: str) -> str:
     if _song_lang(vid)[0] not in LS.FA_LANGS or not _fa_scriptable(vid):
         _write_check(vid, None, 0.0, "fa", 0, "ไม่มีโมเดล FA สำหรับภาษานี้")
         return f"{vid} วัดไม่ได้: ไม่มีโมเดล FA สำหรับภาษานี้"
-    r = _fa_call(vid, {"texts": [l.get("x") or "" for l in L], "duration": j.get("duration") or 0},
-                 kind="verify")
-    score, shift, n, after = _fa_measure(vid, L, _lyr_offset(vid), r.get("lines") or [])
-    rec = _write_check(vid, score, shift, "fa", n)
+    m = _fa_measure2(vid, L, _lyr_offset(vid), float(j.get("duration") or 0), "verify")
+    score, shift, n, after = m["score"], m["shift"], m["n"], m["after"]
+    rec = _write_check(vid, score, shift, "fa", n, v2=m)
     if score is None:
         return f"{vid} วัดไม่ได้ (FA มั่นใจแค่ {n}/{len(L)} บรรทัด)"
     return (f"{vid} เวลาตรง {score:.0f}% ({rec['verdict']})"
-            + (f" เลื่อน {shift:+.2f} จะได้ {after:.0f}%" if shift else ""))
+            + (f" เลื่อน {shift:+.2f} จะได้ {after:.0f}%" if shift else "")
+            + (f" · บรรทัดบกพร่อง {len(m['defects'])}" if m["defects"] else ""))
 
 
 async def _verify_worker() -> None:
@@ -2538,7 +2545,8 @@ def _lyr_health() -> dict:
             src, tsrc,
             ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
             ck.get("measuredBy") or "",
-            measurable=ck.get("verdict") != "unmeasurable")
+            measurable=ck.get("verdict") != "unmeasurable",
+            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1))
         conf[lvl] = conf.get(lvl, 0) + 1
     return {
         "withLyrics": sum(by_src.values()),
@@ -2927,7 +2935,8 @@ def _studio_item(vid: str, d: Path, plays: dict[str, int], qpos: dict[str, int])
         "lang": _song_lang(vid)[0], "langBy": _song_lang(vid)[1],
         "check": ({"verdict": ck.get("verdict") or "", "score": ck.get("score"),
                    "shift": shift, "reports": len(ck.get("reports") or []),
-                   "measuredBy": ck.get("measuredBy") or "", "at": ck_at} if ck else None),
+                   "measuredBy": ck.get("measuredBy") or "", "at": ck_at, "v": int(ck.get("v") or 1),
+                   "defects": ck.get("defects") or []} if ck else None),
         # คำแนะนำเลื่อนใช้ได้เฉพาะตอนผลตรวจ "ใหม่กว่า" เนื้อและ offset ปัจจุบัน
         # เลื่อนเกิน 10 วิ = แทบไม่ใช่เวลาเลื่อน แต่เป็นเนื้อผิดเพลง/ผิดเวอร์ชัน -> ไม่แนะนำ
         "shiftOk": bool(ck and 0.3 <= abs(shift) <= 10 and lyr_mt and ck_at >= lyr_mt - 1
@@ -3544,6 +3553,18 @@ def _words_meta(vid: str) -> dict:
         pass
     _words_cache[vid] = (key, out)
     return out
+
+
+def _words_stale_auto(vid: str) -> bool:
+    """งานเลือกเนื้อ/ซ่อมเวลาเปลี่ยนเวลาบรรทัด "หลัง" ทำเวลารายคำไปแล้ว -> หมุดของไล่สีเป็นชุดเก่า ต้องทำใหม่
+    (เวลาที่คนแก้ใน Studio ไม่นับ — ตั้งใจไม่ทำใหม่ตามนโยบายเดิม; เนื้อที่คนแก้ไม่มี best อยู่แล้ว)"""
+    d = _song_dir(vid)
+    try:
+        if not (_read_lyr(vid) or {}).get("best"):
+            return False
+        return (d / "lyrics.words.json").stat().st_mtime < (d / "lyrics.json").stat().st_mtime
+    except OSError:
+        return False
 
 
 def _fa_scriptable(vid: str) -> bool:
@@ -4421,6 +4442,19 @@ async def _best_worker() -> None:
             await asyncio.sleep(BEST_IDLE_GAP)
 
 
+def _check_now(vid: str, kind: str = "verify") -> None:
+    """ตรวจเวลา v2 ของเนื้อปัจจุบันแล้วเขียน lyrics.check.json (พังก็แค่ไม่มีผลตรวจ ไม่ลากงานอื่น)"""
+    try:
+        j = _read_lyr(vid) or {}
+        L = j.get("lines") or []
+        if not L or _song_lang(vid)[0] not in LS.FA_LANGS or not _fa_cached_for(vid, [l.get("x") or "" for l in L]):
+            return
+        m = _fa_measure2(vid, L, _lyr_offset(vid), float(j.get("duration") or 0), kind)
+        _write_check(vid, m["score"], m["shift"], "fa", m["n"], v2=m)
+    except Exception as exc:
+        print(f"[check] {vid} {type(exc).__name__}: {exc}")
+
+
 def _refine_rec(ref: dict | None) -> dict | None:
     if not ref:
         return None
@@ -4470,11 +4504,15 @@ async def _refine_only(vid: str, cur: dict, rec0: dict, base: str, t0: float) ->
         rec.update({"base": base, "action": "refine", "reason": "ซ่อมเวลา: " + (ref.get("note") or "")})
     await asyncio.to_thread(_write_json_atomic, _song_dir(vid) / "lyrics.best.json", rec)
     _best_state.pop(vid, None)
+    if out != base:
+        await asyncio.to_thread(_check_now, vid, "best")
+        await _enqueue_words(vid, force=True)       # เวลาบรรทัดเปลี่ยน -> หมุดของเวลารายคำเปลี่ยน ทำไล่สีใหม่
     print(f"[best] {vid} ซ่อมเวลา: {(ref or {}).get('note') or 'ไม่มีอะไรต้องแก้'} | {time.monotonic() - t0:.0f}s")
 
 
 async def _run_best(vid: str) -> None:
     global _heavy_job
+    retimed = False                                # เวลาบรรทัดเปลี่ยน (เปลี่ยนเนื้อ/เลื่อน/จับใหม่/ซ่อม) -> ทำไล่สีใหม่
     _best_state[vid] = {"status": "working", "error": ""}
     await room.broadcast()
     t0 = time.monotonic()
@@ -4517,11 +4555,10 @@ async def _run_best(vid: str) -> None:
         if dec["action"] not in ("keep", "none"):
             out = await asyncio.to_thread(_best_apply, vid, dec, cur)
             room.archive_rev += 1
-        # ผลตรวจฟรีจากค่าที่วัดแล้ว (เฉพาะเวลาที่ไม่ได้มาจาก FA เอง ไม่งั้นเป็นการวัดตัวเอง)
-        if dec["action"] != "none" and dec.get("timeSrc", LC.time_src_of(cur) if cur else "") != "fa" \
-                and dec.get("score") is not None:
-            await asyncio.to_thread(_write_check, vid, float(dec["score"]), float(dec.get("shift") or 0.0), "fa",
-                                    len(dec.get("lines") or (cur or {}).get("lines") or []))
+            retimed = True
+        # ผลตรวจ v2 ของเนื้อที่ได้จริง (แคชเสียงพร้อมแล้ว = CPU ไม่กี่วิ) — เดิมใช้ค่าจากตอนให้คะแนนแบบไม่มีหมุด
+        if dec["action"] != "none":
+            await asyncio.to_thread(_check_now, vid, "best")
         partial = online == 0
         if partial:
             _best_retried.add(vid)
@@ -4532,7 +4569,8 @@ async def _run_best(vid: str) -> None:
     except Exception as exc:
         _best_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
         print(f"[best] {vid} FAILED: {exc}")
-    await _enqueue_words(vid)                      # ข้อความสุดท้ายนิ่งแล้ว -> ทำเวลารายคำต่อ
+    # ข้อความสุดท้ายนิ่งแล้ว -> ทำเวลารายคำต่อ (เวลาบรรทัดเปลี่ยน = หมุดเปลี่ยน ต้องทำใหม่แม้ข้อความเดิม)
+    await _enqueue_words(vid, force=retimed)
 
 
 def _refine_call(vid: str, lines: list[dict], tsrc: str, segments: bool = True) -> dict | None:

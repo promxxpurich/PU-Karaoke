@@ -305,6 +305,56 @@ def refine_song(vid: str, lines: list[dict], dec: dict | None, dur: float, audio
     return {"lines": lines, "record": rec, "note": "; ".join(note), "changed": changed}
 
 
+# --- ตรวจเวลาเนื้อ v2 (ป้าย ✅/⚠️ บนรีโมท/Studio) -------------------------------------------
+# v1 (server._fa_measure เดิม) วัดด้วย FA ไม่มีหมุดรอบเดียว: ท่อนฮุคซ้ำไหลไปรอบอื่น + บรรทัดวงเล็บ/แร็ปวัดพลาด
+# เพลงที่เวลาถูกจึงโดนเตือน และ % ทั้งเพลงแทบไม่เห็นช่วงเสียสั้น ๆ (บรรทัดอัด/เกลี่ยเส้นตรง 3-6 บรรทัด)
+# v2 = สองชั้น:
+#   1. % ตรงภายใน 0.5 วิ: รอบแรกไม่มีหมุดหาเลื่อนรวม g / ต่อบรรทัดเชื่อแบบไม่มีหมุดถ้าไม่ไหลไกลจาก g เกิน 3 วิ
+#      ไม่งั้น (ไหลไปรอบฮุคอื่น) ใช้แบบมีหมุดที่ (เวลาบนจอ + g) / ไม่นับท่อนซ้ำติดกันกับบรรทัดวงเล็บล้วน
+#   2. บรรทัดบกพร่อง (อัดจนร้องไม่ทัน / เกลี่ยเส้นตรง) ด้วยตัวหาเดียวกับตัวซ่อม
+# วัดด้วย scripts/eval_lyrics.py check (ซับ YouTube 62 เพลง + ทำเสียเอง): ที่เกณฑ์ 70 + บกพร่อง ≥ 2
+#   เตือนผิดในซับที่คนทำ 6% (v1 เกณฑ์ 60 ก็ 6%) แต่จับท่อนครึ่งหลังเลื่อน 1.8 วิได้ 84% (v1 61%),
+#   บรรทัดอัด 100% (v1 10%), ช่วงเกลี่ยเส้นตรง 90% (v1 13%)
+CHECK_EV_CONF = 0.35
+CHECK_SLIDE = 3.0         # ไม่มีหมุดแล้วไหลไกลจากเลื่อนรวมเกินนี้ = ไปจับท่อนซ้ำรอบอื่น -> ใช้ค่าแบบมีหมุด
+
+
+def check_timing(fa_call, lines: list[dict], off: float = 0.0, dur: float = 0.0, min_conf: float = 0.12) -> dict:
+    """fa_call(payload) -> ผลแบบ fa_align.time_lines (server: subprocess / eval: ในโปรเซส)
+    คืน {"score": % ตรงภายใน 0.5 วิ | None (วัดไม่ได้), "shift": เลื่อนแนะนำ, "after": % หลังเลื่อน,
+         "n": บรรทัดที่วัดได้, "g": เลื่อนรวม, "defects": [ลำดับบรรทัดที่เวลาอัด/เกลี่ย]}"""
+    texts = [l.get("x") or "" for l in lines]
+    eff = [float(l.get("t") or 0) + off for l in lines]
+    rep = repeated(texts)
+    skip = [r or bool(_PAREN_ALL.match(x or "")) for r, x in zip(rep, texts)]
+    r1 = fa_call({"texts": texts, "duration": dur})["lines"]
+    ev = [f["t"] - e for f, e, sk in zip(r1, eff, skip) if not sk and (f.get("conf") or 0) >= CHECK_EV_CONF]
+    g = st.median(ev) if len(ev) >= max(4, 0.2 * len(lines)) else 0.0
+    anchors = [[round(e + g, 2), float(l.get("d") or 1.0)] for e, l in zip(eff, lines)]
+    r2 = fa_call({"texts": texts, "duration": dur, "anchors": anchors})["lines"]
+    ds = []
+    for a, b, e, sk in zip(r1, r2, eff, skip):
+        if sk:
+            continue
+        d1 = a["t"] - e if (a.get("conf") or 0) >= min_conf else None
+        d2 = b["t"] - e if (b.get("conf") or 0) >= min_conf else None
+        if d1 is not None and abs(d1 - g) <= CHECK_SLIDE:
+            ds.append(d1)
+        elif d2 is not None:
+            ds.append(d2)
+    shown = [dict(l, t=e) for l, e in zip(lines, eff)]
+    bad = [i for i, x in enumerate(defects(shown, r2)) if x]
+    n_meas = sum(1 for sk in skip if not sk)
+    out = {"n": len(ds), "g": round(g, 2), "defects": bad}
+    if len(ds) < max(4, 0.3 * n_meas):
+        return {**out, "score": None, "shift": 0.0, "after": None}
+    score = 100.0 * sum(abs(x) <= 0.5 for x in ds) / len(ds)
+    med = st.median(ds)
+    shift = round(med, 2) if abs(med) >= 0.3 else 0.0
+    after = 100.0 * sum(abs(x - shift) <= 0.5 for x in ds) / len(ds) if shift else score
+    return {**out, "score": round(score, 1), "shift": shift, "after": round(after, 1)}
+
+
 def main() -> None:
     req = json.loads(sys.stdin.read() or "{}")
     vid = sys.argv[1] if len(sys.argv) > 1 else req.get("vid")

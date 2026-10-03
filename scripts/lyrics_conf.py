@@ -27,6 +27,11 @@ HAND = frozenset({"manual-lrc", "manual-txt", "manual-edit", "yt-sub",
 #                  (ส่วนใหญ่คือ lrclib จับคู่ผิดเวอร์ชัน ได้ 0.0)
 # ไม้บรรทัดเปลี่ยนเป็น FA (ตรงภายใน 0.5 วิ ~80% ของบรรทัดที่คนจับเวลา) เกณฑ์จึงขยับขึ้น: 60 = ตรงจริง, <30 = พังชัด
 OK_SCORE, BAD_SCORE = 60, 30
+# ตรวจเวลา v2 (lyrics_refine.check_timing — มีหมุดกันท่อนฮุคไหล + นับบรรทัดบกพร่อง) คาลิเบรตด้วย
+# scripts/eval_lyrics.py check: เกณฑ์ 70 + บกพร่อง ≥ 2 เตือนผิดในซับที่คนทำ 6% เท่าเดิม แต่จับเวลาเสียได้มากขึ้นมาก
+# (ท่อนครึ่งหลังเลื่อน 84% vs 61%, บรรทัดอัด 100% vs 10%, เกลี่ยเส้นตรง 90% vs 13%)
+OK_SCORE_V2 = 70
+DEFECT_MIN = 2            # บรรทัดที่เวลาอัด/เดา ตั้งแต่เท่านี้ขึ้นไป = ควรเช็ก (กด 🩺 ใน Studio)
 
 LEVELS = ("good", "check", "bad", "auto", "unknown", "none")
 
@@ -64,7 +69,8 @@ def time_src_of(j: dict) -> str:
 
 
 def confidence(src: str, time_src: str, on_time: float | None,
-               measured_by: str = "", measurable: bool = True) -> tuple[str, str]:
+               measured_by: str = "", measurable: bool = True,
+               defects: int = 0, version: int = 1) -> tuple[str, str]:
     """คืน (ระดับ, เหตุผลสั้น) — good | check | auto | unknown | none
 
     กติกา 3 ข้อ ทุกข้อมาจากกับดักที่โค้ดนี้เคยตกมาแล้วจริง ๆ:
@@ -80,8 +86,11 @@ def confidence(src: str, time_src: str, on_time: float | None,
     if on_time is None:
         return ("unknown", "ยังไม่ได้ตรวจเวลา") if measurable \
                else ("none", "ไม่มีไม้บรรทัดอิสระให้ตรวจ")
-    if on_time >= OK_SCORE:
+    ok = OK_SCORE_V2 if version >= 2 else OK_SCORE      # ผลตรวจรุ่นเก่าใช้เกณฑ์เดิมจนกว่าจะตรวจใหม่
+    if on_time >= ok and defects < DEFECT_MIN:
         return "good", f"ตรวจแล้ว เวลาตรง {on_time:.0f}%"
+    if on_time >= BAD_SCORE and defects >= DEFECT_MIN:
+        return "check", f"มี {defects} บรรทัดที่เวลาอัด/เดา (Studio → 🩺 ซ่อมช่วงเพี้ยน)"
     if on_time >= BAD_SCORE:
         return "check", f"เวลาตรง {on_time:.0f}% (ไม้บรรทัดเองก็ไม่แม่น ระดับนี้ถือว่าปกติ)"
     return "bad", f"แทบไม่มีบรรทัดไหนตรงเลย ({on_time:.0f}%) น่าจะผิดเพลงหรือเวลาเลื่อนทั้งเพลง"

@@ -354,6 +354,21 @@ function posNow(){
   if(stemMode && ctx) return Math.min(dur, startOffset + (ctx.currentTime - startedAt));
   return local.currentTime;
 }
+// เล่นผ่าน YouTube (เพลงที่เพิ่งสั่งแล้ววิดีโอยังโหลดไม่เสร็จ): posNow() อ่าน <video> ที่ว่างอยู่ได้ 0 เสมอ
+// เนื้อเลยค้างที่ต้นเพลงทั้งเพลง -> เนื้อ/ไล่สีใช้เวลาจาก iframe แทน
+// getCurrentTime() ของ iframe ขยับเป็นจังหวะ ๆ ตามที่ YouTube ส่งมา จึงต่อเวลาที่ผ่านไปเองระหว่างรอบ (ตอนกำลังเล่น)
+let ytLast = {v: -1, at: 0};
+function ytNow(){
+  let v = 0;
+  try{ v = +player.getCurrentTime() || 0; }catch(e){ return 0; }
+  const now = performance.now();
+  if(v !== ytLast.v){ ytLast = {v, at: now}; return v; }
+  let playing = false;
+  try{ playing = player.getPlayerState() === 1; }catch(e){}
+  return playing ? v + Math.min(0.6, (now - ytLast.at) / 1000) : v;
+}
+const ytMode = () => curLocal === null && !stemMode && !!curId && ready;
+const lyrPos = () => ytMode() ? ytNow() : posNow();     // เวลาที่เนื้อ/ไล่สีใช้ (ทุกแหล่งที่เล่นได้)
 
 const pct = (v,d)=> Math.max(0, Math.min(100, v==null ? d : v)) / 100;
 
@@ -954,7 +969,7 @@ function lyrTick(){
   const dual = st.lyrMode === 'dual' || kara;
   const vo = voicesOn(st);
   // เวลาเนื้อ: หัก offset ประจำเพลง + ?lyroffset= ของจอ ครั้งเดียว ตรรกะใน lyrcore ใช้เวลาบรรทัดดิบ
-  const t = posNow() - songOff() - LYR_OFFSET;
+  const t = lyrPos() - songOff() - LYR_OFFSET;
   const F = lycFrame(LY.lines, t, {kEnd: kara ? kEndOf : null, countdown: !(st.tv && st.tv.countdown === false)});
   const key = (kara?'k':dual?'d':'s') + (vo?'v':'') + F.i + (F.gap?'g':'') + F.cd + '|' + F.rows.map(r => r.j + (r.on?'+':'')).join(',');
   if(key === lyIdx) return;
@@ -1072,7 +1087,7 @@ function lyRow(el, text, j, line, vo){
   el.append(...spans);
   el._k = {spans, ts: kc.map(c => c.t), n: 0};
   el.classList.add('kara');
-  karaPaint(el, posNow());
+  karaPaint(el, lyrPos());
 }
 // โหมดสเต็ม: ctx.currentTime คือตำแหน่งที่ "ส่งออก" ไม่ใช่ที่ "ได้ยิน" — ลำโพง/ทีวี/บลูทูธหน่วงเพิ่มอีก
 // ระดับบรรทัดไม่รู้สึก แต่ไล่สีทีละตัวจะวิ่งนำเสียง -> หักความหน่วงที่เบราว์เซอร์รายงานออก
@@ -1093,7 +1108,7 @@ function karaLoop(){
   if(!LY || evicted) return;
   const st = window._state;
   if(!st || st.lyrMode !== 'karaoke' || !(kRows[0]._k || kRows[1]._k)) return;
-  const pn = posNow();
+  const pn = lyrPos();
   karaPaint(kRows[0], pn);
   karaPaint(kRows[1], pn);
 }
@@ -1105,7 +1120,7 @@ requestAnimationFrame(karaLoop);
 function playPos(){
   if(stemMode && ctx) return [posNow(), dur];
   if(curLocal !== null) return [local.currentTime, local.duration];
-  if(curId && ready){ try{ return [player.getCurrentTime(), player.getDuration()]; }catch(e){} }
+  if(curId && ready){ try{ return [ytNow(), player.getDuration()]; }catch(e){} }
   return [0, 0];
 }
 const mmss = v => { v = Math.max(0, Math.round(v)); return (v/60|0) + ':' + String(v%60).padStart(2,'0'); };

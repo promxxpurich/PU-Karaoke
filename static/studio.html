@@ -682,7 +682,9 @@ function songChips(i, full){
     c.push(CONF[i.lyrConf] || CONF.check);
     if(full && i.lyrKind) c.push(['info','📝 ' + i.lyrKind + ` · ${i.lyrLines} บรรทัด`]);
     if(i.check && i.check.score != null && i.check.verdict !== 'unmeasurable')
-      c.push([i.check.score >= 55 ? 'ok' : i.check.score >= 20 ? 'off' : 'bad', `🔍 ${Math.round(i.check.score)}%`]);
+      c.push([i.lyrConf === 'good' ? 'ok' : i.lyrConf === 'bad' ? 'bad' : 'off', `🔍 ${Math.round(i.check.score)}%`]);   // สีเดียวกับป้ายบนรีโมท
+    const df = (i.check && i.check.defects) || [];
+    if(df.length >= 2) c.push(['warn', `🩺 ${df.length} บรรทัดเวลาอัด/เดา`]);   // ผลตรวจ v2: กด 🩺 ซ่อมช่วงเพี้ยน
   }else c.push(NOLYR[i.lyrStatus] || NOLYR.idle);
   if(CHK[i.lyrCheck]) c.push(CHK[i.lyrCheck]);
   const w = i.lyrLines && i.words;                  // เวลารายตัวอักษร (โหมดคาราโอเกะ) — รายการย่อโชว์เฉพาะตอนกำลังทำ/พัง
@@ -708,6 +710,7 @@ const FILTERS = [
   ['bad','⚠️ ไม่ตรง', i => i.lyrLines && i.lyrConf === 'bad'],
   ['unchecked','📝 ยังไม่ตรวจ', i => i.lyrLines && ['unknown','none'].includes(i.lyrConf)],
   ['hint','💡 มีคำแนะนำ', i => i.shiftOk],
+  ['defects','🩺 เวลาอัด/เดา', i => i.lyrLines && i.check && (i.check.defects || []).length >= 2],
   ['edited','✏️ แก้เองแล้ว', i => i.edited],
   ['auto','✨ เปลี่ยนอัตโนมัติ', i => i.best && i.best.applied],
   ['refined','🩺 ซ่อมเวลาแล้ว', i => i.best && i.best.applied && i.best.action === 'refine'],

@@ -18,6 +18,8 @@
                                เล่นซ้ำงานเลือกเนื้อบนผู้สมัครที่แช่ไว้ (ไม่มีเนื้อเดิม, ไม่เอาไม้บรรทัดเป็นผู้สมัคร)
                                แล้ววัดเวลาที่ได้กับไม้บรรทัด
   core                         บล็อก lyrcore ใน player.html กับ studio.html ต้องเหมือนกันทุกตัวอักษร
+  refine-synth                 ทำเวลาเสียเองบนซับที่คนทำ แล้วดูว่าตัวซ่อม (lyrics_refine) กู้คืนได้แค่ไหน
+  check [--nosynth]            ป้าย ✅/⚠️: ตรวจเวลา v1 vs v2 — เตือนผิดในเพลงจริง vs จับเพลงที่ทำเสียเองได้
 ตัวแปรแวดล้อม: KARA_SONGS_DIR / KARA_FA_CACHE / KARA_EVAL_DIR (ค่าเริ่มต้น = ของโปรเจกต์นี้)
 """
 import difflib
@@ -444,13 +446,96 @@ def cmd_best():
     (EVAL / "best_last.json").write_text(json.dumps(rows, ensure_ascii=False), "utf-8")
 
 
+# --- ป้าย ✅/⚠️: ตรวจเวลา v1 (FA ไม่มีหมุดรอบเดียว) vs v2 (lyrics_refine.check_timing) -----------------
+def _measure_v1(F, vid, lines, off, dur, audio):
+    fl = F.time_lines(vid, [l["x"] for l in lines], dur, audio)["lines"]
+    ds = [b["t"] - (float(a["t"]) + off) for a, b in zip(lines, fl) if (b.get("conf") or 0) >= 0.12]
+    if len(ds) < max(4, 0.3 * len(lines)):
+        return None
+    return 100.0 * sum(abs(x) <= 0.5 for x in ds) / len(ds)
+
+
+def _measure_v2(F, vid, lines, off, dur, audio):
+    """คะแนนแบบที่ป้ายใช้: บรรทัดบกพร่อง ≥ 2 ถือว่าต่ำกว่าเกณฑ์ (นับเป็น 0 ในตารางนี้)"""
+    import lyrics_refine as RF
+    call = lambda p: F.time_lines(vid, p["texts"], p.get("duration") or dur, audio, anchors=p.get("anchors"))
+    r = RF.check_timing(call, lines, off, dur)
+    return 0.0 if len(r["defects"]) >= 2 else r["score"]
+
+
+def cmd_check():
+    """เตือนผิด (เพลงที่เวลาดี ได้คะแนนต่ำ) vs จับได้ (เพลงที่ทำเวลาเสียเอง ได้คะแนนต่ำ) ที่เกณฑ์ต่าง ๆ"""
+    F = _fa()
+    TH = (40, 50, 60, 70, 80)
+    groups: dict[str, list[tuple[float | None, float | None]]] = {}
+    synth: dict[str, list[tuple[float | None, float | None]]] = {}
+
+    def add(g, a, b):
+        groups.setdefault(g, []).append((a, b))
+    for vid, d in song_dirs():
+        j = jload(d / "lyrics.json")
+        if not j or not j.get("lines"):
+            continue
+        audio = d / "vocals.m4a"
+        if not audio.is_file():
+            continue
+        lines = sorted([l for l in j["lines"] if isinstance(l.get("t"), (int, float)) and (l.get("x") or "").strip()],
+                       key=lambda l: l["t"])
+        if len(lines) < 6:
+            continue
+        off = float((jload(d / "lyrics.offset.json") or {}).get("offset") or 0.0)
+        dur = float(j.get("duration") or 0)
+        src, ts = j.get("src") or "", j.get("timeSrc") or ""
+        g = "gold" if src == "manual-edit" else "yt-sub" if src == "yt-sub" else "fa-timed" if ts == "fa" else "other"
+        try:
+            a = _measure_v1(F, vid, lines, off, dur, audio)
+            b = _measure_v2(F, vid, lines, off, dur, audio)
+        except Exception as exc:
+            print("skip", vid, type(exc).__name__, str(exc)[:80])
+            continue
+        add(g, a, b)
+        if g == "yt-sub" and not arg("--nosynth"):
+            seed = sum(map(ord, vid))
+            for kind in ("global", "segshift", "collapse", "interp"):
+                if kind == "global":
+                    L = [dict(l, t=round(l["t"] + 1.5, 2)) for l in lines]
+                else:
+                    L, hit = _corrupt(lines, kind, seed)
+                    if not hit:
+                        continue
+                try:
+                    synth.setdefault(kind, []).append((_measure_v1(F, vid, L, off, dur, audio),
+                                                       _measure_v2(F, vid, L, off, dur, audio)))
+                except Exception:
+                    pass
+        print(f"{vid} {g:8s} v1 {a if a is None else round(a, 1)!s:>6}  v2 {b if b is None else round(b, 1)!s:>6}", flush=True)
+
+    def row(name, xs, low_is_good):
+        n = len(xs)
+        def frac(k, th):
+            return 100.0 * sum(1 for x in xs if x[k] is None or x[k] < th) / max(1, n)
+        def pct(k, q):
+            v = sorted(x[k] for x in xs if x[k] is not None)
+            return v[min(len(v) - 1, int(q * len(v)))] if v else float("nan")
+        lab = "จับได้" if low_is_good else "เตือนผิด"
+        print(f"  {name:9s} n={n:3d}  p10 v1 {pct(0, .1):5.1f} v2 {pct(1, .1):5.1f} | p50 v1 {pct(0, .5):5.1f} v2 {pct(1, .5):5.1f} | "
+              + "  ".join(f"<{th}: {lab} v1 {frac(0, th):4.0f}% v2 {frac(1, th):4.0f}%" for th in TH))
+    print("== เพลงจริง (คะแนนต่ำ = ป้ายเตือน)")
+    for g in ("gold", "yt-sub", "other", "fa-timed"):
+        if groups.get(g):
+            row(g, groups[g], False)
+    print("== ทำเวลาเสียเองบนซับ YouTube (ควรได้คะแนนต่ำ)")
+    for k, xs in synth.items():
+        row(k, xs, True)
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return
     cmd = sys.argv[1]
     {"gold": cmd_gold, "fa": cmd_fa, "display": cmd_display, "freeze": cmd_freeze, "best": cmd_best,
-     "core": cmd_core, "refine-synth": cmd_refine_synth}.get(cmd, lambda: print(__doc__))()
+     "core": cmd_core, "refine-synth": cmd_refine_synth, "check": cmd_check}.get(cmd, lambda: print(__doc__))()
 
 
 
