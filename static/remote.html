@@ -353,6 +353,35 @@
       </div>
       <div class="mixnote hide" id="lyrnote"></div>
     </div>
+    <div class="fld">
+      <div class="fl">👥 แยกเสียงร้องบนจอ <small>(คนที่ 2 คนละสี · คอรัสในวงเล็บตัวเล็ก)</small></div>
+      <div class="mixpre" id="voicerow">
+        <button data-act="voices" data-v="1">เปิด</button>
+        <button data-act="voices" data-v="0">ปิด</button>
+      </div>
+    </div>
+    <div class="fld">
+      <div class="fl">🔀 คิวหมดแล้วสุ่มเพลงต่อ</div>
+      <div class="mixpre" id="autorow">
+        <button data-act="auto" data-v="1">เปิด</button>
+        <button data-act="auto" data-v="0">ปิด</button>
+      </div>
+      <div class="hint">สุ่มจากเพลงที่มีอยู่แล้วในเครื่อง · เพลงที่สั่งเองจะเล่นก่อนเสมอ</div>
+    </div>
+    <div class="fld">
+      <div class="fl">🔒 ควบคุมจากหน้าจอล็อก</div>
+      <div class="mixpre" id="lockrow">
+        <button data-act="lock" data-v="1">เปิด</button>
+        <button data-act="lock" data-v="0">ปิด</button>
+      </div>
+      <div class="hint">ล็อกจอแล้วจะมีชื่อเพลง รูปปก และปุ่มขึ้นเหมือนแอปเพลง (มือถือเล่น "เสียงเงียบ" ค้างไว้เพื่อให้ปุ่มขึ้น — ถ้าจะฟังเพลงจากแอปอื่นให้ปิด)</div>
+      <div class="fl" style="margin-top:10px">ปุ่มซ้าย/ขวาบนจอล็อก</div>
+      <div class="mixpre" id="lockbtns">
+        <button data-act="lockbtns" data-v="track">⏮ เริ่มใหม่ · ⏭ ข้าม</button>
+        <button data-act="lockbtns" data-v="vol">🔉 ลดเสียง · 🔊 เพิ่มเสียง</button>
+      </div>
+      <div class="hint">iPhone แสดงได้ทีละคู่ · Android แสดงครบทุกปุ่ม · ปุ่มเสียงข้างเครื่องปรับเสียงมือถือ ไม่ใช่ทีวี</div>
+    </div>
 
   </div>
 </section>
@@ -369,6 +398,8 @@
         <button data-tag="missing">🕳 ขาดบางท่อน</button>
         <button data-tag="nolyr">🚫 ไม่มีเนื้อ</button>
         <button data-tag="wrong">🎵 เนื้อผิดเพลง</button>
+        <button data-tag="fast">⚡ ท่อนเร็วขึ้นไม่ทัน</button>
+        <button data-tag="overlap">👥 ร้องซ้อนแล้วซับไม่ขึ้น</button>
       </div>
       <textarea id="repnote" rows="3" maxlength="200" placeholder="รายละเอียด (ไม่บังคับ) เช่น ท่อนฮุคช้าไปนิด"></textarea>
       <div class="hint">ส่งให้คนดูแลไปแก้ใน Studio — บนจอจะยังไม่เปลี่ยนทันที</div>
@@ -402,13 +433,14 @@
     <button id="setbtn" data-act="sheet" data-v="set" aria-label="ตั้งค่าละเอียด">⚙️</button>
   </div>
   <div class="ctrls">
-    <button id="toggle"><i>⏸</i><span>หยุด</span></button>
-    <button id="restart"><i>↺</i><span>เริ่มใหม่</span></button>
-    <button id="skip"><i>⏭︎</i><span>ข้าม</span></button>
     <button id="histbtn" data-act="sheet" data-v="hist"><i>🗂</i><span>ล่าสุด</span></button>
+    <button id="restart"><i>↺</i><span>เริ่มใหม่</span></button>
+    <button id="toggle"><i>⏸</i><span>หยุด</span></button>
+    <button id="skip"><i>⏭︎</i><span>ข้าม</span></button>
     <button id="qbtn" data-act="sheet" data-v="queue"><i>📋</i><span>คิว</span><em id="cnt" class="zero">0</em></button>
   </div>
 </nav>
+<audio id="lsaudio" loop playsinline preload="auto" style="display:none"></audio>
 <script>
 // ===== 0. ล็อกซูม ====================================================
 // iOS Safari ไม่สน user-scalable=no -> ต้องกัน pinch เอง; double-tap กันด้วย touch-action ใน CSS
@@ -572,7 +604,9 @@ function patchCard(n, it, o){
 // ===== 5. views ======================================================
 function renderNow(st){
   const box = $('#nowbox'), c = st.current;
-  if(!c){ setHTML(box, '<div class="empty nowempty"><b>🎶 ยังไม่มีเพลงเล่นอยู่</b>ค้นหาแล้วกด ＋ ได้เลย</div>'); return; }
+  if(!c){ setHTML(box, st.autoplay
+      ? '<div class="empty nowempty"><b>🔀 กำลังสุ่มเพลงจากในเครื่อง…</b>ยังไม่มีเพลงในเครื่อง? ค้นหาแล้วกด ＋ ได้เลย</div>'
+      : '<div class="empty nowempty"><b>🎶 ยังไม่มีเพลงเล่นอยู่</b>ค้นหาแล้วกด ＋ ได้เลย</div>'); return; }
   reconcile(box, [c], i=>i.id||'cur', (n,i)=>{
     n.id = 'now';
     patchCard(n, i, { title: i.title, info: true,
@@ -651,6 +685,7 @@ function renderAll(st){
   if(!st) return;
   setHTML($('#toggle'), st.playing ? '<i>⏸</i><span>หยุด</span>' : '<i>▶</i><span>เล่น</span>');
   renderNow(st); renderQueue(st); renderMix(st); renderHist(); renderOv();
+  lsSync(st);
 }
 
 // ===== 6. หน้าสถานะเต็มจอ ============================================
@@ -874,7 +909,14 @@ const ACTIONS = {
   key:     (_k,b) => { const cur = (S.st && S.st.mix && S.st.mix.key) || 0, d = +b.dataset.v;
                        send({action:'mix', key: d === 0 ? 0 : Math.max(-6, Math.min(6, cur + d))}); },
   lyr:     (_k,b) => send({action:'lyrmode', mode:b.dataset.v}),
+  voices:  (_k,b) => { const on = b.dataset.v === '1'; send({action:'voices', on});
+                       toast(on ? '👥 แยกเสียงร้อง: คนที่ 2 คนละสี / คอรัสตัวเล็ก' : 'ปิดแยกเสียงร้อง — จอแสดงแบบเดิม'); },
+  auto:    (_k,b) => { const on = b.dataset.v === '1'; send({action:'autoplay', on});
+                       toast(on ? '🔀 คิวหมดแล้วจะสุ่มเพลงต่อให้' : 'ปิดสุ่มเพลงอัตโนมัติแล้ว'); },
   rep:     () => openReport(),
+  lock:    (_k,b) => lsEnable(b.dataset.v === '1'),
+  lockbtns:(_k,b) => { LS.btns = b.dataset.v === 'vol' ? 'vol' : 'track'; lsSave(); lsHandlers(); renderLock();
+                       toast(LS.btns === 'vol' ? '🔉 ปุ่มซ้าย/ขวา = ลด/เพิ่มเสียงทีวี' : '⏮ ปุ่มซ้าย/ขวา = เริ่มใหม่/ข้าม'); },
   sheet:   (_k,b) => setSheet(S.sheet===b.dataset.v ? null : b.dataset.v),
   shclose: () => setSheet(null),
   ovclose: () => closeOv(),
@@ -901,7 +943,7 @@ function makeSlider(id, key, valId, onPaint){
   const paint = v => { setText($(valId), v+'%'); el.style.setProperty('--p', v+'%'); onPaint && onPaint(v); };
   const flush = () => {
     if(s.pending === null) return;
-    send({action:'mix', [key]: s.pending});
+    sendLater({action:'mix', [key]: s.pending});
     s.muteUntil = Date.now() + 600;          // กัน echo ของตัวเองเขียนทับนิ้วที่กำลังลาก
     s.pending = null;
   };
@@ -955,8 +997,10 @@ function renderMix(st){
     : key ? `คีย์ ${key > 0 ? '+' : ''}${key} · กลับเป็นคีย์เดิมเองตอนขึ้นเพลงใหม่` : '';
   setText($('#keynote'), kn);
   setCls($('#keynote'),'hide', !kn);
-  const lm = ['dual','karaoke','off'].includes(st.lyrMode) ? st.lyrMode : 'scroll';
+  const lm = ['scroll','dual','off'].includes(st.lyrMode) ? st.lyrMode : 'karaoke';
   $('#lyrmode').querySelectorAll('button').forEach(b => setCls(b,'on', b.dataset.v === lm));
+  const vo = !(st.tv && st.tv.voices === false);
+  $('#voicerow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === vo));
   // คาราโอเกะไล่สีได้เฉพาะเพลงที่ทำเวลารายคำเสร็จแล้ว — เพลงอื่นขึ้นแบบ 2 บรรทัดไปก่อน บอกให้รู้
   const ln = lm !== 'karaoke' ? ''
     : !c || c.lyrStatus !== 'ready' || c.wordsUrl ? ''
@@ -964,6 +1008,7 @@ function renderMix(st){
     : 'เพลงนี้ยังไม่มีเวลารายคำ — ขึ้นแบบ 2 บรรทัดไปก่อน';
   setText($('#lyrnote'), ln);
   setCls($('#lyrnote'),'hide', !ln);
+  $('#autorow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === !!st.autoplay));
 
 }
 
@@ -1003,11 +1048,12 @@ async function search(){
   const id = ytId(raw);
   if(id){
     emptyMsg($('#results'), 'กำลังตรวจสอบคลิป…');
-    let ok = true;
-    try{ ok = (await (await fetch('/api/embeddable?videoId='+id)).json()).embeddable; }catch(e){}
+    let ok = true, info = {};
+    try{ info = await (await fetch('/api/embeddable?videoId='+id)).json(); ok = info.embeddable; }catch(e){}
     if(my !== searchTok) return;
     $('#q').value=''; setCls($('#qx'),'hide',true); renderRecs();
-    openPreview({videoId:id, title:'YouTube: '+id}, ok ? '' : EMBED_WARN);
+    // ชื่อจริงจากเซิร์ฟเวอร์ (คลัง/oEmbed) — ได้ไม่ทันค่อยใช้ "YouTube: <id>" แล้ว songinfo/ตอน add จะแก้ให้
+    openPreview({videoId:id, title: info.title || ('YouTube: '+id), channel: info.channel || ''}, ok ? '' : EMBED_WARN);
     return;
   }
   $('#results').innerHTML = skeleton(4);
@@ -1049,9 +1095,86 @@ $('#singer').value = (()=>{ try{ return localStorage.getItem('singer')||''; }cat
 $('#singer').oninput = e=>{ try{ localStorage.setItem('singer', e.target.value); }catch(err){} };
 $('#singer').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#singer').blur(); });
 
+// ===== 12. หน้าจอล็อกมือถือ (Media Session) ==============================
+// รีโมทไม่ได้เล่นเสียงจริง แต่มือถือจะโชว์ Now Playing บนจอล็อกให้เฉพาะหน้าที่ "กำลังเล่นสื่อ" อยู่
+// -> เล่น WAV เงียบ (±1 LSB, -90 dB) วนลูปไว้ แล้วใส่ชื่อเพลง/ปก/ปุ่มผ่าน navigator.mediaSession
+// ปุ่มบนจอล็อกส่งคำสั่งเดียวกับปุ่มในหน้านี้ไปที่จอทีวี  play/pause = toggle, ⏮⏭ = เริ่มใหม่/ข้าม, ⏪⏩ = เสียงรวม ∓10
+const lsGet = (k,d) => { try{ return localStorage.getItem(k) ?? d; }catch(e){ return d; } };
+const LS = { on: lsGet('lockCtl','1') === '1', btns: lsGet('lockBtns','track') === 'vol' ? 'vol' : 'track',
+             armed:false, metaId:null };
+const lsSave = ()=>{ try{ localStorage.setItem('lockCtl', LS.on ? '1' : '0'); localStorage.setItem('lockBtns', LS.btns); }catch(e){} };
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const lsa = $('#lsaudio');
+(function(){                                        // WAV 1 วิ 8 kHz mono สร้างในหน้า ไม่ต้องมีไฟล์เพิ่ม
+  const rate = 8000, n = rate, b = new ArrayBuffer(44 + n*2), v = new DataView(b);
+  const w = (o,t)=>{ for(let i=0;i<t.length;i++) v.setUint8(o+i, t.charCodeAt(i)); };
+  w(0,'RIFF'); v.setUint32(4, 36+n*2, true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,rate,true); v.setUint32(28,rate*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,'data'); v.setUint32(40, n*2, true);
+  for(let i=0;i<n;i++) v.setInt16(44+i*2, (i&1) ? 1 : -1, true);   // ไม่ใช่ศูนย์ล้วน: บางเครื่องถือว่าไม่ใช่เสียง
+  lsa.src = URL.createObjectURL(new Blob([b], {type:'audio/wav'}));
+})();
+const lsPlay = ()=>{ const p = lsa.play(); if(p && p.catch) p.catch(()=>{}); };
+// iOS ยอมให้ play() ครั้งแรกจากท่าทางผู้ใช้เท่านั้น — หลังจากนั้นสั่ง play/pause จาก state ได้
+function lsArm(){
+  if(LS.armed || !LS.on || !('mediaSession' in navigator)) return;
+  LS.armed = true; lsPlay();
+  if(S.st) lsSync(S.st);
+}
+for(const t of ['click','touchend']) document.addEventListener(t, lsArm, {passive:true});
+function lsHandlers(){
+  const ms = navigator.mediaSession; if(!ms) return;
+  const set = (a,fn)=>{ try{ ms.setActionHandler(a, fn); }catch(e){} };
+  if(!LS.on){ for(const a of ['play','pause','previoustrack','nexttrack','seekbackward','seekforward']) set(a,null); return; }
+  set('play',  ()=>{ lsPlay(); if(S.st && S.st.current && !S.st.playing) sendLater({action:'toggle'}); });
+  set('pause', ()=>{ lsa.pause(); if(S.st && S.st.current && S.st.playing) sendLater({action:'toggle'}); });
+  const track = LS.btns === 'track', both = !IOS;       // iPhone โชว์ได้คู่เดียว ต้องล้างคู่ที่ไม่ใช้ ไม่งั้นมันเลือกให้เอง
+  set('previoustrack', (both || track) ? ()=>sendLater({action:'restart'}) : null);
+  set('nexttrack',     (both || track) ? ()=>{ const c = S.st && S.st.current; if(c) sendLater({action:'next', id:c.id}); } : null);
+  const vol = d => ()=>SL.master.set(Math.max(0, Math.min(100, (+SL.master.el.value || 0) + d)));
+  set('seekbackward', (both || !track) ? vol(-10) : null);
+  set('seekforward',  (both || !track) ? vol(10)  : null);
+}
+function lsSync(st){
+  const ms = navigator.mediaSession; if(!ms || !LS.on || !LS.armed) return;
+  const c = st.current;
+  if(!c){ if(!lsa.paused) lsa.pause(); ms.metadata = null; LS.metaId = null; ms.playbackState = 'none'; return; }
+  if(c.id !== LS.metaId){
+    LS.metaId = c.id;
+    const art = artUrl(c);
+    try{ ms.metadata = new MediaMetadata({ title: c.title || 'PU KARAOKE', artist: c.singer ? '🎤 ' + c.singer : 'PU KARAOKE',
+           album: 'PU KARAOKE', artwork: art ? [{src: new URL(art, location.href).href, sizes:'512x512', type:'image/jpeg'}] : [] }); }catch(e){}
+  }
+  if(st.playing){ if(lsa.paused) lsPlay(); } else if(!lsa.paused) lsa.pause();
+  ms.playbackState = st.playing ? 'playing' : 'paused';
+  const dur = +c.duration || 0;
+  if(dur > 0 && ms.setPositionState){
+    try{ ms.setPositionState({duration: dur, playbackRate: 1, position: Math.max(0, Math.min(dur, livePos()))}); }catch(e){}
+  }
+}
+function lsEnable(on){
+  LS.on = on; lsSave(); lsHandlers(); renderLock();
+  if(on){ LS.armed = false; lsArm(); toast('🔒 ล็อกจอแล้วคุมเพลงได้เลย'); }
+  else { lsa.pause(); try{ navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; }catch(e){} LS.metaId = null; toast('ปิดปุ่มบนจอล็อกแล้ว'); }
+}
+function renderLock(){
+  $('#lockrow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === LS.on));
+  $('#lockbtns').querySelectorAll('button').forEach(b => setCls(b,'on', b.dataset.v === LS.btns));
+}
+lsHandlers(); renderLock();
+
 // ===== 11. websocket =================================================
-let ws=null, retry=1500;
+let ws=null, retry=1500, retryTimer=null;
 const send = o => { try{ if(ws && ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify(o)); return true; } }catch(e){} return false; };
+// คำสั่งจากจอล็อก: มือถือพักหน้าจอแล้ว iOS อาจตัด socket ไปเงียบ ๆ -> เก็บไว้ยิงตอนต่อใหม่ได้ (ไม่เกิน 8 คำสั่งล่าสุด)
+const sendQ = [];
+function sendLater(o){
+  if(send(o)) return true;
+  sendQ.push(o); if(sendQ.length > 8) sendQ.shift();
+  if(!ws || ws.readyState > 1) connect();          // CLOSING/CLOSED -> ต่อใหม่ทันที ไม่รอ backoff
+  return false;
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && (!ws || ws.readyState > 1)) connect(); });
 
 let rafId=0, pending=null;
 function schedule(st){                    // รวมหลาย broadcast ในเฟรมเดียว
@@ -1069,13 +1192,16 @@ function onMessage(ev){
   schedule(st);
 }
 function connect(){
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
+  if(ws && ws.readyState <= 1) return;             // กำลังต่อ/ต่ออยู่แล้ว
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);   // ผ่าน Cloudflare (https) ต้องเป็น wss
   ws.onmessage = onMessage;
   ws.onopen = ()=>{ retry=1500; document.body.classList.remove('off');
                     setText($('#ststr'),'เชื่อมต่อแล้ว');
+                    while(sendQ.length && send(sendQ[0])) sendQ.shift();
                     loadRecs(); if(S.sheet==='hist') send({action:'history'}); };
   ws.onclose = ()=>{ document.body.classList.add('off'); setText($('#ststr'),'กำลังเชื่อมต่อ…');
-                     setTimeout(connect, retry); retry = Math.min(retry*1.5, 6000); };
+                     retryTimer = setTimeout(connect, retry); retry = Math.min(retry*1.5, 6000); };
   ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
 }
 renderRecs(); connect();

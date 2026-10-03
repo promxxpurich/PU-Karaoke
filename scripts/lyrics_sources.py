@@ -214,6 +214,18 @@ def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def line_dur(t: float, nxt: float, end: float = 0.0) -> float:
+    """ความยาวบรรทัด (วินาที): ถึงบรรทัดถัดไป หรือถึงเวลาจบที่แหล่งบอกมา (ถ้ามี) ภายในกรอบ MIN_DUR..MAX_DUR
+    แต่ "ขั้นต่ำ 1 วิ" ห้ามล้ำเวลาเริ่มบรรทัดถัดไป — ท่อนเร็วที่บรรทัดห่างกันไม่ถึง 1 วิ เดิมถูกยืดจนทับกัน
+    จอเลยเข้าใจว่าร้องซ้อน (ค้างบรรทัดเก่าไว้ บรรทัดถัดไปไม่ได้ขึ้นล่วงหน้า) — 77 จาก 97 คู่ที่ทับกันในคลังมาจากตรงนี้
+    ต่ำสุดจริง 0.3 วิ (เท่ากับ Studio) กันบรรทัดยาว 0 เมื่อแหล่งให้เวลาซ้ำกัน"""
+    d = nxt - t
+    if end > t:
+        d = min(d, end - t)
+    lo = min(MIN_DUR, max(0.3, nxt - t))
+    return round(max(lo, min(MAX_DUR, d)), 2)
+
+
 def _finish(rows: list[tuple[float, str, float]], duration: float) -> list[dict] | None:
     """(เวลาเริ่ม, ข้อความ, เวลาจบที่รู้/0) -> [{t,d,x}]
     ตัดซ้ำติดกัน เรียงเวลา แล้วปิดท้ายด้วยความยาวบรรทัด (ไม่ลากไปชนบรรทัดถัดไป)"""
@@ -223,50 +235,70 @@ def _finish(rows: list[tuple[float, str, float]], duration: float) -> list[dict]
     for t, x, e in rows:
         if out and out[-1][1] == x:       # ซับแบบไล่บรรทัด (rolling) ส่งข้อความเดิมซ้ำ
             continue
-        if out and t < out[-1][0]:
-            continue
         out.append((t, x, e))
     if len(out) < MIN_LINES:
         return None
     lines = []
     for i, (t, x, e) in enumerate(out):
         nxt = out[i + 1][0] if i + 1 < len(out) else (duration if duration > t else t + 6.0)
-        d = nxt - t
-        if e > t:
-            d = min(d, e - t)             # ซับบอกเวลาจบมาเอง เชื่อตามนั้น
-        lines.append({"t": round(t, 2),
-                      "d": round(max(MIN_DUR, min(MAX_DUR, d)), 2),
-                      "x": x})
+        lines.append({"t": round(t, 2), "d": line_dur(t, nxt, e), "x": x})
     return lines
+
+
+def _cues_of(text: str) -> list[tuple[float, float, list[str]]]:
+    """ไฟล์ VTT -> [(เริ่ม, จบ, [บรรทัดเนื้อดิบ])]
+    cue เริ่มที่บรรทัดเวลา และจบที่ "บรรทัดว่างจริง" เท่านั้น — บรรทัดที่มีแต่ช่องว่างเป็นส่วนหนึ่งของ cue
+    (YouTube ใส่ " " เป็นที่ว่างของบรรทัดบนใน rolling caption ของเดิมนับเป็นตัวคั่น ทำให้วลีแรกหลังช่วงเงียบ
+     ทุกครั้งหลุด — วัดกับ auto-caption 97 ไฟล์ หาย 457 จาก 3746 บรรทัดคำ ≈ 12%)"""
+    cues: list[tuple[float, float, list[str]]] = []
+    cur: list | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        m = _VTT_TS.search(line)
+        if m:
+            g = [int(x) for x in m.groups()]
+            st = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 10 ** len(m.group(4))
+            en = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 10 ** len(m.group(8))
+            cur = [st, en, []]
+            cues.append(cur)
+            continue
+        if line == "":
+            cur = None
+            continue
+        if cur is not None:
+            cur[2].append(line)
+    return [(c[0], c[1], c[2]) for c in cues]
 
 
 # ---------------------------------------------------------------------------
 # ซับ YouTube
 # ---------------------------------------------------------------------------
+_SOUND_ONLY = re.compile(r"(\[[^\]]{1,24}\]|[♪♫♬\s])+")
+
+
 def from_vtt(path: Path, duration: float = 0.0, lang: str = "th") -> list[dict] | None:
-    """อ่าน .vtt -> บรรทัดพร้อมเวลา (ซับต้องเป็นภาษาของเพลง ไม่ใช่คำแปล)"""
+    """อ่าน .vtt -> บรรทัดพร้อมเวลา (ซับต้องเป็นภาษาของเพลง ไม่ใช่คำแปล)
+    cue ที่มีหลายบรรทัดต่อกันเป็นบรรทัดเดียวเหมือนเดิม (ส่วนใหญ่คือแร็ปสองท่อนติดกัน ไม่ใช่ร้องพร้อมกัน)
+    แต่ซับแบบ roll-up (บรรทัดบนคือบรรทัดล่างของ cue ก่อน) ตัดบรรทัดที่ซ้ำออก ไม่งั้นข้อความซ้ำสองรอบ"""
     try:
         text = path.read_text("utf-8", errors="replace")
     except OSError:
         return None
     cues: list[tuple[float, str, float]] = []
-    block: list[str] = []
-    for raw in text.splitlines() + [""]:
-        if raw.strip():
-            block.append(raw)
+    prev_last = ""
+    for st, en, body in _cues_of(text):
+        parts = [x for x in (_clean(b) for b in body) if x]
+        if not parts:
             continue
-        for i, l in enumerate(block):
-            m = _VTT_TS.search(l)
-            if not m:
-                continue
-            g = [int(x) for x in m.groups()]
-            st = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000.0
-            en = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000.0
-            body = _clean(" ".join(_clean(x) for x in block[i + 1:]))
-            if body:
-                cues.append((st, body, en))
-            break
-        block = []
+        last = parts[-1]
+        if len(parts) >= 2 and parts[0] == prev_last:
+            parts = parts[1:]
+        prev_last = last
+        if en - st <= 0.02 and len(parts) == 1 and cues and cues[-1][1].endswith(parts[0]):
+            continue                          # เฟรมเปลี่ยนผ่าน 10 ms ของ roll-up (ข้อความเดิม)
+        body_txt = _clean(" ".join(parts))
+        if body_txt and not _SOUND_ONLY.fullmatch(body_txt):     # cue ที่มีแต่ [เพลง] / ♪ ไม่ใช่เนื้อร้อง
+            cues.append((st, body_txt, en))
     if len(cues) < MIN_LINES:
         return None
     good = sum(1 for _, x, _ in cues if in_script(x, lang))
@@ -305,35 +337,28 @@ def words_from_auto_vtt(path: Path, lang: str = "th") -> list[dict] | None:
     except OSError:
         return None
     words: list[dict] = []
-    block: list[str] = []
-    for raw in text.splitlines() + [""]:
-        if raw.strip():
-            block.append(raw)
-            continue
-        for i, l in enumerate(block):
-            m = _VTT_TS.search(l)
-            if not m:
-                continue
-            g = [int(x) for x in m.groups()]
-            st = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000.0
-            en = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000.0
-            body = next((x for x in block[i + 1:] if "<c>" in x), None)
-            if body is None:
-                break                        # เฟรมสรุปซ้ำของ roll-up
-            hits = list(_WORD.finditer(body))
-            rows = [(st, body[:hits[0].start()] if hits else body)]
-            for h in hits:
-                t = int(h[1]) * 3600 + int(h[2]) * 60 + int(h[3]) + int(h[4]) / 1000.0
-                rows.append((t, h[5]))
-            for t, w in rows:
-                w = _clean(_SOUND.sub(" ", w))
-                # แท็กเสียงถูกล้างเป็นว่าง -> คำนั้นหายไปพร้อมเวลา ซึ่งถูกแล้ว
-                # ช่องว่างที่เหลือคือท่อนดนตรี ใช้เป็นจุดตัดบรรทัดได้
-                if not w or (words and t <= words[-1]["start"]):
-                    continue                 # rolling ส่งคำเดิมซ้ำใน cue ถัดไป
-                words.append({"start": round(t, 3), "end": round(en, 3), "word": w})
-            break
-        block = []
+    for st, en, block in _cues_of(text):
+        body = next((x for x in block if "<c>" in x), None)
+        if body is None:
+            continue                         # เฟรมสรุปซ้ำของ roll-up
+        hits = list(_WORD.finditer(body))
+        rows = [(st, body[:hits[0].start()] if hits else body)]
+        for h in hits:
+            t = int(h[1]) * 3600 + int(h[2]) * 60 + int(h[3]) + int(h[4]) / 10 ** len(h[4])
+            rows.append((t, h[5]))
+        for t, w in rows:
+            raw_w = html.unescape(_TAG.sub("", _SOUND.sub(" ", w)))
+            w = _clean(raw_w)
+            # แท็กเสียงถูกล้างเป็นว่าง -> คำนั้นหายไปพร้อมเวลา ซึ่งถูกแล้ว
+            # ช่องว่างที่เหลือคือท่อนดนตรี ใช้เป็นจุดตัดบรรทัดได้
+            if not w or (words and t <= words[-1]["start"]):
+                continue                     # rolling ส่งคำเดิมซ้ำใน cue ถัดไป
+            # คำละติน (อังกฤษ) ที่ YouTube ใส่ช่องว่างนำหน้ามา -> คงไว้ ตอนต่อเป็นบรรทัดจะได้ไม่ติดกันเป็นพืด
+            # ("about it just" ไม่ใช่ "aboutitjust") — คำไทยไม่มีช่องว่างนำหน้าอยู่แล้ว
+            if words and re.match(r"[A-Za-z0-9'’]", w) and (
+                    raw_w[:1].isspace() or re.search(r"[A-Za-z0-9'’.,!?]$", words[-1]["word"])):
+                w = " " + w              # คำแรกของ cue ใหม่ก็ต้องเว้นจากคำก่อนหน้าถ้าเป็นละตินทั้งคู่
+            words.append({"start": round(t, 3), "end": round(en, 3), "word": w})
     if len(words) < AUTO_MIN_WORDS:
         return None
     for i, w in enumerate(words[:-1]):        # end จริง = จุดที่คำถัดไปเริ่ม

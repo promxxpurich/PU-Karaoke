@@ -3,7 +3,7 @@ Player:  http://<host>:8080/
 Remote:  http://<host>:8080/r   (scan QR on the player screen)
 """
 from contextlib import asynccontextmanager
-import asyncio, json, math, re, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
+import asyncio, json, math, random, re, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
 import hashlib, hmac, secrets, threading
 from pathlib import Path
 from typing import Any
@@ -229,6 +229,7 @@ TV_SCHEMA: dict[str, tuple] = {
     "logoSize": (int, 100, 60, 200),
     "idleText": (str, ""),           # ข้อความหน้าจอว่าง (ตอนไม่มีเพลง)
     "countdown": (bool, True),       # ♪ ● ● ● นับถอยหลังก่อนเข้าท่อนแรก/หลังช่วงดนตรี
+    "voices": (bool, True),          # 👥 แยกเสียงร้อง: คนที่ 2/3 คนละสี, (คอรัส/แอดลิบในวงเล็บ) ตัวเล็กจาง
 }
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -297,6 +298,8 @@ async def _lifespan(_app: FastAPI):
 
     async def run() -> None:
         await asyncio.sleep(5)          # ให้เซิร์ฟเวอร์ตั้งตัว/จอต่อเข้ามาก่อน
+        if _fix_history_titles():       # ประวัติเก่าที่เก็บ "YouTube: <id>" ไว้ก่อนมีตัวดึงชื่อ
+            await asyncio.to_thread(_save_history)
         n = m = w = b = 0
         for vid, d in sorted(_dir_index().items()):
             if (d / "audio.m4a").is_file() and not _has_stems(vid):
@@ -347,6 +350,8 @@ async def _lifespan(_app: FastAPI):
             try:
                 async with room.lock:
                     await _reprioritize()
+                    if await _autoplay_fill():     # จอว่างแต่เปิดสุ่มไว้ (เช่น เปิดไว้ก่อนจอหลักต่อเข้ามา)
+                        await room.broadcast()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -439,12 +444,22 @@ def _same_origin(headers) -> bool:
     return headers.get("sec-fetch-site") in (None, "", "same-origin", "none")
 
 
-def base_url() -> str:
+def lan_url() -> str:
     """คำนวณใหม่ทุกครั้ง — IP เครื่องเปลี่ยนได้ ถ้าจำค่าไว้ QR จะชี้ไป IP ที่ตายแล้ว"""
     return f"http://{lan_ip()}:{PORT}"
 
 
-BASE_URL = base_url()
+def base_url() -> str:
+    """ลิงก์ที่ให้แขกเปิด (QR บนจอ / idle URL): ถ้าตั้ง publicUrl ใน .studio.json ไว้ (โดเมนผ่าน Cloudflare Tunnel)
+    ใช้อันนั้น ใช้ได้ทั้งในบ้านและนอกบ้าน — ไม่งั้น IP ในวงแลนแบบเดิม (แก้ไฟล์แล้วมีผลทันที ไม่ต้องรีสตาร์ท)"""
+    try:
+        pub = _studio_cfg().get("publicUrl") or ""
+    except Exception:
+        pub = ""
+    return pub or lan_url()
+
+
+BASE_URL = lan_url()      # ตอน import ยังไม่มี _studio_cfg — แบนเนอร์ใช้ base_url() ตอนรันจริง
 
 # --- ส่งข้อความ WebSocket แบบมีเพดานเวลา ---------------------------------
 # มือถือที่ล็อกจอ (แท็บถูกแช่แข็งแต่ TCP ยังตอบ) ไม่อ่านข้อมูล -> บัฟเฟอร์เต็ม -> send() ของ uvicorn
@@ -491,7 +506,9 @@ class Room:
         self.playing = False
         self.restart_token = 0
         self.mix = dict(MIX_DEFAULT)
-        self.lyr_mode = "scroll"          # รูปแบบการขึ้นเนื้อเพลงบนจอ — ค่าระดับห้อง เหมือน mix
+        self.lyr_mode = "karaoke"         # รูปแบบการขึ้นเนื้อเพลงบนจอ — ค่าระดับห้อง เหมือน mix (เริ่มต้น = ไล่สีตามที่ร้อง)
+        self.autoplay = False             # คิวหมดแล้วสุ่มเพลงจากคลังมาเล่นต่อ (ตั้งจากรีโมท)
+        self.auto_recent: list[str] = []  # เพลงที่เพิ่งสุ่มไป กันสุ่มซ้ำเร็วเกิน
         self.tv = _load_tv()              # ตั้งค่าหน้าจอหลัก (Studio)
         self.archive_rev = 0
         self.player_id: str | None = None
@@ -524,6 +541,7 @@ class Room:
             "restartToken": self.restart_token,
             "mix": self.mix,
             "lyrMode": self.lyr_mode,
+            "autoplay": self.autoplay,
             "tv": _tv_public(self.tv),
             "archiveRev": self.archive_rev,
             "jobsRev": _jobs_rev(),
@@ -712,8 +730,14 @@ def _dl_fields(item: dict) -> None:
         item["dlStatus"] = "ready"
         item["dlError"] = ""
         item["localUrl"] = f"/song/{vid}/video.mp4"
+        item["duration"] = _song_meta(vid)["duration"]     # แถบเวลาบนจอล็อกมือถือ (แคชด้วย mtime)
         if (d / "cover.jpg").is_file():
             item["localThumb"] = f"/song/{vid}/cover.jpg"
+        # ชื่อจากคลัง (info.json) คือชื่อจริงเสมอ — เพลงที่วางลิงก์มาจะได้ "YouTube: <id>" ค้างไว้
+        # จนโหลดเสร็จ ให้เปลี่ยนเป็นชื่อจริงตรงนี้ ทุกจอจะเห็นชื่อเดียวกับคลัง
+        t = _song_meta(vid)["title"]
+        if t:
+            item["title"] = t
         return
     st = _dl_state.get(vid, {})
     item["dlStatus"] = st.get("status", "queued")
@@ -803,7 +827,9 @@ def _download_audio(vid: str) -> None:
                         "writethumbnail": True,
                         "writesubtitles": True,   # ซับจริงเท่านั้น auto-caption เชื่อไม่ได้
                         "writeautomaticsub": False,
-                        "subtitleslangs": ["th", "en", "ja", "ko"],   # ซับภาษาของเพลง (gen_lyrics เลือกใช้ตามภาษา)
+                        # ซับภาษาของเพลง (gen_lyrics เลือกใช้ตามภาษา) — รวมรหัสประเทศ (en-US/zh-Hant) ด้วย
+                        # yt-dlp จับคู่แบบ fullmatch: "en" เฉย ๆ ไม่ได้ en-US ที่ 17 เพลงในคลังมี
+                        "subtitleslangs": ["th(-.*)?", "en(-.*)?", "ja(-.*)?", "ko(-.*)?"],
                         "subtitlesformat": "vtt",
                         "convert_thumbnails": "jpg"}) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={vid}"])
@@ -956,7 +982,7 @@ def _fetch_subs(d: Path, vid: str, lang: str) -> bool:
         return False
     try:
         with YoutubeDL({**_DL_COMMON, "skip_download": True, "writesubtitles": True,
-                        "writeautomaticsub": False, "subtitleslangs": [lang], "subtitlesformat": "vtt",
+                        "writeautomaticsub": False, "subtitleslangs": [f"{lang}(-.*)?"], "subtitlesformat": "vtt",
                         "outtmpl": str(d / "_sub")}) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={vid}"])
         got = next(iter(sorted(d.glob("_sub.*.vtt"))), None)
@@ -1017,6 +1043,8 @@ async def _download_worker() -> None:
                 _invalidate_dirs()         # โฟลเดอร์เพิ่งเกิด อย่าให้แคช 2 วิบังไว้
                 room.archive_rev += 1
                 _dl_fails.pop(vid, None)
+                if _fix_history_titles(vid):      # ประวัติที่เคยเก็บ "YouTube: <id>" -> ชื่อจริง
+                    await asyncio.to_thread(_save_history)
                 break
             except Exception as exc:
                 if attempt < _DL_TRIES:
@@ -1501,6 +1529,18 @@ def _drop_key_files(vid: str) -> None:
         f.unlink(missing_ok=True)
 
 
+def _purge_audio_caches(vid: str) -> None:
+    """ผลวิเคราะห์เสียงที่ผูกกับเสียงร้องชุดเก่า (FA ทุกโมเดล/สเต็ม, แผนที่เสียงร้อง) — แยกเสียงใหม่แล้วต้องทิ้ง
+    (แคชมีลายเซ็นไฟล์เสียงอยู่แล้ว ไฟล์นี้แค่เก็บกวาดไม่ให้ค้างกินที่)"""
+    try:
+        for f in _fa_mod().CACHE.glob(f"{vid}.*.npz"):
+            f.unlink(missing_ok=True)
+        import vocal_activity as VA
+        (VA.CACHE / f"{vid}.npz").unlink(missing_ok=True)
+    except Exception as exc:
+        print(f"[sep] {vid} ล้างแคชเสียงไม่ได้: {exc}")
+
+
 def _separate_one(vid: str) -> None:
     """แยก 1 เพลง -> songs/yt/<vid>/{vocals,no_vocals}.m4a
     รันเป็น subprocess: torch ไม่ค้างใน process หลัก และ kill ได้"""
@@ -1550,6 +1590,7 @@ def _separate_one(vid: str) -> None:
             _ffmpeg(["-i", str(wav), "-c:a", "aac", "-b:a", "192k",
                      "-movflags", "+faststart", "-f", "ipod", str(part)])
             part.rename(final)   # atomic: ถือว่า ready ต่อเมื่อครบทั้งสองไฟล์
+        _purge_audio_caches(vid)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         for f in d.glob("*.m4a.part"):
@@ -2007,7 +2048,7 @@ _verify_state: dict[str, dict] = {}                # videoId -> {"status","error
 
 # --- แจ้งซับไม่ตรงจากรีโมท -> กล่องรายงานใน Studio (คนแก้เอง ไม่ซ่อมอัตโนมัติ) ---------
 # แยกไฟล์จาก lyrics.check.json เพราะบันทึกใน Studio ลบ check.json ทิ้งทุกครั้ง รายงานจะหายตาม
-REPORT_TAGS = ("late", "early", "typo", "missing", "nolyr", "wrong")
+REPORT_TAGS = ("late", "early", "typo", "missing", "nolyr", "wrong", "fast", "overlap")
 REPORTS_KEEP = 50
 
 
@@ -2222,6 +2263,46 @@ def _mark_ready_if_archived(item: dict) -> bool:
     return True
 
 
+AUTO_SINGER = "🔀 สุ่มอัตโนมัติ"        # ป้ายคนร้องของเพลงที่ระบบสุ่มมาเอง
+
+
+def _autoplay_pick() -> dict[str, Any] | None:
+    """สุ่มเพลงจากคลัง (เกณฑ์เดียวกับ /api/archive: มี video.mp4) เลี่ยงเพลงที่เพิ่งสุ่มไป"""
+    vids = [v for v, d in _dir_index().items() if (d / "video.mp4").is_file()]
+    if not vids:
+        return None
+    pool = [v for v in vids if v not in room.auto_recent] or vids
+    vid = random.choice(pool)
+    room.auto_recent.append(vid)
+    keep = min(20, len(vids) // 2)
+    del room.auto_recent[:max(0, len(room.auto_recent) - keep)]
+    return {
+        "source": "yt",
+        "videoId": vid,
+        "title": _song_meta(vid)["title"],
+        "thumb": f"/song/{vid}/cover.jpg",
+        "singer": AUTO_SINGER,
+        "dlStatus": "ready",
+        "dlError": "",
+        "auto": True,
+    }
+
+
+async def _autoplay_fill() -> bool:
+    """จอว่าง + เปิดสุ่มไว้ -> หยิบเพลงจากคลังมาเล่นทันที (เรียกภายใต้ room.lock)
+    ไม่ลงประวัติ "ใครร้องอะไร" และไม่นับ plays — เป็นเพลงที่ระบบเปิดเอง ไม่ใช่คนสั่ง"""
+    if not room.autoplay or room.current is not None or room.queue:
+        return False
+    it = _autoplay_pick()
+    if not it:
+        return False
+    room.add(it)                      # current ว่างอยู่ add() จะ next() ให้เอง
+    _mark_ready_if_archived(it)
+    await _enqueue_sep(it["videoId"])   # ส่วนใหญ่มีอยู่แล้ว = no-op
+    await _enqueue_lyr(it["videoId"])
+    return True
+
+
 async def _reprioritize() -> None:
     """คิวห้องขยับ -> ให้ทุกไปป์ไลน์เดินตามลำดับใหม่ทันที
     เรียกหลังทุกคำสั่งที่ทำให้ลำดับเปลี่ยน (add/next/ended/remove/up/down/playnow)
@@ -2281,19 +2362,84 @@ def _search(q: str, n: int = 12) -> list[dict[str, Any]]:
     return out
 
 
-def _embeddable(video_id: str) -> bool:
-    """เช็คว่าเจ้าของคลิปเปิดให้ฝัง (embed) ไหม — oEmbed ตอบ 401/403 ถ้าปิด"""
+_OEMBED_TTL = 3600.0
+_oembed_cache: dict[str, tuple[float, dict | None]] = {}   # vid -> (เวลา, ข้อมูล | None=ปิดฝัง)
+
+
+def _oembed(video_id: str) -> dict | None:
+    """ข้อมูลคลิปจาก YouTube oEmbed (title/author_name) — ตอบ 401/403 = เจ้าของปิดฝัง -> None
+    ต่อเน็ตไม่ได้/ผิดพลาดอื่น -> raise ให้คนเรียกตัดสินเอง · แคช 1 ชม. ยิงซ้ำไม่ถูกบล็อก"""
     import urllib.request, urllib.error
+    hit = _oembed_cache.get(video_id)
+    if hit and time.monotonic() - hit[0] < _OEMBED_TTL:
+        return hit[1]
     url = ("https://www.youtube.com/oembed?format=json&url="
            f"https%3A//www.youtube.com/watch%3Fv%3D{video_id}")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req, timeout=6) as r:
-            return r.status == 200
+            data = json.loads(r.read().decode("utf-8")) if r.status == 200 else None
     except urllib.error.HTTPError:
-        return False
+        data = None
+    if not isinstance(data, dict):
+        data = None
+    _oembed_cache[video_id] = (time.monotonic(), data)
+    return data
+
+
+def _embeddable(video_id: str) -> bool:
+    """เช็คว่าเจ้าของคลิปเปิดให้ฝัง (embed) ไหม — oEmbed ตอบ 401/403 ถ้าปิด"""
+    try:
+        return _oembed(video_id) is not None
     except Exception:
         return True  # เช็คไม่ได้ ให้ผ่านไปก่อน เดี๋ยวจอหลักจัดการเอง
+
+
+def _yt_info(video_id: str) -> dict[str, str]:
+    """ชื่อจริง + ช่อง ของคลิป: คลังมีแล้วเอาจาก info.json ไม่ต้องยิงเน็ต / ยังไม่มีถาม oEmbed
+    ได้ไม่ครบคืนค่าว่าง คนเรียกค่อย fallback เป็น videoId เอง"""
+    if (_song_dir(video_id) / "video.mp4").is_file():
+        m = _song_meta(video_id)
+        return {"title": m["title"], "channel": m["uploader"]}
+    try:
+        o = _oembed(video_id) or {}
+    except Exception:
+        o = {}
+    return {"title": " ".join(str(o.get("title") or "").split())[:200],
+            "channel": " ".join(str(o.get("author_name") or "").split())[:100]}
+
+
+def _yt_title(video_id: str) -> str:
+    return _yt_info(video_id)["title"]
+
+
+_PLACEHOLDER_RE = re.compile(r"^YouTube: [A-Za-z0-9_-]{11}$")
+
+
+def _title_is_placeholder(title: Any, vid: str) -> bool:
+    t = str(title or "").strip()
+    return not t or t == vid or bool(_PLACEHOLDER_RE.match(t))
+
+
+def _fix_history_titles(only_vid: str | None = None) -> bool:
+    """ประวัติที่เก็บ "YouTube: <id>" (เพลงที่วางลิงก์ก่อนมีตัวดึงชื่อ) -> ชื่อจริงจาก info.json
+    ทำเฉพาะเพลงที่โหลดเสร็จแล้ว (ชื่อจากคลังเชื่อถือได้) คืน True ถ้าแก้อะไรไป"""
+    changed = False
+    for e in room.history:
+        vid = e.get("videoId")
+        if e.get("source") != "yt" or not _vid_ok(vid) or (only_vid and vid != only_vid):
+            continue
+        if not _title_is_placeholder(e.get("title"), vid):
+            continue
+        if not (_song_dir(vid) / "video.mp4").is_file():
+            continue
+        t = _song_meta(vid)["title"]
+        if t and t != e.get("title"):
+            e["title"] = t
+            changed = True
+    if changed:
+        print("[history] เปลี่ยนชื่อประวัติที่ค้างเป็น 'YouTube: <id>' ให้เป็นชื่อจริงแล้ว")
+    return changed
 
 
 def _annotate(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2309,7 +2455,9 @@ def _annotate(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def api_embeddable(videoId: str):
     if not _vid_ok(videoId):
         return JSONResponse({"error": "videoId ไม่ถูกต้อง"}, status_code=400)
-    return {"videoId": videoId, "embeddable": await asyncio.to_thread(_embeddable, videoId)}
+    ok = await asyncio.to_thread(_embeddable, videoId)
+    info = await asyncio.to_thread(_yt_info, videoId)     # ชื่อจริงตั้งแต่ตอนวางลิงก์ ไม่ใช่ "YouTube: <id>"
+    return {"videoId": videoId, "embeddable": ok, "title": info["title"], "channel": info["channel"]}
 
 
 @app.get("/api/search")
@@ -2529,8 +2677,12 @@ async def api_songinfo(videoId: str = ""):
     if it.get("sepStatus") == "queued" and videoId not in _sep_state:
         it["sepStatus"] = "new"
     it["archived"] = archived
-    if archived:
-        it["title"] = _song_meta(videoId)["title"]
+    # ชื่อจริงทุกกรณี: คลังมีแล้วจาก info.json / ยังไม่มีถาม oEmbed (ยังไม่ได้ก็ปล่อยให้รีโมทใช้ชื่อเดิม)
+    info = await asyncio.to_thread(_yt_info, videoId)
+    if info["title"]:
+        it["title"] = info["title"]
+    if info["channel"]:
+        it["channel"] = info["channel"]
     return it
 
 
@@ -2638,6 +2790,21 @@ def player_page(request: Request):
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/tv/{key}", response_class=HTMLResponse)
+def tv_player_page(key: str):
+    """ลิงก์จอหลักที่เปิดจากเครื่องไหนก็ได้ในวงแลน (เช่นทีวี) — ต้องมีรหัสใน .studio.json
+    ไม่งั้นมือถือแขกคนไหนก็ยึดจอหลักได้ (จอใหม่ชนะเสมอ)"""
+    from fastapi.responses import RedirectResponse
+    if not _tv_key_ok(key):
+        return RedirectResponse("/r", status_code=307)
+    return HTMLResponse((BASE / "static" / "player.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+def _tv_key_ok(key: Any) -> bool:
+    return isinstance(key, str) and bool(key) and hmac.compare_digest(key.lower(), _studio_cfg()["tv"].lower())
+
+
 @app.get("/r", response_class=HTMLResponse)
 def remote_page():
     return HTMLResponse((BASE / "static" / "remote.html").read_text(encoding="utf-8"),
@@ -2668,11 +2835,36 @@ def _studio_cfg() -> dict:
             cfg = {}
         cfg.setdefault("secret", secrets.token_hex(16))
         cfg["pin"] = str(cfg.get("pin") or "0000")
+        if not cfg.get("tv"):
+            # รหัสลิงก์จอหลัก /tv/<รหัส> — สั้นพอพิมพ์ด้วยรีโมททีวีได้ แก้ในไฟล์ได้ (ลบทิ้ง = สุ่มใหม่)
+            cfg["tv"] = "".join(secrets.choice("abcdefghjkmnpqrstuvwxyz23456789") for _ in range(6))
+            try:
+                STUDIO_FILE.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+                mt = STUDIO_FILE.stat().st_mtime
+            except OSError:
+                pass
+        cfg["tv"] = str(cfg["tv"])
+        # โดเมนสาธารณะจาก cloudflare.command (เช่น https://kara.example.com) — ว่าง = ใช้ IP ในวงแลน
+        pub = str(cfg.get("publicUrl") or "").strip().rstrip("/")
+        cfg["publicUrl"] = pub if re.fullmatch(r"https?://[A-Za-z0-9.\-]+(:\d+)?", pub) else ""
         _studio_cfg_cache = (mt, cfg)
     cfg = dict(_studio_cfg_cache[1])
     if os.environ.get("KARA_STUDIO_PIN"):
         cfg["pin"] = os.environ["KARA_STUDIO_PIN"].strip()
     return cfg
+
+
+def _drop_stale_public_url() -> None:
+    """publicUrl ที่เป็นลิงก์ทดลองของ Cloudflare (quick tunnel) ใช้ข้ามการรีสตาร์ทไม่ได้ -> ล้างในไฟล์ (รักษาฟิลด์อื่น)"""
+    try:
+        cfg = json.loads(STUDIO_FILE.read_text("utf-8"))
+    except Exception:
+        return
+    pub = str(cfg.get("publicUrl") or "")
+    if pub.rstrip("/").endswith(".trycloudflare.com"):
+        cfg["publicUrl"] = ""
+        _write_json_atomic(STUDIO_FILE, cfg)
+        print(f"[cloudflare] ล้างลิงก์ทดลองเก่า {pub}")
 
 
 def _studio_token() -> str:
@@ -2752,9 +2944,13 @@ def _best_brief(vid: str) -> dict | None:
         return None
     j = _read_lyr(vid) or {}
     applied = bool(j.get("best")) and _lyr_hash(j) == rec.get("out")
+    rf = rec.get("refine") or {}
     return {"status": st.get("status") or "done", "error": st.get("error") or "",
             "action": rec.get("action") or "", "reason": rec.get("reason") or "", "at": rec.get("at"),
-            "applied": applied, "partial": bool(rec.get("partial"))}
+            "applied": applied, "partial": bool(rec.get("partial")),
+            "refine": {"segments": len(rf.get("segments") or []), "repaired": len(rf.get("repaired") or []),
+                       "uncertain": rf.get("uncertain") or [], "note": rf.get("note") or "",
+                       "mode": rf.get("mode") or ""} if rf else None}
 
 
 def _words_brief(vid: str) -> dict:
@@ -2781,6 +2977,16 @@ def _studio_ctx() -> tuple[dict[str, int], dict[str, int]]:
     return plays, qpos
 
 
+LINE_VOICES = (2, 3, "bg")     # เสียงของบรรทัด (ไม่มี = เสียงหลัก): คนร้องคนที่ 2/3, คอรัสทั้งบรรทัด
+
+
+def _voice_of(v: Any) -> int | str | None:
+    """ค่า v ต่อบรรทัดที่รับได้ (ไม่รู้จัก = เสียงหลัก) — ตรงกับ gen_lyrics.VOICES และจอ (VOICE_CLS)"""
+    if v in ("2", "3"):
+        v = int(v)
+    return v if v in LINE_VOICES else None
+
+
 def _clean_edit_lines(raw: Any) -> list[dict]:
     if not isinstance(raw, list) or not raw:
         raise HTTPException(status_code=400, detail="ต้องมีเนื้ออย่างน้อย 1 บรรทัด")
@@ -2799,7 +3005,11 @@ def _clean_edit_lines(raw: Any) -> list[dict]:
             raise HTTPException(status_code=400, detail=f"บรรทัดที่ {i + 1} ข้อมูลไม่ครบ")
         if t < 0 or not x:
             raise HTTPException(status_code=400, detail=f"บรรทัดที่ {i + 1} เวลาติดลบหรือไม่มีข้อความ")
-        out.append({"t": t, "d": d, "x": x})
+        ln = {"t": t, "d": d, "x": x}
+        v = _voice_of(l.get("v"))
+        if v:
+            ln["v"] = v
+        out.append(ln)
     out.sort(key=lambda l: l["t"])           # เรียงให้เสมอ จอหลักค้นแบบ binary search
     return out
 
@@ -2915,7 +3125,7 @@ def _autotime(vid: str, texts: list[str]) -> dict:
         durs = []
         for i, st in enumerate(starts):
             nxt = starts[i + 1] if i + 1 < len(starts) else (dur if dur > st else st + 6.0)
-            durs.append(round(max(G.MIN_DUR_L, min(G.MAX_DUR_L, nxt - st)), 2))
+            durs.append(LS.line_dur(st, nxt))
         covered = {a["line"] for a in anchors}
         tot = sum(len(G.norm_chars(l)) for l in texts)
         cov = 100.0 * sum(len(G.norm_chars(l)) for i, l in enumerate(texts) if i in covered) / tot if tot else 0.0
@@ -2954,7 +3164,8 @@ async def studio_login(request: Request):
         return JSONResponse({"ok": False, "why": "PIN ไม่ถูกต้อง"}, status_code=401)
     _pin_fail.pop(ip, None)
     r = JSONResponse({"ok": True})
-    r.set_cookie("studio", _studio_token(), max_age=30 * 86400, httponly=True, samesite="lax")
+    r.set_cookie("studio", _studio_token(), max_age=30 * 86400, httponly=True, samesite="lax",
+                 secure=request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https")
     return r
 
 
@@ -3203,7 +3414,7 @@ def _fa_ready() -> bool:
 
 def _fa_cached(vid: str) -> bool:
     try:
-        return _fa_mod().cached(vid)
+        return _fa_mod().cached(vid, audio=_audio_for(vid))
     except Exception:
         return False
 
@@ -3213,9 +3424,10 @@ def _fa_cached_for(vid: str, texts: list[str]) -> bool:
     (ไม่มีโมเดลอังกฤษในเครื่อง = ไม่ทำรอบอังกฤษ จึงไม่ต้องรอแคชนั้น)"""
     try:
         F = _fa_mod()
-        if not F.cached(vid):
+        a = _audio_for(vid)
+        if not F.cached(vid, audio=a):
             return False
-        return not F.has_latin(texts) or not F.model_ready(F.MODEL_EN) or F.cached(vid, en=True)
+        return not F.has_latin(texts) or not F.model_ready(F.MODEL_EN) or F.cached(vid, en=True, audio=a)
     except Exception:
         return False
 
@@ -3544,8 +3756,181 @@ async def studio_drift(vid: str, request: Request):
             "conf": conf, "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)}}
 
 
+@app.post("/api/studio/song/{vid}/refine")
+async def studio_refine(vid: str, request: Request):
+    """🩺 ตรวจ/ซ่อมช่วงที่เวลาเพี้ยน (scripts/lyrics_refine.py) บนเนื้อที่กำลังแก้ใน Studio — ข้อเสนอเท่านั้น ไม่บันทึก
+    ทางเดียวที่เพลงที่แก้เอง (manual-edit) ได้ใช้ตัวซ่อม: งานอัตโนมัติไม่แตะเนื้อพวกนี้เด็ดขาด"""
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    raw = body.get("lines") or []
+    off = _finite(body.get("offset") or 0.0, -LYR_OFFSET_MAX, LYR_OFFSET_MAX)
+    if off is None or not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="ข้อมูลไม่ถูกต้อง")
+    lines = _clean_edit_lines(raw)
+    # ตัวซ่อมทำงานบนเวลาที่จอใช้จริง (เวลา + offset ประจำเพลง) แล้วหักกลับก่อนส่งคืน
+    eff = [{**l, "t": round(l["t"] + off, 2)} for l in lines]
+    if not _fa_ready() or not _audio_for(vid):
+        return {"ok": False, "why": "ยังไม่มีโมเดล FA หรือไฟล์เสียง"}
+    texts = [l["x"] for l in eff]
+    if not _fa_cached_for(vid, texts):
+        try:                                       # ครั้งแรกของเพลงต้องวิเคราะห์เสียง (ต่อคิว GPU เหมือนปุ่ม FA)
+            await _fa(vid, {"texts": texts, "duration": _song_meta(vid)["duration"] or 0})
+        except Exception as exc:
+            return {"ok": False, "why": f"วิเคราะห์เสียงไม่สำเร็จ: {exc}"}
+    r = await asyncio.to_thread(_refine_call, vid, eff, "self", bool(body.get("segments", True)))
+    if not r:
+        return {"ok": False, "why": "ซ่อมไม่ได้ (ดู log ของเซิร์ฟเวอร์)"}
+    out = [{**l, "t": round(max(0.0, l["t"] - off), 2)} for l in r["lines"]]
+    return {"ok": True, "lines": out, "record": r.get("record") or {}, "note": r.get("note") or "",
+            "changed": bool(r.get("changed"))}
+
+
+# --- ตั้งค่าแหล่งเนื้อ (Musixmatch token) --------------------------------------
+_mxm_state = {"err": "", "at": 0.0}
+
+
+@app.get("/api/studio/settings")
+def studio_settings_get(request: Request):
+    _studio_guard(request)
+    tok = _mxm_token()
+    return {"mxm": {"set": bool(tok), "hint": (tok[:4] + "…" + tok[-3:]) if len(tok) > 10 else ("•••" if tok else ""),
+                    "err": _mxm_state["err"]}}
+
+
+@app.post("/api/studio/settings")
+async def studio_settings_set(request: Request):
+    """{"mxmToken": "..."} ("" = ลบ) — ทดสอบกับ Musixmatch ก่อนเก็บ ใช้ไม่ได้ก็บอกเลย"""
+    _studio_guard(request)
+    body = await request.json()
+    if "mxmToken" in body:
+        tok = "".join(str(body.get("mxmToken") or "").split())[:200]
+        err = ""
+        if tok:
+            import lyrics_more as M
+            err = await asyncio.to_thread(M.mxm_check, tok)
+            if err:
+                return {"ok": False, "why": err}
+        cfg = json.loads(STUDIO_FILE.read_text("utf-8")) if STUDIO_FILE.is_file() else {}
+        if tok:
+            cfg["mxmToken"] = tok
+        else:
+            cfg.pop("mxmToken", None)
+        await asyncio.to_thread(_write_json_atomic, STUDIO_FILE, cfg)
+        _mxm_state.update(err="", at=time.time())
+        _src_cache.clear()                         # ผลห้องหาเนื้อเดิมไม่มี Musixmatch -> หาใหม่
+    return {"ok": True, **studio_settings_get(request)}
+
+
 # --- ห้องหาเนื้อ -------------------------------------------------------------
 _src_cache: dict[tuple, tuple[float, list[dict]]] = {}
+ONLINE_PROVIDERS = ("lrclib", "joox", "netease", "ytmusic", "musixmatch")
+TWIN_SIM = 0.8                # บรรทัดเนื้อเหมือนกัน (Jaccard) ตั้งแต่เท่านี้ = เพลงเดียวกันอีกคลิป
+_twin_idx: dict[str, tuple[float, frozenset, dict]] = {}
+
+
+def _norm_line(x: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFC", x or "").lower() if ch.isalnum())
+
+
+def _library_twins(vid: str, texts: list[str]) -> list[tuple[float, str, Path, dict]]:
+    """เพลงอื่นในคลังที่เนื้อเกือบเหมือนกันทุกบรรทัด (คลิปซ้ำของเพลงเดียวกัน) — มากสุด 2 เพลง
+    คลังมีเพลงซ้ำแบบนี้ 6 คู่ เช่น ILLSLICK ตีหนึ่งที่คูเมือง (คลิปหนึ่งผู้ใช้แก้เวลาเอง อีกคลิปได้จากเครื่อง)"""
+    mine = frozenset(k for k in (_norm_line(x) for x in texts) if len(k) >= 6)
+    if len(mine) < 6:
+        return []
+    out = []
+    for v2, d2 in list(_dir_index().items()):
+        if v2 == vid:
+            continue
+        f = d2 / "lyrics.json"
+        try:
+            mt = f.stat().st_mtime
+        except OSError:
+            continue
+        hit = _twin_idx.get(v2)
+        if not hit or hit[0] != mt:
+            try:
+                j2 = json.loads(f.read_text("utf-8"))
+            except Exception:
+                continue
+            ks = frozenset(k for k in (_norm_line(l.get("x")) for l in j2.get("lines") or []) if len(k) >= 6)
+            hit = (mt, ks, j2)
+            _twin_idx[v2] = hit
+        ks = hit[1]
+        if not ks:
+            continue
+        jac = len(mine & ks) / len(mine | ks)
+        if jac >= TWIN_SIM:
+            out.append((jac, v2, d2, hit[2]))
+    return sorted(out, key=lambda x: -x[0])[:2]
+
+
+def _ocr_ensure(vid: str) -> dict | None:
+    """อ่านตัวหนังสือในคลิป (scripts/ocr_lyrics.py — Apple Vision) ถ้ายังไม่เคยอ่าน — คลิปไม่มีเนื้อในภาพรู้ใน ~1 วิ
+    Lyric Video ใช้ ~20-30 วิ ผลแคชไว้ (lyrics-preview/_ocr) ผูกกับไฟล์วิดีโอ"""
+    d = _song_dir(vid)
+    video = d / "video.mp4"
+    if not video.is_file() or sys.platform != "darwin":
+        return None
+    try:
+        import ocr_lyrics as O
+        hit = O.cached(vid, video)
+        if hit is not None:
+            return hit
+        rc, out, err = _run_child("ocr", vid, [sys.executable, str(BASE / "scripts" / "ocr_lyrics.py"), vid,
+                                               "--video", str(video)], timeout=900, cwd=str(BASE))
+        if rc != 0:
+            tail = [l for l in err.strip().splitlines() if l.strip()]
+            print(f"[ocr] {vid} ล้มเหลว: {tail[-1][:200] if tail else rc}")
+            return None
+        return O.cached(vid, video)
+    except Exception as exc:
+        print(f"[ocr] {vid} {type(exc).__name__}: {exc}")
+        return None
+
+
+def _ocr_cands(vid: str, cands: list[dict], dur: float) -> list[dict]:
+    """ผู้สมัครจากตัวหนังสือในคลิป: (1) ข้อความที่อ่านได้ตรง ๆ (2) ข้อความของแหล่งอื่น + "เวลาที่ขึ้นจอในคลิปนี้"
+    OCR สะกดเพี้ยนได้ แต่เวลาเป็นของคลิปนี้จริง — ข้อ 2 จึงเป็นตัวหลัก (FA ตัดสินอีกทีว่าเวลาใช้ได้ไหม)"""
+    try:
+        import ocr_lyrics as O
+        d = _song_dir(vid)
+        j = O.cached(vid, d / "video.mp4") if (d / "video.mp4").is_file() else None
+    except Exception:
+        j = None
+    cues = (j or {}).get("cues") or []
+    if len(cues) < LS.MIN_LINES:
+        return []
+    out = []
+    raw = LS._finish([(c["t0"], " ".join(str(c["x"]).split()), c["t1"]) for c in cues
+                      if len(_TH_RE.findall(c["x"])) + len(_LAT_RE.findall(c["x"])) >= 4], dur)
+    if raw:
+        out.append({"provider": "ocr", "label": "ตัวหนังสือในคลิป (OCR)", "synced": True, "lines": raw,
+                    "texts": None, "meta": {"via": "ocr"}, "via": "local"})
+    der = []
+    for c in cands:
+        if c["provider"] in ("ocr", "yt-auto") or c["provider"].startswith("ocr+"):
+            continue
+        base = [dict(l) for l in c["lines"]] if c["synced"] else \
+            [{"t": float(i), "d": 1.0, "x": x} for i, x in enumerate(c["texts"] or [])]
+        if len(base) < LS.MIN_LINES:
+            continue
+        lines, n = O.retime(base, cues)
+        if n >= 0.6 * len(base):
+            for i, l in enumerate(lines):
+                nxt = lines[i + 1]["t"] if i + 1 < len(lines) else (dur if dur > l["t"] else l["t"] + 6.0)
+                l["d"] = LS.line_dur(l["t"], nxt)
+            der.append((n / len(base), {"provider": "ocr+" + c["provider"],
+                                        "label": f"{c['label']} · เวลาจากตัวหนังสือในคลิป ({n}/{len(base)} บรรทัด)",
+                                        "synced": True, "lines": lines, "texts": None,
+                                        "meta": {**(c.get("meta") or {}), "via": "ocr"}, "via": "local"}))
+    der.sort(key=lambda x: -x[0])
+    return out + [c for _, c in der[:3]]
+
+
+def _mxm_token() -> str:
+    return str(_studio_cfg().get("mxmToken") or "").strip()
 SRC_TTL = 1800.0
 
 
@@ -3585,7 +3970,7 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
     out: list[dict] = []
 
     def add(provider, label, lines=None, texts=None, extra=None):
-        via = (extra or {}).get("via") or ("title" if provider in ("lrclib", "joox", "netease", "ytmusic") else "local")
+        via = (extra or {}).get("via") or ("title" if provider in ONLINE_PROVIDERS else "local")
         if lines:
             out.append({"provider": provider, "label": label, "synced": True, "lines": lines,
                         "texts": None, "meta": extra or {}, "via": via})
@@ -3594,6 +3979,7 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
                         "texts": texts, "meta": extra or {}, "via": via})
 
     if not track:                                      # แหล่งในเครื่อง (ค้นเองไม่ต้องทำซ้ำ)
+        lang = _song_lang(vid)[0] or "th"
         cur = d / "lyrics.json"
         if cur.is_file():
             try:
@@ -3602,17 +3988,24 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
                     lines=j.get("lines"))
             except Exception:
                 pass
-        if (d / "sub.th.vtt").is_file():
-            add("yt-sub", "ซับที่คนทำบน YouTube", lines=LS.from_vtt(d / "sub.th.vtt", dur))
+        sub = d / f"sub.{lang}.vtt"
+        if sub.is_file():
+            add("yt-sub", "ซับที่คนทำบน YouTube", lines=LS.from_vtt(sub, dur, lang))
         try:
-            desc, dsrc = G.read_lines(vid, d)
+            desc, dsrc = G.read_lines(vid, d, lang)
             add(dsrc, "เนื้อจากคำอธิบายใต้คลิป" if dsrc == "web/description" else f"ไฟล์ที่วางเอง ({dsrc})", texts=desc)
         except Exception:
             pass
-        if (d / "auto.th.vtt").is_file():
-            w = LS.words_from_auto_vtt(d / "auto.th.vtt")
+        auto = d / f"auto.{lang}.vtt"
+        if auto.is_file():
+            w = LS.words_from_auto_vtt(auto, lang)
             if w:
                 add("yt-auto", "คำบรรยายอัตโนมัติของ YouTube", lines=G.lines_from_words(w, dur))
+        # เพลงเดียวกันอีกคลิปในคลัง (MV/Lyric Video/คัฟเวอร์) — เวลาที่คนแก้ไว้คลิปหนึ่งใช้กับอีกคลิปได้หลังเลื่อน
+        for jac, v2, d2, j2 in _library_twins(vid, lyr_texts):
+            add("library", f"เพลงเดียวกันในคลัง · {d2.name[:60]} · "
+                + LC.kind(j2.get("src") or "", LC.time_src_of(j2)), lines=j2.get("lines"),
+                extra={"via": "library", "vid": v2, "sim": round(jac, 2)})
 
     def lrclib():
         res = []
@@ -3635,11 +4028,22 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
             if errs is not None:
                 errs.append(name)
             return []
+    mxm_tok = _mxm_token()
     jobs = {"lrclib": lrclib,
             "joox": lambda: M.from_joox(queries, dur, per=2, max_total=6),
             "netease": lambda: M.from_syncedlyrics([(x, "title") for x in tq[:2]], dur, providers=("NetEase",)),
             "ytmusic": lambda: M.from_ytmusic(vid, [(x, "title") for x in tq[:2]] + [(x, "lyric") for x in lq[:1]],
                                               dur, per=2)}
+    if mxm_tok:                                        # มีบัญชี Musixmatch (ตั้งใน Studio) -> เนื้อมีเวลา/เวลารายคำ
+        def mxm():
+            try:
+                r = M.from_musixmatch([(x, "title") for x in tq[:2]], mxm_tok, dur)
+                _mxm_state["err"] = ""
+                return r
+            except M.MxmError as exc:
+                _mxm_state.update(err=str(exc), at=time.time())
+                raise
+        jobs["musixmatch"] = mxm
     with ThreadPoolExecutor(len(jobs)) as ex:
         futs = {k: ex.submit(wrap, k, fn) for k, fn in jobs.items()}
         for k, f in futs.items():
@@ -3648,6 +4052,8 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
                     add(c[0], c[1], lines=c[2], texts=c[3], extra=c[4])
                 else:
                     add(c["provider"], c["label"], lines=c["lines"], texts=c["texts"], extra=c["meta"])
+    if not track:
+        out.extend(_ocr_cands(vid, out, dur))             # 📷 เนื้อ/เวลาจากตัวหนังสือในคลิป (ถ้าเคยอ่านแล้ว)
     # ตัดซ้ำ (ข้อความเหมือนกันทุกตัวอักษร) เก็บตัวที่มาก่อน
     seen, uniq = set(), []
     for c in out:
@@ -3657,7 +4063,7 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
         seen.add(key)
         c["id"] = len(uniq)
         uniq.append(c)
-    return uniq[:20], {"title": tq, "lyric": lq}
+    return uniq[:24], {"title": tq, "lyric": lq}
 
 
 def _score_whisper(vid: str, cands: list[dict]) -> None:
@@ -3695,7 +4101,7 @@ def _score_fa(cands: list[dict], results: list[dict | None]) -> None:
         c["faLines"] = [{"t": l["t"], "d": l["d"], "x": l["x"]} for l in fl]
         if c["synced"]:
             ds = [a["t"] - b["t"] for a, b, cf in zip(fl, c["lines"], confs) if cf >= FA_MIN_CONF]
-            if ds:
+            if len(ds) >= max(4, 0.3 * len(fl)):
                 m = sorted(ds)[len(ds) // 2]
                 c["shift"] = round(m, 2) if abs(m) >= 0.3 else 0.0
                 c["timing"] = round(100 * sum(abs(x) <= 0.5 for x in ds) / len(ds), 1)
@@ -3715,6 +4121,8 @@ async def studio_sources(vid: str, request: Request):
     if hit and not body.get("fresh") and time.time() - hit[0] < SRC_TTL:
         cands, used = hit[1]
     else:
+        if not track:
+            await asyncio.to_thread(_ocr_ensure, vid)
         cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist)
         engine_fa = _fa_ready() and _audio_for(vid)
         if engine_fa and cands:
@@ -3753,6 +4161,13 @@ BEST_SHIFT_MIN, BEST_SHIFT_GAIN = 0.5, 15.0   # เลื่อนทั้ง�
 # ไม่มี "ขยับรายบรรทัด" ตั้งใจ: เคยลองขยับบรรทัดที่ FA เห็นต่าง 0.5-1.5 วิ ไปตาม FA
 # วัดกับ 20 เพลงที่ผู้ใช้จับเวลาเอง ความตรงลดจาก 97% เหลือ 92% ทุกเพลง = ตรงนั้น FA ผิด ไม่ใช่คน
 BEST_IDLE_GAP = 2.0           # งานตอนว่างเว้นระหว่างเพลง กันแหล่งออนไลน์ตัดการเชื่อมต่อ
+# รุ่นของงานเลือกเนื้อ: 2 = มีขั้น "ซ่อมเวลา" (scripts/lyrics_refine.py) ต่อท้าย — ผลรุ่นเก่าถูกซ่อมเวลาย้อนหลังตอนว่าง
+# (ซ่อมอย่างเดียว ไม่ดึงแหล่งใหม่ ข้อความเดิมไม่เปลี่ยน)
+BEST_VERSION = 2
+# ซ่อมเวลา: on = ใช้ผลเลย / dry = บันทึกข้อเสนอไว้ใน lyrics.best.json อย่างเดียว / off = ไม่ทำ
+# วัดแล้ว (scripts/eval_lyrics.py): เพลงที่เวลาดีอยู่แล้วไม่ถูกแตะ 0/45, ช่วงเวลาอัดกู้คืน 26%->89%,
+# ช่วงเกลี่ยเส้นตรง 24%->79%, ท่อนที่คลาดทั้งท่อน 0%->97%, รวมทั้งงานเลือกเนื้อ 76.1%->78.4% (69 เพลงอ้างอิง)
+REFINE_MODE = os.environ.get("KARA_REFINE", "on")
 _TH_RE = re.compile(r"[฀-๿]")
 _LAT_RE = re.compile(r"[A-Za-z]")
 _best_pending = _Pending("best")
@@ -3788,13 +4203,17 @@ def _best_needed(vid: str) -> bool:
     d = _song_dir(vid)
     j = _read_lyr(vid)
     if j:
-        if (j.get("src") or "") in BEST_MANUAL or j.get("best"):
+        if (j.get("src") or "") in BEST_MANUAL:
+            return False
+        if j.get("best") and not (int(_best_rec(vid).get("v") or 1) < BEST_VERSION and REFINE_MODE != "off"):
             return False
     elif not (d / "lyrics.nolyr.json").is_file():
         return False                              # ยังหาเนื้อรอบแรกไม่เสร็จ
     rec = _best_rec(vid)
     h = _lyr_hash(j)
     if rec and h in (rec.get("base"), rec.get("out")):
+        if j and int(rec.get("v") or 1) < BEST_VERSION and REFINE_MODE != "off":
+            return True                           # ตัดสินไว้ก่อนมีขั้นซ่อมเวลา -> ซ่อมอย่างเดียว
         return bool(rec.get("partial")) and vid not in _best_retried
     return True
 
@@ -3820,6 +4239,9 @@ def _best_src(c: dict, cur: dict | None) -> str:
     p = c["provider"]
     if p == "current":
         return (cur or {}).get("src") or ""
+    if p.startswith("ocr+"):                    # ข้อความของแหล่งเดิม + เวลาจากตัวหนังสือในคลิป
+        p = p[4:]
+        return (cur or {}).get("src") or "" if p == "current" else p
     if p == "lrclib" and not c["synced"]:
         return "lrclib-plain"
     return p
@@ -3832,13 +4254,16 @@ def _best_decide(cands: list[dict], cur: dict | None) -> dict:
         if c.get("faConf") is not None:
             c["score"] = _text_score(c)
     scored = [c for c in cands if "score" in c]
-    gate = max(BEST_MIN_MATCH, max((c.get("match") or 0 for c in scored), default=0) - BEST_MATCH_SPREAD)
+    gate = max(BEST_MIN_MATCH, max((c.get("match") or 0 for c in scored if c["provider"] not in ("yt-auto", "ocr")),
+                                   default=0) - BEST_MATCH_SPREAD)
 
     def timed(c):
         return c["synced"] and (c.get("timingAfter") or 0) >= BEST_TIME_HUMAN
     cur_c = next((c for c in scored if c["provider"] == "current"), None)
-    # ตัวหนังสือเครื่องถอด (yt-auto) ไม่เอามาแทน / คะแนนเท่ากันให้ตัวที่เวลาในตัวตรงเสียงชนะ
-    pool = [c for c in scored if c["provider"] not in ("current", "yt-auto")
+    # ตัวหนังสือเครื่องถอด (yt-auto) / เครื่องอ่านจากภาพ (ocr) ไม่เอามาแทน — สะกดเพี้ยนได้
+    # (เวลาจากภาพยังใช้ได้ผ่านผู้สมัคร "ocr+แหล่ง" = ข้อความของคน + เวลาที่ขึ้นจอในคลิป)
+    # คะแนนเท่ากันให้ตัวที่เวลาในตัวตรงเสียงชนะ
+    pool = [c for c in scored if c["provider"] not in ("current", "yt-auto", "ocr")
             and (c.get("match") or 0) >= gate and c.get("faLines")]
     top = max(pool, key=lambda c: (c["score"] * (1.03 if timed(c) else 1.0), c.get("match") or 0)) if pool else None
     cur_src = (cur or {}).get("src") or ""
@@ -3914,8 +4339,12 @@ def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
     for l in dec["lines"]:
         x = " ".join(str(l.get("x") or "").split())
         if x:
-            lines.append({"t": round(max(0.0, float(l["t"])), 2),
-                          "d": round(max(0.3, min(30.0, float(l.get("d") or 3.0))), 2), "x": x})
+            ln = {"t": round(max(0.0, float(l["t"])), 2),
+                  "d": round(max(0.3, min(30.0, float(l.get("d") or 3.0))), 2), "x": x}
+            v = _voice_of(l.get("v"))
+            if v:
+                ln["v"] = v
+            lines.append(ln)
     lines.sort(key=lambda l: l["t"])
     if not lines:
         raise RuntimeError("เนื้อที่เลือกว่างเปล่า")
@@ -3937,9 +4366,11 @@ def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
     return _lyr_hash(out)
 
 
-def _best_record(vid: str, base: str, out: str, dec: dict, cands: list[dict], partial: bool) -> None:
-    rec = {"at": int(time.time()), "base": base, "out": out, "action": dec["action"], "reason": dec["reason"],
-           "partial": partial,
+def _best_record(vid: str, base: str, out: str, dec: dict, cands: list[dict], partial: bool,
+                 refine: dict | None = None) -> None:
+    rec = {"v": BEST_VERSION, "at": int(time.time()), "base": base, "out": out, "action": dec["action"],
+           "reason": dec["reason"], "partial": partial,
+           **({"refine": refine} if refine else {}),
            "cands": [{k: c.get(k) for k in ("provider", "label", "synced", "match", "score", "timing",
                                              "timingAfter", "shift")} for c in cands]}
     _write_json_atomic(_song_dir(vid) / "lyrics.best.json", rec)
@@ -3990,6 +4421,58 @@ async def _best_worker() -> None:
             await asyncio.sleep(BEST_IDLE_GAP)
 
 
+def _refine_rec(ref: dict | None) -> dict | None:
+    if not ref:
+        return None
+    return {**(ref.get("record") or {}), "note": ref.get("note") or "", "changed": bool(ref.get("changed")),
+            "mode": REFINE_MODE}
+
+
+async def _refine_dec(vid: str, dec: dict, cur: dict | None, cands: list[dict]) -> dict | None:
+    """ขั้นซ่อมเวลาหลังตัดสินเลือกเนื้อ: แก้ dec ในที่ (ใช้ผลเมื่อ REFINE_MODE = on) คืนผลซ่อมไว้บันทึก"""
+    if REFINE_MODE == "off" or dec["action"] == "none":
+        return None
+    if dec["action"] == "keep":
+        if not cur or not cur.get("lines"):
+            return None
+        lines, tsrc = cur["lines"], LC.time_src_of(cur)
+    else:
+        lines, tsrc = dec.get("lines") or [], dec.get("timeSrc") or ""
+    ref = await asyncio.to_thread(_refine_call, vid, lines, tsrc)
+    if not ref or not ref.get("changed") or REFINE_MODE != "on":
+        return ref
+    if dec["action"] == "keep":
+        cur_c = next((c for c in cands if c["provider"] == "current"), None) or {"label": "เนื้อเดิม"}
+        dec.update({"action": "refine", "cand": cur_c, "src": cur.get("src") or "", "timeSrc": tsrc, "shift": 0.0})
+    dec["lines"] = ref["lines"]
+    dec["reason"] = " · ".join(x for x in (dec.get("reason") or "", "ซ่อมเวลา: " + (ref.get("note") or "")) if x)
+    return ref
+
+
+async def _refine_only(vid: str, cur: dict, rec0: dict, base: str, t0: float) -> None:
+    """ผลเลือกเนื้อรุ่นก่อนมีขั้นซ่อมเวลา -> ซ่อมเวลาของเนื้อปัจจุบันอย่างเดียว (ไม่ดึงแหล่ง ไม่เปลี่ยนข้อความ)"""
+    tsrc = LC.time_src_of(cur)
+    ref = await asyncio.to_thread(_refine_call, vid, cur.get("lines") or [], tsrc)
+    if _lyr_hash(_read_lyr(vid)) != base:
+        _best_state.pop(vid, None)
+        return
+    out = base
+    if ref and ref.get("changed") and REFINE_MODE == "on":
+        b = cur.get("best") or {}
+        dec = {"action": "refine", "reason": "ซ่อมเวลา: " + (ref.get("note") or ""), "lines": ref["lines"],
+               "src": cur.get("src") or "", "timeSrc": tsrc, "shift": 0.0,
+               "cand": {"label": b.get("label") or "เนื้อเดิม", "match": b.get("match"), "score": b.get("score"),
+                        "timingAfter": b.get("timing")}}
+        out = await asyncio.to_thread(_best_apply, vid, dec, cur)
+        room.archive_rev += 1
+    rec = {**rec0, "v": BEST_VERSION, "at": int(time.time()), "out": out, "refine": _refine_rec(ref)}
+    if out != base:
+        rec.update({"base": base, "action": "refine", "reason": "ซ่อมเวลา: " + (ref.get("note") or "")})
+    await asyncio.to_thread(_write_json_atomic, _song_dir(vid) / "lyrics.best.json", rec)
+    _best_state.pop(vid, None)
+    print(f"[best] {vid} ซ่อมเวลา: {(ref or {}).get('note') or 'ไม่มีอะไรต้องแก้'} | {time.monotonic() - t0:.0f}s")
+
+
 async def _run_best(vid: str) -> None:
     global _heavy_job
     _best_state[vid] = {"status": "working", "error": ""}
@@ -4001,9 +4484,14 @@ async def _run_best(vid: str) -> None:
             _best_state.pop(vid, None)
             return
         base = _lyr_hash(cur)
+        rec0 = _best_rec(vid)
+        if cur and rec0 and base in (rec0.get("base"), rec0.get("out")) and int(rec0.get("v") or 1) < BEST_VERSION:
+            await _refine_only(vid, cur, rec0, base, t0)      # ตัดสินไว้แล้วก่อนมีขั้นซ่อมเวลา: ซ่อมอย่างเดียว
+            return
+        await asyncio.to_thread(_ocr_ensure, vid)          # 📷 Lyric Video: เวลาที่ตัวหนังสือขึ้นในคลิปนี้
         # ดึงเนื้อออนไลน์ก่อน (นอกช่อง GPU — รอเน็ตไม่ควรกันงานอื่น)
         cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
-        online = sum(1 for c in cands if c["provider"] in ("lrclib", "joox", "netease", "ytmusic"))
+        online = sum(1 for c in cands if c["provider"] in ONLINE_PROVIDERS)
         sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
         payload = {"sets": sets, "duration": _song_meta(vid)["duration"] or 0}
         if not cands:
@@ -4020,6 +4508,7 @@ async def _run_best(vid: str) -> None:
         _score_fa(cands, r.get("results") or [])
         _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
         dec = _best_decide(cands, cur)
+        ref = await _refine_dec(vid, dec, cur, cands)
         if _lyr_hash(_read_lyr(vid)) != base:
             _best_state.pop(vid, None)             # เนื้อถูกเปลี่ยนระหว่างทำ (Studio/หาเนื้อใหม่) -> ทิ้งผลนี้
             print(f"[best] {vid} เนื้อเปลี่ยนระหว่างเทียบ ข้ามรอบนี้")
@@ -4036,7 +4525,7 @@ async def _run_best(vid: str) -> None:
         partial = online == 0
         if partial:
             _best_retried.add(vid)
-        await asyncio.to_thread(_best_record, vid, base, out, dec, cands, partial)
+        await asyncio.to_thread(_best_record, vid, base, out, dec, cands, partial, _refine_rec(ref))
         _best_state.pop(vid, None)
         print(f"[best] {vid} {dec['action']}: {dec['reason']} | ผู้สมัคร {len(cands)} (ออนไลน์ {online})"
               f" | {time.monotonic() - t0:.0f}s")
@@ -4044,6 +4533,32 @@ async def _run_best(vid: str) -> None:
         _best_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
         print(f"[best] {vid} FAILED: {exc}")
     await _enqueue_words(vid)                      # ข้อความสุดท้ายนิ่งแล้ว -> ทำเวลารายคำต่อ
+
+
+def _refine_call(vid: str, lines: list[dict], tsrc: str, segments: bool = True) -> dict | None:
+    """scripts/lyrics_refine.py (subprocess) -> {"lines", "record", "note", "changed"} / None ถ้าทำไม่ได้
+    ใช้แคช FA ที่มีอยู่แล้วเท่านั้น (ยังไม่มีแคช = ไม่ทำ จะได้ไม่แย่ง GPU นอกคิว)"""
+    audio = _audio_for(vid)
+    texts = [l.get("x") or "" for l in lines]
+    if not audio or len(lines) < 2 or not _fa_cached_for(vid, texts):
+        return None
+    payload = {"lines": [{k: l[k] for k in ("t", "d", "x", "v") if k in l} for l in lines], "timeSrc": tsrc,
+               "duration": _song_meta(vid)["duration"] or 0, "audio": str(audio), "segments": segments}
+    try:
+        rc, out, err = _run_child("refine", vid, [sys.executable, str(BASE / "scripts" / "lyrics_refine.py"), vid],
+                                  timeout=300, input=json.dumps(payload, ensure_ascii=False), cwd=str(BASE))
+        if rc != 0:
+            tail = [l for l in err.strip().splitlines() if l.strip()]
+            print(f"[refine] {vid} ล้มเหลว: {tail[-1][:200] if tail else rc}")
+            return None
+        r = json.loads(out.strip().splitlines()[-1])
+        for a, b in zip(lines, r.get("lines") or []):      # เสียงของบรรทัด (v) ไม่ผ่านตัวซ่อม — คืนให้ครบ
+            if "v" in a and "v" not in b:
+                b["v"] = a["v"]
+        return r
+    except Exception as exc:
+        print(f"[refine] {vid} {type(exc).__name__}: {exc}")
+        return None
 
 
 _act_locks: dict[str, asyncio.Lock] = {}
@@ -4183,6 +4698,84 @@ async def studio_action(vid: str, request: Request):
     return {"ok": True, "msg": msg}
 
 
+def _purge_song_files(vid: str, d: Path, edits: bool) -> list[str]:
+    """ลบเพลงออกจากดิสก์จริง: โฟลเดอร์ในคลัง + แคชทุกที่ที่ตั้งชื่อตาม videoId
+    (ทำใน thread — rmtree ของเพลงหนึ่งมีไฟล์สื่อหลายสิบ MB)
+    edits=True ถึงจะลบเนื้อที่คนแก้เองใน lyrics-in ด้วย — ปกติเก็บไว้ โหลดเพลงนี้ใหม่จะได้เนื้อเดิมกลับมา"""
+    gone: list[str] = []
+    if _in_archive(d) and d.is_dir():          # ด่านสุดท้ายก่อน rmtree: ต้องเป็นลูกตรงของคลังเท่านั้น
+        shutil.rmtree(d, ignore_errors=True)
+        gone.append("song")
+    pv = SEG_CACHE.parent                       # lyrics-preview/ (อ้างผ่าน SEG_CACHE ให้ harness ทดสอบชี้ที่อื่นได้)
+    groups: list[tuple[str, list[Path]]] = [
+        ("seg", [SEG_CACHE / f"{vid}.json", *SEG_CACHE.glob(f"{vid}.*.json")]),
+        ("fa", list((pv / "_fa").glob(f"{vid}.*"))),
+        ("va", list((pv / "_va").glob(f"{vid}.*"))),
+        ("src", list((pv / "_src").glob(f"{vid}.*"))),
+        ("srt", list((pv / "_srt").glob(f"{vid}.*"))),
+        ("preview", list(pv.glob(f"*[[]{vid}[]]*"))),
+        ("thumb", [THUMB_CACHE / f"{vid}.jpg"]),
+    ]
+    if edits:
+        groups.append(("edits", list(LYRICS_IN.glob(f"{vid}.*"))))
+    for name, files in groups:
+        n = 0
+        for f in files:
+            try:
+                if f.is_file():
+                    f.unlink()
+                    n += 1
+            except OSError:
+                pass
+        if n:
+            gone.append(f"{name}×{n}")
+    return gone
+
+
+@app.delete("/api/studio/song/{vid}")
+async def studio_delete(vid: str, request: Request, edits: int = 0):
+    """ปุ่ม 🗑 ลบออกจากเครื่อง ใน Studio — ลบโฟลเดอร์เพลง + แคชทั้งหมด (ย้อนกลับไม่ได้)
+    ประวัติการร้อง (history) ไม่แตะ: กดจากประวัติในรีโมทจะโหลดใหม่ตามปกติ
+    ?edits=1 = ลบเนื้อที่แก้เองใน lyrics-in ด้วย (Studio ถามทุกครั้ง)"""
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    if not _in_archive(d):
+        raise HTTPException(status_code=400, detail="โฟลเดอร์เพลงอยู่นอกคลัง — ไม่ลบ")
+    async with room.lock:
+        if room.current and room.current.get("videoId") == vid:
+            raise HTTPException(status_code=409, detail="เพลงนี้กำลังเล่นอยู่ — ข้ามเพลงก่อนแล้วค่อยลบ")
+        n_q = sum(1 for q in room.queue if q.get("videoId") == vid)
+        room.queue = [q for q in room.queue if q.get("videoId") != vid]
+        room.auto_recent = [v for v in room.auto_recent if v != vid]
+    async with _act_locks.setdefault(vid, asyncio.Lock()):
+        # งานเบื้องหลังของเพลงนี้ที่กำลังรัน (demucs/whisper/yt-dlp) ต้องตายก่อน ไม่งั้นเขียนไฟล์กลับลงโฟลเดอร์ที่ลบไปแล้ว
+        with _children_lock:
+            procs = [p for _k, v, p in _children.values() if v == vid]
+        for p in procs:
+            try:
+                p.kill()
+            except Exception:
+                pass
+        for q in (_dl_pending, _sep_pending, _lyr_pending, _lyrfind_pending, _words_pending, _best_pending):
+            q.discard(vid)
+        for st in (_dl_state, _sep_state, _lyr_state, _words_state, _best_state, _verify_state, _key_state,
+                   _dl_fails, _meta_cache, _lyr_cache, _chk_cache, _off_cache, _lang_cache):
+            st.pop(vid, None)
+        _lyr_nosrc.discard(vid)
+        _best_retried.discard(vid)
+        gone = await asyncio.to_thread(_purge_song_files, vid, d, bool(edits))
+    _act_locks.pop(vid, None)
+    _invalidate_dirs()
+    room.archive_rev += 1
+    async with room.lock:
+        await _reprioritize()
+    msg = "ลบออกจากเครื่องแล้ว" + (f" (เอาออกจากคิว {n_q} รายการ)" if n_q else "") \
+        + (" รวมเนื้อที่แก้เอง" if edits else "")
+    print(f"[studio] {vid} delete: {' '.join(gone) or '-'}")
+    await room.broadcast()
+    return {"ok": True, "msg": msg}
+
+
 def _finite(v: Any, lo: float, hi: float) -> float | None:
     """ตัวเลขจากภายนอก -> float ในช่วง [lo, hi] / None ถ้าไม่ใช่ตัวเลขจริง
     NaN/Infinity ห้ามหลุดลงไฟล์หรือ state: JSON ของเบราว์เซอร์อ่านไม่ออก (Studio เปิดเพลงนั้นไม่ได้ / ทุกจอพัง)"""
@@ -4248,10 +4841,11 @@ async def ws_endpoint(ws: WebSocket):
                     continue
                 act = msg.get("action")
                 if act == "hello":
-                    # เฉพาะเครื่องนี้เท่านั้นที่เป็นจอหลักได้ และมีได้ทีละตัว ตัวใหม่ชนะ
+                    # เฉพาะเครื่องนี้ หรือเครื่องที่เปิดผ่านลิงก์ /tv/<รหัส> ที่เป็นจอหลักได้ มีได้ทีละตัว ตัวใหม่ชนะ
                     if msg.get("role") != "player":
                         continue
-                    if not _is_local(ws.client.host if ws.client else None):
+                    if not _is_local(ws.client.host if ws.client else None) \
+                            and not _tv_key_ok(msg.get("tv")):
                         await _ws_send(ws, json.dumps({"type": "evicted", "why": "remote"}))
                         continue
                     room.player_id = msg.get("id")
@@ -4274,11 +4868,17 @@ async def ws_endpoint(ws: WebSocket):
                     await _ws_send(ws, json.dumps({"type": "history", "items": room.history}))
                     continue
                 added = None               # {"type":"added"} ส่งหลัง broadcast ให้ทุกจอมี state ของเพลงนี้ก่อน
+                # ชื่อเพลงแก้ก่อนเข้า lock: รีโมทวางลิงก์มาอาจส่ง "YouTube: <id>" — ถามชื่อจริง
+                # (oEmbed ยิงเน็ต ~ไม่กี่ร้อย ms) โดยไม่ล็อกห้องไว้ทั้งก้อน
+                title = " ".join(str(msg.get("title") or "").split())[:200] if act == "add" else ""
+                if act == "add" and msg.get("source") != "local":
+                    _v = msg.get("videoId")
+                    if _vid_ok(_v) and _title_is_placeholder(title, _v):
+                        title = await asyncio.to_thread(_yt_title, _v) or title
                 async with room.lock:
                     if act == "add":
                         # ทุกฟิลด์มาจากมือถือใครก็ได้ในวงแลน -> แปลงเป็นสตริง + จำกัดความยาวก่อนเข้าคิว/ประวัติ
                         singer = " ".join(str(msg.get("singer") or "").split())[:24] or DEFAULT_SINGER
-                        title = " ".join(str(msg.get("title") or "").split())[:200]
                         if msg.get("source") == "local":
                             path = msg.get("path")
                             if not isinstance(path, str) or not path.strip() or len(path) > 500:
@@ -4340,13 +4940,21 @@ async def ws_endpoint(ws: WebSocket):
                     elif act == "lyrmode":
                         if msg.get("mode") in LYR_MODES:
                             room.lyr_mode = msg["mode"]
+                    elif act == "voices":                  # 👥 แยกเสียงร้อง/คอรัส เปิด-ปิดจากรีโมท (ค่าเดียวกับ Studio)
+                        room.tv = _clean_tv({"voices": bool(msg.get("on"))}, room.tv)
+                        await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
                     elif act == "ended":
                         # ต้องมาจากจอหลักเท่านั้น: จอที่ถูกไล่ไปแล้วยังนับถอยหลัง error แล้วส่ง ended ได้
                         if getattr(ws, "_is_player", False) and _targets_current(msg):
                             room.next()
+                            await _autoplay_fill()
                     elif act == "next":
                         if _targets_current(msg):
                             room.next()
+                            await _autoplay_fill()
+                    elif act == "autoplay":
+                        room.autoplay = bool(msg.get("on"))
+                        await _autoplay_fill()         # เปิดตอนจอว่าง = ขึ้นเพลงเลย
                     elif act == "restart":
                         room.pos = 0.0
                         room.pos_at = time.monotonic()
@@ -4393,7 +5001,7 @@ async def ws_endpoint(ws: WebSocket):
                             print(f"[report] {vid} แจ้งซับไม่ตรงที่ {pos:.0f}s "
                                   f"{','.join(rep['tags']) or '-'} {rep['note']!r} โดย {rep['by']}")
                     if act in ("add", "next", "ended", "remove", "up", "down",
-                               "playnow", "fix"):
+                               "playnow", "fix", "autoplay"):
                         await _reprioritize()
                     await room.broadcast()     # คำสั่งที่ถูกเมินก็ broadcast ด้วย ให้เครื่องที่ส่งตามทัน
                     if added:
@@ -4416,6 +5024,22 @@ if __name__ == "__main__":
             print(f"  {a}\n   -> {b}")
         raise SystemExit
     import uvicorn
-    print(f"\n  Player screen : {BASE_URL}/\n  Phone remote  : {BASE_URL}/r"
-          f"\n  Studio        : {BASE_URL}/studio   (PIN {_studio_cfg()['pin']})\n")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+    # ลิงก์ทดลอง *.trycloudflare.com ตายทุกครั้งที่ปิดโปรแกรม — ล้างทิ้งก่อน ไม่งั้น QR ชี้ลิงก์ผี
+    # (player.command จะเปิดอุโมงค์ใหม่แล้วเขียนลิงก์ใหม่ให้เองหลังเซิร์ฟเวอร์ขึ้น)
+    _drop_stale_public_url()
+    _cfg = _studio_cfg()
+    BASE_URL = base_url()
+    print(f"\n  Player screen : http://localhost:{PORT}/   (จอหลักเปิดในเครื่องนี้/ในบ้านเท่านั้น — วิดีโอไม่ต้องวิ่งออกเน็ต)"
+          f"\n  Phone remote  : {BASE_URL}/r"
+          f"\n  TV screen     : {BASE_URL}/tv/{_cfg['tv']}   (เปิดจากทีวี/เครื่องไหนก็ได้)"
+          f"\n  Studio        : {BASE_URL}/studio   (PIN {_cfg['pin']})")
+    if _cfg["publicUrl"]:
+        print(f"  🌐 Public      : {_cfg['publicUrl']}/r   (ผ่าน Cloudflare Tunnel — ./cloudflare.command)"
+              f"\n                  {_cfg['publicUrl']}/studio\n")
+    else:
+        print("  🌐 เปิดจากนอกบ้าน: ./cloudflare.command --quick (ทดลอง) หรือ ./cloudflare.command kara.โดเมนของคุณ\n")
+    # cloudflared ต่อเข้ามาจาก 127.0.0.1 แล้วแนบ X-Forwarded-For = IP จริงของแขก -> uvicorn แทน client.host ให้
+    # ด่าน _is_local (จอหลัก / Studio ไม่ต้อง PIN / ยึดจอ) จึงไม่เห็นแขกจากเน็ตเป็น "เครื่องตัวเอง"
+    # เชื่อ header นี้เฉพาะจาก loopback: เครื่องอื่นในแลนปลอม header มาก็ไม่มีผล
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning",
+                proxy_headers=True, forwarded_allow_ips="127.0.0.1")

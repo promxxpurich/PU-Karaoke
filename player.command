@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # เปิด "จอหลัก" แบบเต็มจอ  ->  ดับเบิลคลิกไฟล์นี้ หรือสั่ง ./player.command
-#   --kiosk  เปิดโหมดคีออสก์ (ออกยากขึ้น เหมาะกับตั้งทิ้งไว้เป็นจอทีวี)
+#   --kiosk      เปิดโหมดคีออสก์ (ออกยากขึ้น เหมาะกับตั้งทิ้งไว้เป็นจอทีวี)
+#   --no-tunnel  ไม่เปิดลิงก์ Cloudflare (ตอนไม่มีเน็ต) — หรือตั้ง KARA_NO_TUNNEL=1
 cd "$(dirname "$0")"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # ดับเบิลคลิก .command แล้ว PATH ไม่มี brew/cloudflared
 
 PORT=8080
+case "${1:-}" in -h|--help) sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 
 # หา PID ของ "เซิร์ฟเวอร์เราจริงๆ" เท่านั้น
 #  - ยึดจากตัวที่ฟังพอร์ต (ไม่ใช่ตัวที่ต่อเข้ามาเป็นไคลเอนต์)
@@ -41,6 +44,54 @@ if ! curl -sf --max-time 2 "${URL}api/health" >/dev/null 2>&1; then
 fi
 echo "✅ เซิร์ฟเวอร์พร้อม"
 
+# --- 1.6 ลิงก์จากนอกบ้านผ่าน Cloudflare (สุ่มใหม่ทุกครั้งที่เปิด ไม่ต้องมีโดเมน/บัญชี) ---
+# ล้มเหลวก็ไม่เป็นไร: ในบ้านยังเข้าผ่าน IP ในวงแลนได้เหมือนเดิม ปิดพร้อมเซิร์ฟเวอร์ด้วย ./stop.command
+NO_TUNNEL=0
+for a in "$@"; do [ "$a" = "--no-tunnel" ] && NO_TUNNEL=1; done
+[ "${KARA_NO_TUNNEL:-0}" = "1" ] && NO_TUNNEL=1
+if [ "$NO_TUNNEL" = 1 ]; then
+  echo "🌐 ข้ามลิงก์ Cloudflare (--no-tunnel)"
+elif ! ./cloudflare.command --quick; then
+  echo "⚠️  เปิดลิงก์ Cloudflare ไม่ได้ — ใช้ในบ้านผ่าน Wi-Fi ได้ตามปกติ (ลองใหม่: ./cloudflare.command --quick)"
+fi
+
+# --- 1.5 บอก IP ทั้งหมดของเครื่องนี้ พร้อมอธิบายว่าแต่ละอันคืออะไร ---
+# ชื่อพอร์ตจาก macOS เช่น en0 -> "Wi-Fi", en1 -> "Thunderbolt 1"
+port_name() {
+  networksetup -listallhardwareports 2>/dev/null \
+    | awk -v d="$1" '/^Hardware Port:/{sub(/^Hardware Port: /,""); n=$0} /^Device:/{if($2==d){print n; exit}}'
+}
+describe_ip() {   # $1=อินเทอร์เฟซ  $2=IP
+  local ifc="$1" ip="$2" hw kind
+  hw="$(port_name "$ifc")"
+  case "$ifc" in
+    lo*)        echo "เครื่องนี้เท่านั้น (loopback) — ใช้เปิดจอหลักบนเครื่องนี้"; return ;;
+    utun*|ppp*|ipsec*) kind="VPN / อุโมงค์ ($ifc)" ;;
+    bridge1*)   kind="แชร์อินเทอร์เน็ต/ฮอตสปอตของ Mac ($ifc)" ;;
+    *)          kind="${hw:-$ifc} ($ifc)" ;;
+  esac
+  case "$ip" in
+    169.254.*)  echo "$kind — ที่อยู่ชั่วคราว (ไม่ได้รับ IP จากเราเตอร์) มือถือมักต่อไม่ได้" ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*)
+                echo "$kind — เครือข่าย VPN แบบ Tailscale/CGNAT ใช้ได้เฉพาะเครื่องที่อยู่ใน VPN เดียวกัน" ;;
+    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*)
+                echo "$kind — วงแลนในบ้าน/ร้าน ✅ มือถือที่ต่อ Wi-Fi เดียวกันใช้อันนี้" ;;
+    *)          echo "$kind — IP สาธารณะ (ออกอินเทอร์เน็ตตรง) ระวังคนนอกเข้าถึง" ;;
+  esac
+}
+echo ""
+echo "🌐 IP ของเครื่องนี้ (พอร์ต $PORT):"
+ifconfig 2>/dev/null | awk '
+  /^[a-z0-9]+:/ { ifc=$1; sub(/:$/,"",ifc) }
+  $1=="inet" { print ifc, $2 }' \
+| while read -r ifc ip; do
+    printf "   • %-16s %s\n" "$ip" "$(describe_ip "$ifc" "$ip")"
+    [ "$ifc" = "lo0" ] || printf "       จอหลัก http://%s:%s/   รีโมตมือถือ http://%s:%s/r\n" "$ip" "$PORT" "$ip" "$PORT"
+  done
+LHN="$(scutil --get LocalHostName 2>/dev/null)"
+[ -n "$LHN" ] && echo "   • $LHN.local      ชื่อเครื่องในวงแลน (ใช้แทน IP ได้บน iPhone/Mac) -> http://$LHN.local:$PORT/r"
+echo ""
+
 # --- 2. กันเปิดจอหลักซ้อน (จอที่เปิดอยู่จะถูกแทนที่) ---
 if pgrep -f "user-data-dir=$PROFILE" >/dev/null; then
   echo "ℹ️  จอหลักเปิดอยู่แล้ว — สลับไปที่หน้าต่างนั้นแทน"
@@ -50,7 +101,7 @@ fi
 
 # --- 3. เปิดจอหลัก ---
 MODE="--start-fullscreen"
-[ "$1" = "--kiosk" ] && MODE="--kiosk"
+for a in "$@"; do [ "$a" = "--kiosk" ] && MODE="--kiosk"; done
 
 echo "🎤 เปิดจอหลัก… (ออกด้วย Cmd+Q  •  ปิดเซิร์ฟเวอร์ด้วย ./stop.command)"
 exec "$CHROME" \

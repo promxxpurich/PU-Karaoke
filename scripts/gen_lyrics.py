@@ -370,7 +370,7 @@ def lines_from_words(words: list[dict], duration: float,
     for i, ln in enumerate(out):
         nxt = out[i + 1]["t"] if i + 1 < len(out) else (duration if duration > ln["t"]
                                                        else ln["t"] + 6.0)
-        ln["d"] = round(max(LS.MIN_DUR, min(LS.MAX_DUR, nxt - ln["t"])), 2)
+        ln["d"] = LS.line_dur(ln["t"], nxt)       # ขั้นต่ำ 1 วิ แต่ไม่ล้ำบรรทัดถัดไป (ท่อนเร็ว)
     return out
 
 
@@ -699,6 +699,9 @@ def write_out(folder: Path, vid: str, lines: list[dict], duration: float,
           f"{' | ' + note if note else ''} | {folder.name}", flush=True)
 
 
+VOICES = (2, 3, "bg")         # ค่า v ต่อบรรทัดที่รับ (ไม่มี = เสียงหลัก) — ตรงกับ server._clean_edit_lines
+
+
 def from_edit(vid: str) -> list[dict] | None:
     """lyrics-in/<vid>.json = เนื้อที่แก้ใน Studio — ใช้ตามไฟล์เป๊ะ ไม่ผ่าน _finish
     (ไม่ตัดบรรทัดซ้ำ/ไม่คำนวณความยาวใหม่ เพราะคนตั้งมาเองแล้วทุกค่า)"""
@@ -707,8 +710,14 @@ def from_edit(vid: str) -> list[dict] | None:
         return None
     try:
         rows = json.loads(f.read_text("utf-8")).get("lines") or []
-        lines = [{"t": round(float(l["t"]), 2), "d": round(float(l["d"]), 2), "x": str(l["x"])}
-                 for l in rows if str(l.get("x") or "").strip()]
+        lines = []
+        for l in rows:
+            if not str(l.get("x") or "").strip():
+                continue
+            ln = {"t": round(float(l["t"]), 2), "d": round(float(l["d"]), 2), "x": str(l["x"])}
+            if l.get("v") in VOICES:                 # เสียงที่ร้อง (คนที่ 2/3, คอรัส) ที่ตั้งไว้ใน Studio — ห้ามทิ้ง
+                ln["v"] = l["v"]
+            lines.append(ln)
     except Exception as exc:
         print(f"[manual-edit] {vid} อ่านไฟล์ไม่ได้: {exc}", flush=True)
         return None
@@ -742,7 +751,7 @@ def time_with(src_lines: list[str], words: list[dict],
     durs = []
     for i, st in enumerate(starts):
         nxt = starts[i + 1] if i + 1 < len(starts) else (duration if duration > st else st + 6.0)
-        durs.append(round(max(MIN_DUR_L, min(MAX_DUR_L, nxt - st)), 2))
+        durs.append(LS.line_dur(st, nxt))
     covered = {a["line"] for a in anchors}
     tot = sum(len(norm_chars(l)) for l in src_lines)
     cov = 100.0 * sum(len(norm_chars(l)) for i, l in enumerate(src_lines)

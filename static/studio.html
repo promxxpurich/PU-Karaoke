@@ -103,6 +103,10 @@
  .pv.dual .l1{color:rgba(255,255,255,.55)}
  .pv.dual .on{color:#fff!important}
  .pv.kara .ly span{transition:color .12s linear}
+ .pv .ly .bk{font-size:.74em;font-weight:500;opacity:.8}        /* 👥 วงเล็บ = คอรัส/แอดลิบ (เหมือนจอทีวี) */
+ .pv .ly .v2{color:rgba(143,227,255,.55)} .pv .ly .v2.on, .pv:not(.dual) .ly .l1.v2{color:#8fe3ff!important}
+ .pv .ly .v3{color:rgba(255,212,121,.55)} .pv .ly .v3.on, .pv:not(.dual) .ly .l1.v3{color:#ffd479!important}
+ .pv .ly .vbg{font-size:3.4cqw!important;font-weight:500}
  .pv.kara .ly span.s{color:#ff6fa6!important}       /* สีเดียวกับจอทีวี (--kara ใน player.html) */
  .pv .tag{position:absolute;left:10px;top:10px;font-size:11px;padding:3px 10px;border-radius:999px;
    background:rgba(0,0,0,.55);color:#ddd;backdrop-filter:blur(6px)}
@@ -192,6 +196,8 @@
 
  /* ---------- ตารางบรรทัด ---------- */
  #rows{overflow-y:auto;min-height:0;padding:4px 8px 30px}
+ #rows .row.v2 .xi{color:#8fe3ff} #rows .row.v3 .xi{color:#ffd479} #rows .row.vbg .xi{font-style:italic;opacity:.8}
+ #rows .row .vb{min-width:2.4em} #rows .row.v2 .vb, #rows .row.v3 .vb, #rows .row.vbg .vb{background:rgba(143,227,255,.18)}
  .row{display:grid;grid-template-columns:36px 92px 62px 1fr auto;gap:6px;align-items:center;
    padding:3px 6px;border-radius:9px;border:1px solid transparent}
  .row:hover{background:rgba(255,255,255,.025)}
@@ -389,7 +395,7 @@
       <div class="blank" id="blank" style="grid-row:1/-1"><div><b>เลือกเพลงทางซ้าย</b><br>ดูสถานะ · แก้เนื้อ · ปรับเวลาซับ · กดซ่อมได้ทุกเพลงในเครื่อง</div></div>
 
       <div class="top hide" id="top">
-        <div class="pv" id="pv">
+        <div class="pv dual kara" id="pv">
           <video id="media" playsinline preload="auto"></video>
           <div class="shade"></div>
           <span class="tag" id="pvtag">พรีวิวแบบจอทีวี</span>
@@ -426,7 +432,7 @@
         <button id="loopbtn" class="ic" title="วนบรรทัดที่เลือก (L)">🔁</button>
         <span class="seg" id="spd"><button data-v="0.25">¼×</button><button data-v="0.5">½×</button><button data-v="0.75">¾×</button><button data-v="1" class="on">1×</button></span>
         <span class="seg" id="msrc"><button data-v="video" class="on">🎬 วิดีโอ</button><button data-v="vocals">🎤 เสียงร้อง</button></span>
-        <span class="seg" id="pvm"><button data-v="scroll" class="on">เลื่อนขึ้น</button><button data-v="dual">2 บรรทัด</button><button data-v="karaoke" title="ไล่สีตามเวลาที่ร้องจริง (เวลารายตัวอักษรจาก FA) — ขีดสีส้มใต้ก้อนบนแถบคลื่น = จุดที่แต่ละตัวถูกร้อง">🎤 คาราโอเกะ</button></span>
+        <span class="seg" id="pvm"><button data-v="scroll">เลื่อนขึ้น</button><button data-v="dual">2 บรรทัด</button><button data-v="karaoke" class="on" title="ไล่สีตามเวลาที่ร้องจริง (เวลารายตัวอักษรจาก FA) — ขีดสีส้มใต้ก้อนบนแถบคลื่น = จุดที่แต่ละตัวถูกร้อง">🎤 คาราโอเกะ</button></span>
         <button id="fsbtn" class="ic" title="โหมดแก้เต็มจอ (F)">⛶</button>
       </div>
 
@@ -533,8 +539,91 @@ function toast(msg, ms = 2600){ const el = $('#toast'); el.textContent = msg; el
 const isTyping = () => { const a = document.activeElement;
   return a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !['checkbox','range'].includes(a.type))); };
 
-// ค่าเดียวกับจอทีวี (static/player.html) — พรีวิวจะได้ขึ้นเหมือนจอจริง
-const LYR_LEAD = 0.25, LYR_HOLD = 2.0, LYR_GAP = 6.0;
+// ตรรกะจอทีวีชุดเดียวกับ static/player.html (คัดลอกทั้งบล็อก — แก้ที่ไหนต้องแก้ทั้งสองไฟล์ให้เหมือนกันเป๊ะ)
+// <lyrcore> ตรรกะ "บรรทัดไหนอยู่แถวไหน สว่างหรือจาง" — ใช้ร่วมกัน 3 ที่: player.html (จอจริง),
+// studio.html (พรีวิว) และ scripts/eval_lyrics.py (รันใต้ node วัดว่าซับขึ้นทันไหม)
+// ห้ามแตะ DOM/ตัวแปรนอกบล็อก และสองไฟล์ต้องเหมือนกันทุกตัวอักษร (eval ตรวจให้)
+// เวลาทุกตัวในบล็อกเป็น "เวลาเนื้อ" (หัก offset ทั้งหมดออกแล้ว) ผู้เรียกแปลงเอง
+const LYC = {LEAD: 0.25,     // ขึ้นก่อนร้องนิดหน่อยให้อ่านทัน
+             HOLD: 2.0,      // ค้างบรรทัดเดิมได้อีกกี่วิหลังร้องจบ
+             GAP: 6.0,       // ร้องจบแล้วบรรทัดหน้าห่างเกินนี้ = ช่วงดนตรีล้วน (ขึ้น ♪)
+             CD: 3,          // นับถอยหลัง ●●● กี่วิก่อนเข้าท่อน
+             OVER: 0.35,     // ซ้อนกันเกินนี้ถึงนับว่าแถวนั้น "ยังไม่ว่าง" ตอนจัดแถว (ร้องซ้อนจริง)
+             FORCED: 1.01};  // d ≤ 1 วิที่ทับบรรทัดถัดไป = ตัวสร้างเนื้อเดิมบังคับขั้นต่ำ 1 วิ ไม่ใช่ร้องซ้อน
+// เวลาจบจริง (e) + แถว (row 0 บน / 1 ล่าง) ของทุกบรรทัด — คิดครั้งเดียวต่อชุดเนื้อ
+// ไม่มีบรรทัดซ้อนจริง = คู่บน คี่ล่าง เหมือนเดิมเป๊ะ / ซ้อนจริง (สองคนร้องพร้อมกัน) = ไปแถวที่ว่างหรือจบก่อน
+function lycPrep(L){
+  for(let j = 0; j < L.length; j++){
+    const l = L[j], n = L[j + 1], d = +l.d || 0;
+    let e = l.t + d;
+    if(n && d <= LYC.FORCED && n.t < e) e = Math.max(l.t, n.t);
+    l.e = e;
+  }
+  const busy = [-Infinity, -Infinity];
+  let prev = 1;
+  for(const l of L){
+    let r = 1 - prev;
+    const free = q => busy[q] <= l.t + LYC.OVER;
+    if(!free(r) && (free(1 - r) || busy[1 - r] < busy[r])) r = 1 - r;
+    l.row = r; busy[r] = l.e; prev = r;
+  }
+  return L;
+}
+function lycIndex(L, t){                     // บรรทัดสุดท้ายที่ถึงเวลาขึ้นแล้ว
+  let lo = 0, hi = L.length - 1, r = -1;
+  while(lo <= hi){ const m = (lo + hi) >> 1; if(L[m].t - LYC.LEAD <= t){ r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+// kEnd(j) = เวลาตัวอักษรสุดท้ายที่ร้อง (โหมดคาราโอเกะ) หรือ null — รอให้ไล่สีถึงตัวสุดท้ายก่อน
+const lycEnd = (L, j, kEnd) => { const k = kEnd ? kEnd(j) : null; return k == null ? L[j].e : Math.max(L[j].e, k + 0.3); };
+// เฟรมของจอ ณ เวลา t -> {i, gap, cd, rows:[{j, on}, {j, on}]}  j = ลำดับบรรทัด / -1 = ♪ / -2 = ว่าง
+function lycFrame(L, t, o){
+  o = o || {};
+  const i = lycIndex(L, t), n = L[i + 1];
+  // ช่วงดนตรีวัดจาก "ระยะห่างระหว่างบรรทัด" ไม่ใช่เวลาที่เหลือ (เดิมต้องเหลือ > 6 วิ แต่นับถอยหลังต้อง ≤ 3 วิ
+  // จุด ●●● จึงไม่เคยขึ้นหลังช่วงดนตรีกลางเพลง และบรรทัดที่ร้องไปแล้วสว่างกลับมาก่อนเข้าท่อน)
+  const eI = i >= 0 ? lycEnd(L, i, o.kEnd) : 0;
+  const gap = i >= 0 && t > eI + LYC.HOLD && (!n || n.t - eI > LYC.GAP);
+  let cd = 0;
+  if(o.countdown !== false && (i < 0 || gap)){
+    const nx = L[i < 0 ? 0 : i + 1];
+    const rem = nx ? nx.t - LYC.LEAD - t : -1;
+    if(rem > 0 && rem <= LYC.CD) cd = Math.min(LYC.CD, Math.ceil(rem));
+  }
+  const rows = [{j: -2, on: false}, {j: -2, on: false}];
+  if(!L.length) return {i, gap, cd, rows};
+  if(i < 0){                                 // อินโทร: บรรทัดแรกรอไว้ (จาง) + ♪ อีกแถว
+    rows[L[0].row] = {j: 0, on: false};
+    rows[1 - L[0].row] = {j: -1, on: false};
+    return {i, gap, cd, rows};
+  }
+  const r = L[i].row, r2 = 1 - r;
+  if(gap){                                   // ช่วงดนตรี: ♪ + บรรทัดหน้า (จาง) ให้อ่านรอ
+    if(n && n.row === r){ rows[r] = {j: i + 1, on: false}; rows[r2] = {j: -1, on: false}; }
+    else { rows[r] = {j: -1, on: false}; if(n) rows[r2] = {j: i + 1, on: false}; }
+    return {i, gap, cd, rows};
+  }
+  rows[r] = {j: i, on: true};
+  // อีกแถว: บรรทัดก่อนหน้าที่ยังร้องไม่จบ -> สว่างค้างจนร้องจบจริง / ไม่งั้นบรรทัดถัดไปของแถวนั้น (จาง อ่านล่วงหน้า)
+  // "ร้องจบจริง" = e ที่ตัดส่วนที่ถูกบังคับ 1 วิออกแล้ว ท่อนเร็วจึงค้างแค่ถึงต้นบรรทัดถัดไป (เดิมค้างเต็ม 1 วิ
+  // ทับบรรทัดถัดไปไปอีก จนบรรทัดหลังจากนั้นไม่ได้ขึ้นล่วงหน้า)
+  let p = -1, q = -1;
+  for(let j = i - 1; j >= 0 && j >= i - 6; j--) if(L[j].row === r2){ p = j; break; }
+  for(let j = i + 1; j < L.length && j <= i + 6; j++) if(L[j].row === r2){ q = j; break; }
+  if(p >= 0 && t < lycEnd(L, p, o.kEnd)){ rows[r2] = {j: p, on: true}; return {i, gap, cd, rows}; }
+  if(q >= 0) rows[r2] = {j: q, on: false};
+  return {i, gap, cd, rows};
+}
+// ข้อความ -> [[ส่วน, อยู่ในวงเล็บไหม], ...] — ส่วนในวงเล็บ = เสียงประสาน/คอรัส/แอดลิบ (แสดงตัวเล็กจางได้)
+function lycParts(x){
+  const out = [], re = /[(（][^)）]*[)）]/g;
+  let a = 0, m;
+  while((m = re.exec(x))){ if(m.index > a) out.push([x.slice(a, m.index), false]); out.push([m[0], true]); a = m.index + m[0].length; }
+  if(a < x.length) out.push([x.slice(a), false]);
+  return out;
+}
+// </lyrcore>
+const LYR_LEAD = LYC.LEAD;
 const DUR_MIN = 1.0, DUR_MAX = 14.0;          // ความยาวอัตโนมัติ เท่ากับ lyrics_sources._finish
 const MAG_PX = 8;                             // ระยะดูดของแม่เหล็กบนแถบคลื่น (พิกเซล)
 const ZOOM_MIN = 0.5, ZOOM_MAX = 120;
@@ -578,10 +667,11 @@ const WORDS = {ready:['ok','🎤 คาราโอเกะ'], queued:['wait','
 const BEST = {queued:['wait','✨ รอเทียบเนื้อทุกแหล่ง'], working:['wait','✨ กำลังเทียบเนื้อทุกแหล่ง'],
               failed:['bad','⚠️ เทียบเนื้อไม่สำเร็จ']};
 const BEST_ACT = {shift:'เลื่อนเวลาทั้งเพลง', retime:'จับเวลาใหม่ด้วย FA', newtext:'เปลี่ยนเป็นเนื้อจากแหล่งที่ดีกว่า',
-                  found:'หาเนื้อเจอจากแหล่งออนไลน์'};
+                  found:'หาเนื้อเจอจากแหล่งออนไลน์', refine:'ซ่อมเวลา'};
 const LANG_LB = {th:'ไทย', en:'อังกฤษ', ja:'ญี่ปุ่น', ko:'เกาหลี', zh:'จีน'};
 const TAGS = {late:'🐢 ซับขึ้นช้า', early:'🐇 ซับขึ้นเร็ว', typo:'✏️ เนื้อผิด/พิมพ์ผิด',
-              missing:'🕳 ขาดบางท่อน', nolyr:'🚫 ไม่มีเนื้อ', wrong:'🎵 เนื้อผิดเพลง'};
+              missing:'🕳 ขาดบางท่อน', nolyr:'🚫 ไม่มีเนื้อ', wrong:'🎵 เนื้อผิดเพลง',
+              fast:'⚡ ท่อนเร็วขึ้นไม่ทัน', overlap:'👥 ร้องซ้อนแล้วซับไม่ขึ้น'};
 function songChips(i, full){
   const c = [];
   if(i.reports) c.push(['bad',`🚩 มีคนแจ้ง ${i.reports}`]);
@@ -620,6 +710,7 @@ const FILTERS = [
   ['hint','💡 มีคำแนะนำ', i => i.shiftOk],
   ['edited','✏️ แก้เองแล้ว', i => i.edited],
   ['auto','✨ เปลี่ยนอัตโนมัติ', i => i.best && i.best.applied],
+  ['refined','🩺 ซ่อมเวลาแล้ว', i => i.best && i.best.applied && i.best.action === 'refine'],
   ['nowords','🎤 ยังไม่มีคาราโอเกะ', i => i.lyrLines && i.words && ['none','stale','failed'].includes(i.words.status)],
   ['foreign','🌐 ไม่ใช่ไทย', i => i.lang && i.lang !== 'th'],
   ['queue','▶ ในคิว', i => i.queuePos != null],
@@ -629,7 +720,7 @@ const rank = i => isProblem(i) ? 0 : i.reports ? 1 : !i.lyrLines ? 2 : i.lyrConf
 // ===== 4. store ======================================================
 const S = { songs:[], filter:'all', cur:null, detail:null,
             lines:[], offset:0, trial:0, sel:0, saved:'', undo:[], redo:[],
-            tap:false, tapHist:[], pvMode:'scroll', media:'video', step:0.1, ripple:false, loop:false,
+            tap:false, tapHist:[], pvMode:'karaoke', media:'video', step:0.1, ripple:false, loop:false,
             env:null, envRate:100, pcm:null, pcmRate:8000, pcmRef:1, onsets:[],
             zoom:16, view:0, hoverT:null, snapHint:null, lyrUrl:'', showDone:false,
             drift:null, drifting:false, driftSegs:[], srcCands:[] };
@@ -724,7 +815,7 @@ async function openSong(vid, mode){
   if(bg && (vid !== S.cur || dirty())) return;      // ระหว่างรอ ผู้ใช้เริ่มแก้/สลับเพลง -> ห้ามทับ
   const changed = vid !== S.cur;
   S.cur = vid; S.detail = d;
-  S.lines = ((d.lyrics && d.lyrics.lines) || []).map(l => ({t:+l.t, d:+l.d, x:String(l.x)}));
+  S.lines = ((d.lyrics && d.lyrics.lines) || []).map(lineOf);
   S.offset = +d.offset || 0; S.trial = 0; S.saved = snapshot(); S.undo = []; S.redo = [];
   $('#trialtag').classList.add('hide');
   S.lyrUrl = d.item.lyricsUrl || '';
@@ -758,6 +849,7 @@ const ACT_INFO = {
   best:   ['✨ เลือกเนื้อดีที่สุด', 'ดึงเนื้อจากทุกแหล่ง (ซับ YouTube, lrclib, JOOX, NetEase, YouTube Music, คำอธิบายคลิป) ให้ FA เทียบกับเสียงร้องจริง แล้วเปลี่ยนให้ถ้าดีกว่าชัดเจน (ของเดิมอยู่ใน 🕘 ประวัติ)'],
   'best-all': ['✨ เลือกเนื้อดีที่สุดทุกเพลง', 'เข้าคิวเทียบเนื้อให้ทุกเพลงที่ยังไม่เคยเทียบ (ข้ามเพลงที่แก้เอง) ทำตอนเครื่องว่าง เพลงในคิวห้องได้ก่อน'],
   words:  ['🎤 ทำเวลารายคำ', 'ให้ FA หาเวลาที่ร้องแต่ละตัวอักษร ไว้ไล่สีในโหมดคาราโอเกะ (ทำใหม่ทับของเดิม — ปกติระบบทำให้เองหลังได้เนื้อ/บันทึก)'],
+  delete: ['🗑 ลบออกจากเครื่อง', 'ลบวิดีโอ เสียง ไกด์ เนื้อ และแคชทั้งหมดของเพลงนี้ออกจากดิสก์ (ย้อนกลับไม่ได้) — ประวัติการร้องยังอยู่ ถ้าเพิ่มเพลงนี้อีกจะโหลดใหม่'],
   'words-all': ['🎤 ทำเวลารายคำทุกเพลง', 'เข้าคิวทำเวลารายคำให้ทุกเพลงที่ยังไม่มี (ใช้ GPU เพลงละ ~10 วิ ทำตอนเครื่องว่าง เพลงที่อยู่ในคิวห้องได้ก่อน)'],
 };
 function renderInfo(){
@@ -788,16 +880,20 @@ function renderInfo(){
   const acts = ['fix','redl','resep','relyr','verify'].concat(fa && !manual && (i.lyrLines || i.lyrStatus === 'nolyr') ? ['best'] : [],
                                                           i.lyrLines && fa ? ['words'] : [],
                                                           i.edited ? ['drop-edit'] : [],
-                                                          fa ? ['best-all', 'words-all'] : []);
+                                                          fa ? ['best-all', 'words-all'] : [],
+                                                          ['delete']);
   // ✨ ผลเลือกเนื้ออัตโนมัติ: บอกว่าเปลี่ยนอะไรเพราะอะไร + ของเดิมอยู่ในประวัติ
   const b = i.best;
   const bn = b && b.applied && b.action !== 'keep' ? `✨ <b>${esc(BEST_ACT[b.action] || 'เลือกอัตโนมัติ')}</b> — ${esc(b.reason)} · ของเดิมอยู่ใน 🕘 ประวัติ`
            : b && b.status === 'failed' ? `⚠️ เทียบเนื้อไม่สำเร็จ: ${esc(b.error)}`
            : b && b.status === 'done' && b.action === 'keep' ? `✨ เทียบกับทุกแหล่งแล้ว: ${esc(b.reason)}` : '';
-  $('#bestnote').classList.toggle('hide', !bn);
-  $('#bestnote').innerHTML = bn;
+  const rf = b && b.refine;                         // 🩺 ขั้นซ่อมเวลาของงานอัตโนมัติ (บรรทัดที่เครื่องไม่มั่นใจ = ควรฟังเอง)
+  const rn = rf && (rf.uncertain || []).length && !manual
+    ? ` · 🩺 ${rf.uncertain.length} บรรทัดเครื่องวัดไม่มั่นใจ (${rf.uncertain.slice(0, 8).map(x => x + 1).join(', ')}${rf.uncertain.length > 8 ? ', …' : ''}) ควรฟังเอง` : '';
+  $('#bestnote').classList.toggle('hide', !(bn || rn));
+  $('#bestnote').innerHTML = bn + rn;
   $('#acts').innerHTML = acts.map(k => `<button data-act="${k}" title="${esc(ACT_INFO[k][1])}"
-      class="${k === 'fix' && i.fix ? 'primary' : k === 'drop-edit' ? 'danger' : ''}">${ACT_INFO[k][0]}</button>`).join('');
+      class="${k === 'fix' && i.fix ? 'primary' : k === 'drop-edit' || k === 'delete' ? 'danger' : ''}">${ACT_INFO[k][0]}</button>`).join('');
 }
 function showNote(html, btns){ $('#note').innerHTML = html + ' ' + (btns || ''); $('#note').classList.remove('hide'); }
 function hideNote(){ $('#note').classList.add('hide'); }
@@ -821,6 +917,7 @@ $('#meta').addEventListener('click', async e => {
 $('#acts').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if(!b || !S.cur) return;
   const k = b.dataset.act, [lb, why] = ACT_INFO[k];
+  if(k === 'delete'){ openDeleteDlg(); return; }
   if(!confirm(`${lb}\n\n${why}\n\nทำเลยไหม?`)) return;
   b.disabled = true;
   try{ const r = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:k})});
@@ -828,6 +925,39 @@ $('#acts').addEventListener('click', async e => {
   catch(err){ toast('⚠️ ' + err.message); }
   b.disabled = false; loadSongs();
 });
+
+// 🗑 ลบออกจากเครื่อง — กล่องยืนยันของตัวเอง: ต้องถามทุกครั้งว่าจะลบเนื้อที่แก้เอง (lyrics-in) ด้วยไหม
+function openDeleteDlg(){
+  const d = S.detail, i = d && d.item; if(!i) return;
+  const m = d.manual || {}, hasEdit = !!(m.json || m.lrc || m.txt);
+  const playing = i.queuePos === 0;
+  openDlg(`<h2>🗑 ลบออกจากเครื่อง</h2>
+    <p><b>${esc(i.title || i.videoId)}</b></p>
+    <p>ลบวิดีโอ เสียง ไกด์เสียงร้อง เนื้อ และแคชทั้งหมดของเพลงนี้ออกจากดิสก์ <b>ย้อนกลับไม่ได้</b><br>
+    ประวัติการร้องยังอยู่ — ถ้ามีคนเพิ่มเพลงนี้อีก ระบบจะโหลดจาก YouTube ใหม่${i.queuePos ? '<br>⚠️ เพลงนี้อยู่ในคิว จะถูกเอาออกจากคิวด้วย' : ''}</p>
+    ${playing ? '<p class="danger">▶ เพลงนี้กำลังเล่นอยู่ — ข้ามเพลงบนจอก่อนแล้วค่อยลบ</p>' : ''}
+    ${dirty() ? '<p class="danger">✏️ มีเนื้อที่แก้ค้างยังไม่ได้บันทึก — จะหายไปด้วย</p>' : ''}
+    ${hasEdit ? `<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" id="delEdits">
+      ลบ "เนื้อที่แก้เอง" (lyrics-in/${esc(i.videoId)}.*) ด้วย — ถ้าไม่ติ๊ก โหลดเพลงนี้ใหม่จะได้เนื้อที่แก้ไว้กลับมาทันที</label>` : ''}
+    <div class="btns"><button data-dlg="close">ยกเลิก</button>
+      <button class="primary" id="delok" ${playing ? 'disabled' : ''}>🗑 ลบเลย</button></div>`);
+  $('#delok').onclick = async () => {
+    const vid = S.cur, edits = $('#delEdits') && $('#delEdits').checked ? 1 : 0;
+    $('#delok').disabled = true;
+    try{
+      const r = await api(`/api/studio/song/${vid}?edits=${edits}`, {method:'DELETE'});
+      closeDlg();
+      // ปิดตัวแก้เหมือนกด ← รายการ แต่ล้างเพลงทิ้งเลย ไม่งั้น loadSongs/รีเฟรชเบื้องหลังจะพยายามเปิดเพลงที่ไม่มีแล้ว
+      media.pause();
+      S.cur = null; S.detail = null; S.lines = []; S.saved = snapshot(); S.undo = []; S.redo = [];
+      document.body.classList.remove('editing');
+      for(const id of ['#top','#tp','#mid','#rows']) $(id).classList.add('hide');
+      $('#blank').classList.remove('hide');
+      toast('✓ ' + (r.msg || 'ลบแล้ว'));
+    }catch(err){ toast('⚠️ ' + err.message); $('#delok').disabled = false; }
+    loadSongs();
+  };
+}
 
 // ===== 7a. 🎤 เวลารายตัวอักษร (โหมดคาราโอเกะ) ============================
 // k = [[ตำแหน่งตัวอักษร, วินาทีในเสียง], ...] ต่อบรรทัด ผูกกับข้อความตอนที่บันทึกไว้ในเครื่อง
@@ -878,11 +1008,27 @@ function kClusters(x, k){                    // ตรรกะเดียว�
   kcCache.set(k, r);
   return r;
 }
-function pvRow(el, text, j){                  // แถวพรีวิว: ข้อความเปล่า หรือแตกเป็นกลุ่มอักษรไว้ไล่สี
+const VOICE_CLS = v => v === 'bg' ? 'vbg' : (v === 2 || v === '2') ? 'v2' : (v === 3 || v === '3') ? 'v3' : '';
+function pvRow(el, text, j, line, vo){        // แถวพรีวิว: ข้อความเปล่า หรือแตกเป็นกลุ่มอักษรไว้ไล่สี (+ แยกเสียงร้องเหมือนจอ)
   const l = S.pvMode === 'karaoke' && j >= 0 ? S.lines[j] : null, k = l ? kFor(l) : null;
   const kc = k ? kClusters(l.x, k) : null;
-  if(!kc || !kc.length){ el._k = null; el.textContent = text; return; }
-  const spans = kc.map(c => { const sp = document.createElement('span'); sp.textContent = c.g; return sp; });
+  el.classList.remove('v2', 'v3', 'vbg');
+  const vc = vo && line ? VOICE_CLS(line.v) : '';
+  if(vc) el.classList.add(vc);
+  const bk = vo && /[(（]/.test(text);
+  if(!kc || !kc.length){
+    el._k = null;
+    if(bk){ el.textContent = ''; el.append(...lycParts(text).map(([s, b]) => { const sp = document.createElement('span');
+      sp.textContent = s; if(b) sp.className = 'bk'; return sp; })); }
+    else el.textContent = text;
+    return;
+  }
+  let depth = 0;
+  const spans = kc.map(c => { const sp = document.createElement('span'); sp.textContent = c.g;
+    if(/[(（]/.test(c.g)) depth++;
+    if(bk && depth > 0) sp.className = 'bk';
+    if(/[)）]/.test(c.g)) depth = Math.max(0, depth - 1);
+    return sp; });
   el.textContent = ''; el.append(...spans);
   el._k = {spans, ts: kc.map(c => c.t), n: 0};
 }
@@ -1008,7 +1154,8 @@ function renderDrift(){
   const BY = {fa:'🎯 FA (ละเอียด)', asr:'whisper', 'auto-cap':'คำบรรยายอัตโนมัติ'};
   if(S.drifting){ box.innerHTML = `<div class="hd">🗺 กำลังวัดความคลาด${S.drifting === 'fa' && !fa.cached ? ' — วิเคราะห์เสียงร้องครั้งแรก ~10-30 วิ' : ''}…</div>`; return; }
   const ds = driftUsable();
-  const faBtn = fa.ready && (!S.drift || S.drift.by !== 'fa') ? `<button data-dr="fa" title="วัดด้วย forced alignment (ละเอียดกว่า whisper มาก)">🎯 วัดละเอียด</button>` : '';
+  const faBtn = (fa.ready && (!S.drift || S.drift.by !== 'fa') ? `<button data-dr="fa" title="วัดด้วย forced alignment (ละเอียดกว่า whisper มาก)">🎯 วัดละเอียด</button>` : '')
+    + (fa.ready ? `<button data-dr="refine" title="หาช่วงที่เวลาเสีย (บรรทัดอัดกันจนร้องไม่ทัน / เกลี่ยเส้นตรง / ทั้งท่อนคลาด) แล้วเสนอเวลาใหม่จากเสียงร้อง — ไม่บันทึกจนกด 💾">🩺 ซ่อมช่วงเพี้ยน</button>` : '');
   if(!ds){
     box.innerHTML = `<div class="hd">🗺 ความคลาด<span class="sp"></span><button data-dr="auto">${S.drift ? 'วัดใหม่' : 'วัด'}</button>${faBtn}</div>`
       + (S.drift && S.drift.why ? `<div class="why">${esc(S.drift.why)}</div>` : '');
@@ -1027,6 +1174,45 @@ function renderDrift(){
       : `<div class="why">${known.length ? '✓ ไม่เจอช่วงที่เลื่อนทั้งท่อน — บรรทัดที่ยังไม่ตรงดูจากจุดสีบนแถบคลื่น (แดง = คลาดเกิน 1.2 วิ)' : 'วัดไม่ได้สักบรรทัด'}</div>`)
     + (amb ? `<div class="why">🟣 ${amb} บรรทัดเป็นท่อนซ้ำติดกัน เครื่องวัดได้ไม่แน่นอน (อาจคลาดไปทั้งรอบ) — ฟังแล้วแตะจังหวะเองจะชัวร์กว่า</div>` : '');
 }
+// 🩺 ตัวซ่อมเวลาชุดเดียวกับงานอัตโนมัติ (scripts/lyrics_refine.py) — เพลงที่แก้เองใช้ได้ทางนี้ทางเดียว
+async function runRefine(){
+  if(!S.cur || !S.lines.length) return;
+  const vid = S.cur;
+  toast('🩺 กำลังหาช่วงที่เวลาเพี้ยน…', 8000);
+  let r;
+  try{ r = await api(`/api/studio/song/${vid}/refine`, {method:'POST', body:JSON.stringify({lines:S.lines, offset:S.offset})}); }
+  catch(e){ toast('⚠️ ' + e.message); return; }
+  if(vid !== S.cur) return;
+  if(!r.ok){ toast('⚠️ ' + (r.why || 'ซ่อมไม่ได้')); return; }
+  const rec = r.record || {}, unc = (rec.uncertain || []).length;
+  if(!r.changed){
+    toast('✓ ไม่เจอช่วงที่เวลาเสียชัด ๆ' + (unc ? ` · ${unc} บรรทัดเครื่องวัดไม่มั่นใจ (จุดเทาบนแถบคลื่น) ลองฟังเอง` : ''), 5000); return; }
+  const WHY = {collapsed:'อัดกันจนร้องไม่ทัน', interp:'เวลาเกลี่ยเส้นตรง (เดา)'};
+  const HOW = {fa:'จับใหม่จากเสียงร้อง', spread:'เกลี่ยตามพยางค์ + จังหวะเสียง'};
+  const segs = (rec.segments || []).map(g => `<li>บรรทัด ${g.from + 1}–${g.to + 1}: เลื่อนทั้งท่อน <b>${sgn(g.shift)} วิ</b>
+      <small>(บรรทัดที่วัดได้ ${g.n} · ตรง ${g.before}% → ${g.after}%)</small></li>`);
+  const reps = (rec.repaired || []).map(([a, b, how, conf, why]) => `<li>บรรทัด ${a + 1}${b > a ? '–' + (b + 1) : ''}:
+      ${WHY[why] || why} → ${HOW[how] || how}${conf != null ? ` <small>(มั่นใจ ${(conf * 100).toFixed(0)}%)</small>` : ''}</li>`);
+  S.refineProp = r.lines;
+  openDlg(`<h2>🩺 ซ่อมช่วงที่เวลาเพี้ยน</h2>
+    <p>ข้อเสนอจากเสียงร้องจริง (ไม่แตะข้อความ) — กดใช้แล้วฟังในพรีวิว ยังไม่บันทึกจนกด 💾 และกด ↶ ย้อนได้</p>
+    <ul>${segs.join('')}${reps.join('')}</ul>
+    ${unc ? `<p><small>${unc} บรรทัดเครื่องวัดไม่มั่นใจ — ไม่ได้แตะ ควรฟังเอง</small></p>` : ''}
+    <div class="btns"><button data-dlg="close">ปิด</button><button class="primary" id="refineuse">ใช้ข้อเสนอนี้</button></div>`);
+  $('#refineuse').onclick = () => {
+    const P = S.refineProp || [];
+    const nx = x => String(x).split(/\s+/).filter(Boolean).join(' ');
+    if(P.length !== S.lines.length || P.some((p, i) => nx(p.x) !== nx(S.lines[i].x))){
+      toast('⚠️ เนื้อเปลี่ยนไประหว่างรอ — กดซ่อมใหม่อีกครั้ง'); closeDlg(); return; }
+    let first = -1;
+    mutate(() => P.forEach((p, i) => { if(Math.abs(p.t - S.lines[i].t) > 0.005 && first < 0) first = i;
+      S.lines[i].t = r2(p.t); S.lines[i].d = r2(p.d); }));
+    closeDlg();
+    if(first >= 0){ selectRow(first, true); playFrom(S.lines[first].t + effOff() - 2); }
+    toast('✓ ใส่เวลาที่ซ่อมแล้ว — ฟังในพรีวิว ถ้าไม่ดีขึ้นกด ↶', 4500);
+    if(S.drift) measureDrift(S.drift.by === 'fa' ? 'fa' : 'auto');
+  };
+}
 function applySeg(g){
   const nx = S.lines[g.to + 1];
   for(let i = g.from; i <= g.to; i++){
@@ -1040,6 +1226,7 @@ $('#drift').addEventListener('click', e => {
   const b = e.target.closest('[data-dr]'); if(!b) return;
   const k = b.dataset.dr, g = S.driftSegs[+b.dataset.k];
   if(k === 'auto' || k === 'fa'){ measureDrift(k); return; }
+  if(k === 'refine'){ runRefine(); return; }
   if(k === 'play' && g){ selectRow(g.from, true); playFrom(S.lines[g.from].t + effOff() - 2); return; }
   if(k === 'use' && g){ mutate(() => applySeg(g)); selectRow(g.from, true);
     playFrom(S.lines[g.from].t + effOff() - 2);
@@ -1080,7 +1267,8 @@ new ResizeObserver(() => drawTL()).observe(ov);
 
 // ===== 7d. 🔎 ห้องหาเนื้อ =============================================
 const PROV = {current:'ใช้อยู่', 'yt-sub':'ซับ YouTube', joox:'JOOX', netease:'NetEase', ytmusic:'YouTube Music',
-              lrclib:'LRCLIB', 'yt-auto':'YouTube อัตโนมัติ', 'web/description':'คำอธิบายคลิป'};
+              lrclib:'LRCLIB', 'yt-auto':'YouTube อัตโนมัติ', 'web/description':'คำอธิบายคลิป',
+              musixmatch:'Musixmatch', library:'เพลงเดียวกันในคลัง', ocr:'ตัวหนังสือในคลิป'};
 let srcTok = 0;
 async function openSources(opts = {}){
   const fa = (S.detail && S.detail.fa) || {};
@@ -1090,9 +1278,11 @@ async function openSources(opts = {}){
     <div class="srcq"><input id="sqt" placeholder="ชื่อเพลง (ค้นเองถ้าหาไม่เจอ)" value="${esc(opts.track || '')}">
       <input id="sqa" placeholder="ศิลปิน" value="${esc(opts.artist || '')}"><button id="sqgo">ค้นใหม่</button></div>
     <div class="srcused" id="srcused"></div>
+    <div class="srcused" id="mxmrow"></div>
     <div id="srclist"><div class="empty">กำลังค้นทุกแหล่ง…${fa.ready && !fa.cached ? '<br>(ครั้งแรกของเพลงนี้ต้องวิเคราะห์เสียงร้องด้วย ~10-30 วิ)' : ''}</div></div>
     <div class="btns"><button data-dlg="close">ปิด</button></div>`, 'wide');
   $('#sqgo').onclick = () => openSources({track:$('#sqt').value.trim(), artist:$('#sqa').value.trim(), fresh:true});
+  mxmRow();
   const my = ++srcTok;
   try{
     const r = await api(`/api/studio/song/${S.cur}/sources`, {method:'POST',
@@ -1106,6 +1296,22 @@ async function openSources(opts = {}){
       + ((u.lyric || []).length ? ' · ท่อนเนื้อ: ' + u.lyric.map(q => chip('info', '“' + q + '”')).join(' ') : '');
     renderSources();
   }catch(e){ if(my === srcTok) $('#srclist').innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`; }
+}
+// 🔑 Musixmatch: ต้องใช้ token ของบัญชี (แบบไม่ล็อกอินถูกบล็อก) — มีแล้วได้เนื้อมีเวลา บางเพลงมีเวลารายคำ
+async function mxmRow(){
+  const el = $('#mxmrow'); if(!el) return;
+  let st = null;
+  try{ st = (await api('/api/studio/settings')).mxm; }catch(e){ el.textContent = ''; return; }
+  el.innerHTML = 'Musixmatch: ' + (st.set ? chip(st.err ? 'bad' : 'ok', st.err ? '⚠️ ' + st.err : `ใช้ token ${st.hint}`) : chip('', 'ยังไม่ได้ตั้ง token'))
+    + ` <button class="mini" id="mxmset">${st.set ? 'เปลี่ยน/ลบ token' : '🔑 ตั้ง token'}</button>`;
+  $('#mxmset').onclick = async () => {
+    const tok = prompt('วาง usertoken ของบัญชี Musixmatch (เว้นว่าง = ลบ)\n\nหาได้จากแอป Musixmatch บนคอม: เข้าสู่ระบบ แล้วเปิด View → Toggle Developer Tools → Application → Local Storage → ค่า "token"', '');
+    if(tok === null) return;
+    try{ const r = await api('/api/studio/settings', {method:'POST', body:JSON.stringify({mxmToken:tok.trim()})});
+         if(!r.ok){ toast('⚠️ ' + (r.why || 'ใช้ token นี้ไม่ได้'), 5000); return; }
+         toast(tok.trim() ? '✓ ตั้ง token แล้ว — กด "ค้นใหม่" เพื่อรวม Musixmatch' : '✓ ลบ token แล้ว'); mxmRow(); }
+    catch(e){ toast('⚠️ ' + e.message); }
+  };
 }
 function renderSources(){
   const L = S.srcCands;
@@ -1132,11 +1338,12 @@ $('#dlg').addEventListener('click', e => {
   const c = S.srcCands[+b.dataset.k]; if(!c) return;
   const how = b.dataset.src;
   closeDlg();
-  if(how === 'fa') mutate(() => { S.lines = c.faLines.map(l => ({t:+l.t, d:+l.d, x:l.x})); S.offset = 0; S.sel = 0; });
-  else if(how === 'own') mutate(() => { S.lines = c.lines.map(l => ({t:r2(Math.max(0, +l.t + (c.shift || 0))), d:+l.d, x:l.x})); S.offset = 0; S.sel = 0; });
+  if(how === 'fa') mutate(() => { S.lines = c.faLines.map((l, i) => ({t:+l.t, d:+l.d, x:l.x, ...((c.lines || [])[i] && c.lines[i].v ? {v:c.lines[i].v} : {})})); S.offset = 0; S.sel = 0; });
+  else if(how === 'own') mutate(() => { S.lines = c.lines.map(l => ({...lineOf(l), t:r2(Math.max(0, +l.t + (c.shift || 0)))})); S.offset = 0; S.sel = 0; });
   else { mutate(() => { let t = 0; S.lines = c.texts.map((x, i) => { const o = S.lines[i]; t = o ? o.t : t + 3; return {t:r2(t), d:o ? o.d : 3, x}; }); S.sel = 0; });
          $('#aibtn').click(); return; }
-  toast(`✓ ใช้ ${PROV[c.provider] || c.provider}${how === 'fa' ? ' + เวลา FA' : ''} แล้ว — ▶ ฟังในพรีวิว แล้วกด 💾 เมื่อพอใจ`, 4000);
+  const pv = c.provider.startsWith('ocr+') ? (PROV[c.provider.slice(4)] || c.provider.slice(4)) + ' + เวลาจากตัวหนังสือในคลิป' : (PROV[c.provider] || c.provider);
+  toast(`✓ ใช้ ${pv}${how === 'fa' ? ' + เวลา FA' : ''} แล้ว — ▶ ฟังในพรีวิว แล้วกด 💾 เมื่อพอใจ`, 4000);
 });
 $('#srcbtn').onclick = () => openSources();
 
@@ -1171,6 +1378,12 @@ function rippleFrom(i, delta){
 $('#undobtn').onclick = undo; $('#redobtn').onclick = redo;
 
 // ===== 9. ตารางบรรทัด ================================================
+// 👥 เสียงที่ร้อง: ไม่มี = เสียงหลัก / 2, 3 = คนร้องคนที่ 2, 3 (จอขึ้นคนละสี ร้องซ้อนกันได้คนละแถว) / bg = คอรัสทั้งบรรทัด
+const VOICES = ['', 2, 3, 'bg'];
+const VOICE_LB = {'': '👤', 2: '👤2', 3: '👤3', bg: '🎶'};
+const VOICE_TIP = {'': 'เสียงหลัก', 2: 'คนร้องคนที่ 2 (จอขึ้นสีฟ้า)', 3: 'คนร้องคนที่ 3 (จอขึ้นสีเหลือง)', bg: 'คอรัส/เสียงประสานทั้งบรรทัด (ตัวเล็กจาง)'};
+function lineOf(l){ const o = {t:+l.t, d:+l.d, x:String(l.x)};
+  const v = l.v === '2' ? 2 : l.v === '3' ? 3 : l.v; if(v === 2 || v === 3 || v === 'bg') o.v = v; return o; }
 function renderRows(){
   const box = $('#rows'), st = box.scrollTop;
   if(!S.lines.length){
@@ -1178,7 +1391,8 @@ function renderRows(){
       หรือ <button data-ed="addfirst">＋ เพิ่มบรรทัดแรก</button></div>`; return; }
   box.innerHTML = S.lines.map((l, i) => {
     const bad = i > 0 && l.t < S.lines[i - 1].t;
-    return `<div class="row ${i === S.sel ? 'sel' : ''} ${bad ? 'warn' : ''}" data-i="${i}">
+    const vk = l.v || '';
+    return `<div class="row ${i === S.sel ? 'sel' : ''} ${bad ? 'warn' : ''} ${vk ? 'v' + vk : ''}" data-i="${i}">
       <span class="n" title="ดับเบิลคลิก = ฟังจากบรรทัดนี้">${i + 1}</span>
       <input class="ti" value="${fmtT(l.t)}" title="เวลาเริ่ม (นาที:วินาที.ร้อย) — ในไฟล์ ไม่รวม offset">
       <input class="di" value="${l.d.toFixed(2)}" title="ความยาว (วินาที)">
@@ -1187,6 +1401,7 @@ function renderRows(){
         <button data-r="play" title="ฟังบรรทัดนี้">▶</button>
         <button data-r="m" title="เร็วขึ้นตามระยะที่เลือก">−</button><button data-r="p" title="ช้าลงตามระยะที่เลือก">＋</button>
         <button data-r="now" title="ตั้งเวลาเริ่ม = ตำแหน่งที่เล่นอยู่ (เฉพาะบรรทัดนี้)">⏱</button>
+        <button data-r="voice" class="vb" title="เสียงที่ร้อง: ${VOICE_TIP[vk]} — กดสลับ (ร้องซ้อน: ตั้งบรรทัดของอีกคนเป็น 👤2 แล้วให้เวลาทับกันได้)">${VOICE_LB[vk]}</button>
         <button data-r="ins" title="แทรกบรรทัดใหม่ต่อจากนี้">⤵</button>
         <button data-r="del" title="ลบบรรทัดนี้">✕</button>
       </span></div>`; }).join('');
@@ -1218,6 +1433,9 @@ $('#rows').addEventListener('click', e => {
       S.lines.splice(i + 1, 0, {t:r2(Math.max(t, l.t + 0.05)), d:2, x:'…'}); S.sel = i + 1; sortLines(); });
       setTimeout(() => { const x = $('#rows').children[S.sel]; x && x.querySelector('.xi').select(); }, 0); break;
     case 'del': mutate(() => { S.lines.splice(i, 1); S.sel = clamp(i, 0, S.lines.length - 1); }); break;
+    case 'voice': mutate(() => { const nx = VOICES[(VOICES.indexOf(l.v || '') + 1) % VOICES.length];
+      if(nx) l.v = nx; else delete l.v; });
+      toast(`👥 บรรทัด ${i + 1}: ${VOICE_TIP[l.v || '']}`); break;
   }
 });
 $('#rows').addEventListener('dblclick', e => { const n = e.target.closest('.n'); if(!n) return;
@@ -1303,7 +1521,7 @@ async function save(){
   // ไม่ได้แก้อะไร -> ไม่ส่ง: บันทึกแล้วเพลงกลายเป็น "แก้เอง" หลุดจากระบบเลือกเนื้ออัตโนมัติ และผลตรวจเดิมถูกลบ
   if(!dirty() && !$('#bake').checked){ toast('ยังไม่ได้แก้อะไร — ไม่ต้องบันทึก'); return; }
   const vid = S.cur, sent = snapshot();
-  let lines = S.lines.map(l => ({t:l.t, d:l.d, x:l.x})), offset = S.offset;
+  let lines = S.lines.map(l => ({t:l.t, d:l.d, x:l.x, ...(l.v ? {v:l.v} : {})})), offset = S.offset;
   if($('#bake').checked && offset){
     lines = lines.map(l => ({...l, t:r2(Math.max(0, l.t + offset))})); offset = 0;
   }
@@ -1341,7 +1559,7 @@ $('#aibtn').onclick = async () => {
       const note = r.by === 'fa' ? 'FA วัดกับเพลงที่คนจับเวลาไว้ ตรงภายใน 0.5 วิ ราว 9 ใน 10 บรรทัด — จุดสีบนแถบคลื่นจะบอกบรรทัดที่ยังน่าสงสัย'
                                  : 'AI มักคลาดราว 1 วิ — ใช้เป็นร่างแรก แล้วเก็บจุดที่ผิดด้วยแตะตามจังหวะ/ลากบนแถบคลื่น';
       if(confirm(`✨ จับเวลาเสร็จ (จับคู่ข้อความกับ${by}ได้ ${r.cov}%)${warn}\n\nแทนที่เวลาทุกบรรทัด และตั้ง offset เป็น 0?\n${note}\n(ยังไม่บันทึกจนกว่าจะกด 💾 · กด ↶ ย้อนได้)`)){
-        mutate(() => { S.lines = r.lines.map(l => ({t:+l.t, d:+l.d, x:l.x})); S.offset = 0; });
+        mutate(() => { S.lines = r.lines.map((l, i) => ({t:+l.t, d:+l.d, x:l.x, ...(S.lines[i] && S.lines[i].v ? {v:S.lines[i].v} : {})})); S.offset = 0; });
         toast('✨ ใส่เวลาจาก AI แล้ว — กด ▶ ฟังในพรีวิวแล้วเก็บจุดที่ไม่ตรง', 4000);
       }
     }else if(r.need === 'asr'){
@@ -1399,7 +1617,7 @@ $('#dlg').addEventListener('click', async e => {
   if(e.target.id === 'dlg' || e.target.closest('[data-dlg=close]')){ closeDlg(); return; }
   const v = e.target.closest('[data-ver]'); if(!v) return;
   try{ const j = await api(`/api/studio/song/${S.cur}/edit/${v.dataset.ver}`);
-       closeDlg(); mutate(() => { S.lines = (j.lines || []).map(l => ({t:+l.t, d:+l.d, x:String(l.x)})); S.sel = 0; });
+       closeDlg(); mutate(() => { S.lines = (j.lines || []).map(lineOf); S.sel = 0; });
        toast('✓ โหลดรุ่นเก่าแล้ว — กด 💾 เพื่อใช้'); }
   catch(err){ toast('⚠️ ' + err.message); }
 });
@@ -1468,44 +1686,42 @@ function setLoop(on){
 $('#loopbtn').onclick = () => setLoop(!S.loop);
 
 const effOff = () => S.offset + S.trial;
-// บรรทัดที่จอทีวีจะแสดงตอนนี้ — ตรรกะเดียวกับ lyIndexAt/lyrTick ใน player.html
-function lyIdx(pos){
-  const L = S.lines, off = effOff(); let lo = 0, hi = L.length - 1, r = -1;
-  while(lo <= hi){ const m = (lo + hi) >> 1; if(L[m].t + off - LYR_LEAD <= pos){ r = m; lo = m + 1; } else hi = m - 1; }
-  return r;
+// พรีวิว = จอทีวีจริง: ใช้ lycFrame ชุดเดียวกัน (เดิมจับคู่ 0-1, 2-3 เอง ไม่มีการค้างบรรทัดที่ยังร้องไม่จบ)
+let pvL = null, pvSig = '';
+function pvLines(){                            // สำเนา S.lines ที่คิดเวลาจบ/แถวแล้ว — คิดใหม่เมื่อเวลา/ข้อความ/เสียงเปลี่ยน
+  const sig = S.lines.map(l => l.t + ',' + l.d + ',' + (l.v || '')).join(';');
+  if(sig !== pvSig || !pvL){ pvSig = sig; pvL = lycPrep(S.lines.map(l => ({t: l.t, d: l.d, x: l.x, v: l.v}))); }
+  return pvL;
 }
+function lyIdx(pos){ return lycIndex(pvLines(), pos - effOff()); }
 const LYR_FS = w => w <= 16 ? 5.0 : w <= 24 ? 4.4 : w <= 32 ? 3.8 : 3.2;
 let lastKey = '', lastCur = -2;
 function renderPreview(pos){
-  const L = S.lines, off = effOff(), i = lyIdx(pos);
-  let gap = false;
-  if(i >= 0){ const l = L[i], n = L[i + 1];
-    if(pos > l.t + off + l.d + LYR_HOLD && (!n || n.t + off - LYR_LEAD - pos > LYR_GAP)) gap = true; }
-  // ♪ ● ● ● นับถอยหลังเหมือนจอทีวี (countdown() ใน player.html)
-  let cd = 0;
-  if((i < 0 || gap) && !(TV.cur && TV.cur.countdown === false)){
-    const nx = L[i < 0 ? 0 : i + 1];
-    const rem = nx ? nx.t + off - LYR_LEAD - pos : -1;
-    if(rem > 0 && rem <= 3) cd = Math.min(3, Math.ceil(rem));
-  }
-  const note = '♪' + (cd ? ' ' + '●'.repeat(cd) : '');
-  const key = S.pvMode + i + (gap ? 'g' : '') + cd + (L[i] ? L[i].x : '') + (L[i + 1] ? L[i + 1].x : '');
+  const L = pvLines(), off = effOff(), t = pos - off;
+  const kara = S.pvMode === 'karaoke', dual = S.pvMode === 'dual' || kara;
+  const kEnd = kara ? (j => { const k = kFor(S.lines[j]); return k ? k[k.length - 1][1] - off : null; }) : null;
+  const F = lycFrame(L, t, {kEnd, countdown: !(TV.cur && TV.cur.countdown === false)});
+  const vo = !(TV.cur && TV.cur.voices === false);
+  const note = '♪' + (F.cd ? ' ' + '●'.repeat(F.cd) : '');
+  const key = S.pvMode + (vo ? 'v' : '') + F.i + (F.gap ? 'g' : '') + F.cd + '|'
+    + F.rows.map(r => r.j + (r.on ? '+' : '') + (r.j >= 0 ? L[r.j].x + (L[r.j].v || '') : '')).join(',')
+    + '|' + (L[F.i] ? L[F.i].x : '') + (L[F.i + 1] ? L[F.i + 1].x : '');
   if(key !== lastKey){
     lastKey = key;
     const l1 = $('#l1'), l2 = $('#l2');
-    if(S.pvMode === 'dual' || S.pvMode === 'karaoke'){
-      const p = i < 0 ? 0 : i - (i % 2);
-      pvRow(l1, gap ? note : (L[p] || {}).x || '', gap ? -1 : p);
-      pvRow(l2, gap ? '' : (L[p + 1] || {}).x || '', gap || !L[p + 1] ? -1 : p + 1);
-      l1.classList.toggle('on', i === p && !gap); l2.classList.toggle('on', i === p + 1);
+    if(dual){
+      [l1, l2].forEach((el, r) => { const R = F.rows[r], line = R.j >= 0 ? S.lines[R.j] : null;
+        pvRow(el, R.j === -1 ? note : R.j === -2 ? '' : line.x, line ? R.j : -1, line, vo);
+        el.classList.toggle('on', R.on); });
       l1.style.fontSize = l2.style.fontSize = '4.4cqw';
     }else{
-      const cur = i < 0 ? (cd ? note : '') : gap ? note : L[i].x, nx = (L[i + 1] || {}).x || '';
-      pvRow(l1, cur, -1); pvRow(l2, nx, -1); l1.classList.remove('on'); l2.classList.remove('on');
+      const cur = F.i < 0 ? (F.cd ? note : '') : F.gap ? note : L[F.i].x, nx = (L[F.i + 1] || {}).x || '';
+      pvRow(l1, cur, -1, F.i >= 0 && !F.gap ? S.lines[F.i] : null, vo); pvRow(l2, nx, -1, S.lines[F.i + 1] || null, vo);
+      l1.classList.remove('on'); l2.classList.remove('on');
       l1.style.fontSize = LYR_FS([...cur].filter(c => !/\p{Mn}/u.test(c)).length) + 'cqw'; l2.style.fontSize = '';
     }
   }
-  return i;
+  return F.i;
 }
 function tick(){
   if(S.cur && S.detail){
@@ -2007,7 +2223,7 @@ const col = k => `<input type="color" data-tv="${k}"><span class="sw">${SWATCH.m
 function renderTvForm(){
   $('#tvform').innerHTML = `
     <fieldset><legend>แถบชื่อเพลง (บนสุด)</legend>
-      <div class="fr">${tog('title', 'แสดงชื่อเพลง')} ${tog('singer', 'แสดงชื่อคนร้อง')} ${tog('countdown', '♪ ● ● ● นับถอยหลังก่อนเข้าท่อน')}</div>
+      <div class="fr">${tog('title', 'แสดงชื่อเพลง')} ${tog('singer', 'แสดงชื่อคนร้อง')} ${tog('countdown', '♪ ● ● ● นับถอยหลังก่อนเข้าท่อน')} ${tog('voices', '👥 แยกเสียงร้อง (คนที่ 2 คนละสี · วงเล็บตัวเล็ก)')}</div>
       <div class="fr"><label>ซ่อนแถบเองหลังเริ่มเพลง</label><select data-tv="titleHide">
         <option value="0">ไม่ซ่อน (โชว์ตลอด)</option>${[5, 10, 15, 20, 30, 60].map(v => `<option value="${v}">${v} วินาที</option>`).join('')}</select></div>
       <div class="fr"><label>สถานะหลังชื่อเพลง</label><span class="chkgrid">${Object.entries(TV_CHIP_LB).map(([k, lb]) =>

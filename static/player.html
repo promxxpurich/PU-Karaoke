@@ -14,6 +14,8 @@
     --qrscale:1;                          /* ตั้งค่าจอจาก Studio (applyTv) — ค่าเริ่มต้น = หน้าตาเดิม */
     --qrw:calc(clamp(96px,7vw,150px) * var(--qrscale));   /* QR มุมขวาล่าง — เนื้อเพลงเว้นขอบเท่านี้ทั้งสองข้าง */
     --lyrcolor:#ffffff; --lyrdimc:rgba(255,255,255,.55); --lyrbga:1; --lift:0vh;
+    --lyrv2:#8fe3ff; --lyrv2dim:rgba(143,227,255,.55);   /* คนร้องคนที่ 2 (👥 แยกเสียงร้อง) */
+    --lyrv3:#ffd479; --lyrv3dim:rgba(255,212,121,.55);   /* คนร้องคนที่ 3 */
     --logow:calc(clamp(90px,8vw,160px) * var(--logoscale,1));
   }
   *{box-sizing:border-box}
@@ -133,6 +135,13 @@
      กลุ่มอักษร (พยัญชนะ+สระบน/ล่าง+วรรณยุกต์) เปลี่ยนสีพร้อมกัน ไม่มีสระลอยแยกสี */
   #lyr.m-kara .kara span{transition:color .12s linear}
   #lyr.m-kara .kara span.s{color:var(--kara)}
+  /* 👥 แยกเสียงร้อง: ส่วนในวงเล็บ (คอรัส/แอดลิบ) ตัวเล็กจาง, บรรทัดของคนร้องคนที่ 2/3 คนละสี */
+  #lyr .bk{font-size:.74em;font-weight:500;opacity:.8}
+  #lyr #lyrcur.v2, #lyr #lyrnext.v2{color:var(--lyrv2dim)}
+  #lyr #lyrcur.v2.on, #lyr #lyrnext.v2.on, #lyr:not(.m-dual) #lyrcur.v2{color:var(--lyrv2)}
+  #lyr #lyrcur.v3, #lyr #lyrnext.v3{color:var(--lyrv3dim)}
+  #lyr #lyrcur.v3.on, #lyr #lyrnext.v3.on, #lyr:not(.m-dual) #lyrcur.v3{color:var(--lyrv3)}
+  #lyr #lyrcur.vbg, #lyr #lyrnext.vbg{font-size:calc(var(--lyrfs,4.4vw)*.78);font-weight:500}
   body.lyrics #next{display:none!important}
 
   /* ---------- การ์ด "เพิ่มเข้าคิว" (มีคนกด ＋ จากรีโมท) ----------
@@ -258,10 +267,11 @@ window.onYouTubeIframeAPIReady = ()=>{
   });
 };
 
+let lastBaseUrl = null;
 function connect(){
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);   // ผ่าน Cloudflare (https) ต้องเป็น wss
   ws.onopen = ()=>{ $('#conn').classList.remove('show');
-                    if(!evicted) sendWs({action:'hello', role:'player', id:PLAYER_ID}); };
+                    if(!evicted) sendWs({action:'hello', role:'player', id:PLAYER_ID, tv:TV_KEY}); };
   ws.onmessage = ev=>{
     const st = JSON.parse(ev.data);
     if(st.type === 'evicted'){ becomeEvicted(); return; }
@@ -270,6 +280,11 @@ function connect(){
     if(evicted) return;                       // ถูกแทนที่แล้ว ไม่ต้องเล่นอะไรอีก
     window._state = st;
     $('#idleurl').textContent = st.baseUrl + '/r';
+    if(st.baseUrl !== lastBaseUrl){          // ลิงก์เปลี่ยน (เปิด/ปิด Cloudflare) -> โหลด QR ใหม่ ไม่ต้องรีเฟรชจอ
+      lastBaseUrl = st.baseUrl;
+      const src = '/qr.png?v=' + encodeURIComponent(st.baseUrl);
+      document.querySelectorAll('.qcard img, #qrflo img').forEach(im => { im.src = src; });
+    }
     renderNext(st.queue);
     apply(st);
     renderAdded();
@@ -289,6 +304,7 @@ let driftTimer=null, preparing=false, stemGaveUp=false, needUnlock=false, lastPl
 let badTag=null;           // ชุดสเต็ม (เพลง@คีย์) ที่โหลดไม่สำเร็จตอนสลับกลางเพลง — ไม่ลองซ้ำ แต่ยังเล่นชุดเดิมต่อ
 let gInstS=null, gVocS=null;   // gain ประจำ source ชุดที่เล่นอยู่ (ไว้ crossfade ตอนสลับคีย์/เริ่มใหม่)
 const PLAYER_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+const TV_KEY = (location.pathname.match(/^\/tv\/([^/]+)/) || [])[1] || '';   // เปิดผ่านลิงก์ /tv/<รหัส>
 let evicted = false;
 let attached = false;   // ยังไม่ได้ resume ไปตำแหน่งจริง -> ห้ามรายงานทับค่าบนเซิร์ฟเวอร์
 let stemErr='';
@@ -459,7 +475,7 @@ function becomeEvicted(){
 $('#evicted').addEventListener('click', ()=>{     // ยึดจอกลับมา
   $('#evicted').classList.add('hide');
   evicted = false; curLocal = null; lastRestart = null;
-  sendWs({action:'hello', role:'player', id:PLAYER_ID});
+  sendWs({action:'hello', role:'player', id:PLAYER_ID, tv:TV_KEY});
 });
 
 function showUnlock(){ $('#unlock').classList.remove('hide'); }
@@ -769,6 +785,8 @@ function applyTv(tv){
   R.setProperty('--lyrcolor', tv.lyrColor || '#ffffff');
   R.setProperty('--lyrdimc', rgba(tv.lyrColor, num('lyrDim', 55) / 100));
   R.setProperty('--kara', tv.karaColor || '#ff6fa6');
+  R.setProperty('--lyrv2dim', rgba('#8fe3ff', num('lyrDim', 55) / 100));   // จางเท่ากับบรรทัดปกติ
+  R.setProperty('--lyrv3dim', rgba('#ffd479', num('lyrDim', 55) / 100));
   R.setProperty('--lyrbga', num('lyrBg', 100) / 100);
   R.setProperty('--lift', num('lyrLift', 0) + 'vh');
   R.setProperty('--qrscale', num('qrSize', 100) / 100);
@@ -793,9 +811,89 @@ function applyTv(tv){
 }
 
 // ===== เนื้อเพลง =====================================================
-const LYR_LEAD = 0.25;                       // ขึ้นก่อนร้องนิดหน่อยให้อ่านทัน
-const LYR_HOLD = 2.0;                        // ค้างบรรทัดเดิมได้อีกกี่วิหลังร้องจบ
-const LYR_GAP  = 6.0;                        // เว้นนานกว่านี้ถือว่าเป็นช่วงดนตรีล้วน
+// <lyrcore> ตรรกะ "บรรทัดไหนอยู่แถวไหน สว่างหรือจาง" — ใช้ร่วมกัน 3 ที่: player.html (จอจริง),
+// studio.html (พรีวิว) และ scripts/eval_lyrics.py (รันใต้ node วัดว่าซับขึ้นทันไหม)
+// ห้ามแตะ DOM/ตัวแปรนอกบล็อก และสองไฟล์ต้องเหมือนกันทุกตัวอักษร (eval ตรวจให้)
+// เวลาทุกตัวในบล็อกเป็น "เวลาเนื้อ" (หัก offset ทั้งหมดออกแล้ว) ผู้เรียกแปลงเอง
+const LYC = {LEAD: 0.25,     // ขึ้นก่อนร้องนิดหน่อยให้อ่านทัน
+             HOLD: 2.0,      // ค้างบรรทัดเดิมได้อีกกี่วิหลังร้องจบ
+             GAP: 6.0,       // ร้องจบแล้วบรรทัดหน้าห่างเกินนี้ = ช่วงดนตรีล้วน (ขึ้น ♪)
+             CD: 3,          // นับถอยหลัง ●●● กี่วิก่อนเข้าท่อน
+             OVER: 0.35,     // ซ้อนกันเกินนี้ถึงนับว่าแถวนั้น "ยังไม่ว่าง" ตอนจัดแถว (ร้องซ้อนจริง)
+             FORCED: 1.01};  // d ≤ 1 วิที่ทับบรรทัดถัดไป = ตัวสร้างเนื้อเดิมบังคับขั้นต่ำ 1 วิ ไม่ใช่ร้องซ้อน
+// เวลาจบจริง (e) + แถว (row 0 บน / 1 ล่าง) ของทุกบรรทัด — คิดครั้งเดียวต่อชุดเนื้อ
+// ไม่มีบรรทัดซ้อนจริง = คู่บน คี่ล่าง เหมือนเดิมเป๊ะ / ซ้อนจริง (สองคนร้องพร้อมกัน) = ไปแถวที่ว่างหรือจบก่อน
+function lycPrep(L){
+  for(let j = 0; j < L.length; j++){
+    const l = L[j], n = L[j + 1], d = +l.d || 0;
+    let e = l.t + d;
+    if(n && d <= LYC.FORCED && n.t < e) e = Math.max(l.t, n.t);
+    l.e = e;
+  }
+  const busy = [-Infinity, -Infinity];
+  let prev = 1;
+  for(const l of L){
+    let r = 1 - prev;
+    const free = q => busy[q] <= l.t + LYC.OVER;
+    if(!free(r) && (free(1 - r) || busy[1 - r] < busy[r])) r = 1 - r;
+    l.row = r; busy[r] = l.e; prev = r;
+  }
+  return L;
+}
+function lycIndex(L, t){                     // บรรทัดสุดท้ายที่ถึงเวลาขึ้นแล้ว
+  let lo = 0, hi = L.length - 1, r = -1;
+  while(lo <= hi){ const m = (lo + hi) >> 1; if(L[m].t - LYC.LEAD <= t){ r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+// kEnd(j) = เวลาตัวอักษรสุดท้ายที่ร้อง (โหมดคาราโอเกะ) หรือ null — รอให้ไล่สีถึงตัวสุดท้ายก่อน
+const lycEnd = (L, j, kEnd) => { const k = kEnd ? kEnd(j) : null; return k == null ? L[j].e : Math.max(L[j].e, k + 0.3); };
+// เฟรมของจอ ณ เวลา t -> {i, gap, cd, rows:[{j, on}, {j, on}]}  j = ลำดับบรรทัด / -1 = ♪ / -2 = ว่าง
+function lycFrame(L, t, o){
+  o = o || {};
+  const i = lycIndex(L, t), n = L[i + 1];
+  // ช่วงดนตรีวัดจาก "ระยะห่างระหว่างบรรทัด" ไม่ใช่เวลาที่เหลือ (เดิมต้องเหลือ > 6 วิ แต่นับถอยหลังต้อง ≤ 3 วิ
+  // จุด ●●● จึงไม่เคยขึ้นหลังช่วงดนตรีกลางเพลง และบรรทัดที่ร้องไปแล้วสว่างกลับมาก่อนเข้าท่อน)
+  const eI = i >= 0 ? lycEnd(L, i, o.kEnd) : 0;
+  const gap = i >= 0 && t > eI + LYC.HOLD && (!n || n.t - eI > LYC.GAP);
+  let cd = 0;
+  if(o.countdown !== false && (i < 0 || gap)){
+    const nx = L[i < 0 ? 0 : i + 1];
+    const rem = nx ? nx.t - LYC.LEAD - t : -1;
+    if(rem > 0 && rem <= LYC.CD) cd = Math.min(LYC.CD, Math.ceil(rem));
+  }
+  const rows = [{j: -2, on: false}, {j: -2, on: false}];
+  if(!L.length) return {i, gap, cd, rows};
+  if(i < 0){                                 // อินโทร: บรรทัดแรกรอไว้ (จาง) + ♪ อีกแถว
+    rows[L[0].row] = {j: 0, on: false};
+    rows[1 - L[0].row] = {j: -1, on: false};
+    return {i, gap, cd, rows};
+  }
+  const r = L[i].row, r2 = 1 - r;
+  if(gap){                                   // ช่วงดนตรี: ♪ + บรรทัดหน้า (จาง) ให้อ่านรอ
+    if(n && n.row === r){ rows[r] = {j: i + 1, on: false}; rows[r2] = {j: -1, on: false}; }
+    else { rows[r] = {j: -1, on: false}; if(n) rows[r2] = {j: i + 1, on: false}; }
+    return {i, gap, cd, rows};
+  }
+  rows[r] = {j: i, on: true};
+  // อีกแถว: บรรทัดก่อนหน้าที่ยังร้องไม่จบ -> สว่างค้างจนร้องจบจริง / ไม่งั้นบรรทัดถัดไปของแถวนั้น (จาง อ่านล่วงหน้า)
+  // "ร้องจบจริง" = e ที่ตัดส่วนที่ถูกบังคับ 1 วิออกแล้ว ท่อนเร็วจึงค้างแค่ถึงต้นบรรทัดถัดไป (เดิมค้างเต็ม 1 วิ
+  // ทับบรรทัดถัดไปไปอีก จนบรรทัดหลังจากนั้นไม่ได้ขึ้นล่วงหน้า)
+  let p = -1, q = -1;
+  for(let j = i - 1; j >= 0 && j >= i - 6; j--) if(L[j].row === r2){ p = j; break; }
+  for(let j = i + 1; j < L.length && j <= i + 6; j++) if(L[j].row === r2){ q = j; break; }
+  if(p >= 0 && t < lycEnd(L, p, o.kEnd)){ rows[r2] = {j: p, on: true}; return {i, gap, cd, rows}; }
+  if(q >= 0) rows[r2] = {j: q, on: false};
+  return {i, gap, cd, rows};
+}
+// ข้อความ -> [[ส่วน, อยู่ในวงเล็บไหม], ...] — ส่วนในวงเล็บ = เสียงประสาน/คอรัส/แอดลิบ (แสดงตัวเล็กจางได้)
+function lycParts(x){
+  const out = [], re = /[(（][^)）]*[)）]/g;
+  let a = 0, m;
+  while((m = re.exec(x))){ if(m.index > a) out.push([x.slice(a, m.index), false]); out.push([m[0], true]); a = m.index + m[0].length; }
+  if(a < x.length) out.push([x.slice(a), false]);
+  return out;
+}
+// </lyrcore>
 const LYR_OFFSET = +(new URLSearchParams(location.search).get('lyroffset') || 0);
 // offset ประจำเพลง (ปรับสดจากรีโมท / ตั้งใน Studio) บวก = ซับขึ้นช้าลง ทิศเดียวกับ ?lyroffset=
 // หักออกจากเวลาเล่นครั้งเดียวใน lyrTick ทุกการเทียบข้างล่างจึงได้ offset ครบโดยไม่ต้องไล่แก้ทีละจุด
@@ -810,7 +908,8 @@ async function loadLyrics(url){
     if(my !== lyTok) return;                 // เปลี่ยนเพลงระหว่างโหลด -> ทิ้ง
     // oi = ลำดับบรรทัดในไฟล์ — เวลารายคำ (lyrics.words.json) อ้างตามลำดับนี้ ไม่ใช่ลำดับหลังกรอง
     const L = (j.lines||[]).map((l, oi) => ({...l, oi})).filter(l => typeof l.t === 'number' && l.x);
-    LY = L.length ? {lines:L} : null; lyUrl = url; lyIdx = null;
+    L.sort((a, b) => a.t - b.t);             // ไฟล์เก่า/แก้มือบางไฟล์เรียงไม่ครบ — ตรรกะจอต้องการเรียงตามเวลา
+    LY = L.length ? {lines:lycPrep(L)} : null; lyUrl = url; lyIdx = null;
     kwAttach();
     if(LY){
       lyFitDual();                           // ล็อกขนาดตัวอักษรของทั้งเพลงไว้ตั้งแต่ตอนโหลด
@@ -823,12 +922,6 @@ async function loadLyrics(url){
   }
 }
 
-function lyIndexAt(t){                        // บรรทัดสุดท้ายที่ถึงเวลาแสดงแล้ว
-  const L = LY.lines; let lo = 0, hi = L.length - 1, r = -1;
-  while(lo <= hi){ const m = (lo + hi) >> 1;
-    if(L[m].t + LYR_OFFSET - LYR_LEAD <= t){ r = m; lo = m + 1; } else hi = m - 1; }
-  return r;
-}
 const lyW = s => [...s].filter(c => !/\p{Mn}/u.test(c)).length;
 const LYR_FS = w => w<=16?'5.0vw':w<=24?'4.4vw':w<=32?'3.8vw':'3.2vw';
 // โหมด dual: วัดความกว้างจริงของทุกท่อนด้วย canvas ครั้งเดียวต่อเพลง แล้วล็อกขนาดไว้ทั้งเพลง
@@ -848,25 +941,9 @@ function lyFitDual(){
   if($('#lyr').classList.contains('m-dual')) $('#lyr').style.setProperty('--lyrfs', LY.fs);
 }
 addEventListener('resize', lyFitDual);
-// ท่อนนั้นร้องจบเมื่อไหร่ — โหมดคาราโอเกะรอให้ไล่สีถึงตัวสุดท้ายก่อน ไม่งั้นท่อนถัดไปมาทับกลางคำ
-// จำนวนจุดนับถอยหลัง (3,2,1) เมื่อท่อนถัดไปจะมาภายใน 3 วิ ตอนที่จอว่างจากเนื้อ (อินโทร/ช่วงดนตรี) — 0 = ไม่แสดง
-const CD_SECS = 3;
-function countdown(t, i, gap, st){
-  if(st.tv && st.tv.countdown === false) return 0;
-  if(!(i < 0 || gap)) return 0;
-  const nx = LY.lines[i < 0 ? 0 : i + 1];
-  if(!nx) return 0;
-  const rem = nx.t + LYR_OFFSET - LYR_LEAD - t;
-  if(rem <= 0 || rem > CD_SECS) return 0;
-  return Math.min(CD_SECS, Math.ceil(rem));
-}
-const lyEnd = (j, kara) => {
-  const L = LY.lines[j];
-  let e = L.t + LYR_OFFSET + L.d;
-  if(kara && kUse(L)) e = Math.max(e, L.k[L.k.length-1][1] + LYR_OFFSET - songOff() + 0.3);
-  return e;
-};
-const lyPar = j => ((j % 2) + 2) % 2;   // ท่อนคู่ -> แถวบน, ท่อนคี่ -> แถวล่าง — ไม่มีการย้ายแถว
+// โหมดคาราโอเกะ: บรรทัดจบเมื่อไล่สีถึงตัวสุดท้าย (เวลาเนื้อ = เวลาในเสียง − offset ประจำเพลง)
+const kEndOf = j => { const L = LY.lines[j]; return kUse(L) ? L.k[L.k.length-1][1] - songOff() : null; };
+const voicesOn = st => !(st && st.tv && st.tv.voices === false);   // 👥 แยกเสียงร้อง/คอรัส (ปิดได้ใน Studio/รีโมท)
 
 function lyrTick(){
   if(!LY || evicted) return;
@@ -875,52 +952,32 @@ function lyrTick(){
   if(st.lyrMode === 'off') return;
   const kara = st.lyrMode === 'karaoke';
   const dual = st.lyrMode === 'dual' || kara;
-  const t = posNow() - songOff();
-  const i = lyIndexAt(t);
-  // ช่วงดนตรีล้วน: ร้องจบไปนานแล้วและบรรทัดหน้ายังอีกไกล -> ขึ้น ♪ แทนที่จะค้างบรรทัดเดิม
-  let gap = false;
-  if(i >= 0){
-    const L = LY.lines[i], nx = LY.lines[i+1];
-    if(t > L.t + LYR_OFFSET + L.d + LYR_HOLD && (!nx || nx.t + LYR_OFFSET - LYR_LEAD - t > LYR_GAP)) gap = true;
-  }
-  // dual: ท่อนก่อนหน้ายังร้องไม่จบ -> ห้ามเอาท่อนถัดไปไปทับแถวนั้น รอให้ร้องจบก่อน
-  const held = dual && i > 0 && t < lyEnd(i-1, kara);
-  // ♪ ● ● ● นับถอยหลังก่อนเข้าท่อน (อินโทร/หลังช่วงดนตรี) — คนร้องจะได้เข้าทัน
-  const cd = countdown(t, i, gap, st);
-  const key = (kara?'k':dual?'d':'s') + i + (gap?'g':'') + (held?'h':'') + cd;
+  const vo = voicesOn(st);
+  // เวลาเนื้อ: หัก offset ประจำเพลง + ?lyroffset= ของจอ ครั้งเดียว ตรรกะใน lyrcore ใช้เวลาบรรทัดดิบ
+  const t = posNow() - songOff() - LYR_OFFSET;
+  const F = lycFrame(LY.lines, t, {kEnd: kara ? kEndOf : null, countdown: !(st.tv && st.tv.countdown === false)});
+  const key = (kara?'k':dual?'d':'s') + (vo?'v':'') + F.i + (F.gap?'g':'') + F.cd + '|' + F.rows.map(r => r.j + (r.on?'+':'')).join(',');
   if(key === lyIdx) return;
   lyIdx = key;
-  const txt = j => (LY.lines[j] || {}).x || '';
-  let top, bot, onTop, onBot, ri = [-1, -1];     // ri = ท่อนที่อยู่ในแต่ละแถว (-1 = ♪)
-  const note = '\u266a' + (cd ? ' ' + '●'.repeat(cd) : '');
+  const L = LY.lines, txt = j => (L[j] || {}).x || '';
+  const note = '♪' + (F.cd ? ' ' + '●'.repeat(F.cd) : '');
+  const el = $('#lyrcur'), en = $('#lyrnext');
   if(!dual){
-    top = (i < 0 || gap) ? note : txt(i);
-    bot = txt(i+1);
-    onTop = true; onBot = false;         // scroll ไม่ได้ใช้คลาสนี้ แค่กันค้างตอนสลับโหมด
-  }else{
-    const r = ['', ''], on = [false, false];
-    if(i < 0){
-      r[0] = txt(0);                     // อินโทร: ขึ้นท่อนแรกรอไว้เลยให้อ่านก่อน (ยังไม่ถึง -> จาง)
-      r[1] = note;
-      ri[0] = 0;
-    }else{
-      r[lyPar(i)]  = gap ? note : txt(i);
-      on[lyPar(i)] = !gap;               // ช่วงดนตรีล้วนไม่มีใครร้อง -> ไม่ต้องสว่าง
-      ri[lyPar(i)] = gap ? -1 : i;
-      const o = held ? i-1 : i+1;        // อีกแถว: ค้างท่อนเดิมจนร้องจบ แล้วค่อยขึ้นท่อนถัดไปของตัวเอง
-      r[lyPar(o)]  = txt(o);             // lyPar(i-1) === lyPar(i+1) จึงไม่ชนกันเอง
-      on[lyPar(o)] = held;               // ท่อนก่อนหน้าที่ยังร้องไม่จบ = ถึงแล้ว -> สว่างด้วย
-      ri[lyPar(o)] = o < LY.lines.length ? o : -1;
-    }
-    [top, bot] = r; [onTop, onBot] = on;
+    const top = (F.i < 0 || F.gap) ? note : txt(F.i);
+    lyRow(el, top, -1, (F.i < 0 || F.gap) ? null : L[F.i], vo);
+    el.classList.toggle('on', true);         // scroll ไม่ได้ใช้คลาสนี้ แค่กันค้างตอนสลับโหมด
+    lyRow(en, txt(F.i + 1), -1, L[F.i + 1] || null, vo);
+    en.classList.toggle('on', false);
+    $('#lyr').style.setProperty('--lyrfs', `calc(${LYR_FS(lyW(top))} * ${tvScale()})`);
+    return;
   }
-  const el = $('#lyrcur');
-  lyRow(el, top, kara ? ri[0] : -1);
-  el.classList.toggle('on', onTop);
-  const en = $('#lyrnext');
-  lyRow(en, bot, kara ? ri[1] : -1);
-  en.classList.toggle('on', onBot);
-  $('#lyr').style.setProperty('--lyrfs', dual ? (LY.fs || '4.0vw') : `calc(${LYR_FS(lyW(top))} * ${tvScale()})`);
+  [el, en].forEach((row, r) => {
+    const R = F.rows[r];
+    const line = R.j >= 0 ? L[R.j] : null;
+    lyRow(row, R.j === -1 ? note : R.j === -2 ? '' : line.x, kara && line ? R.j : -1, line, vo);
+    row.classList.toggle('on', R.on);
+  });
+  $('#lyr').style.setProperty('--lyrfs', LY.fs || '4.0vw');
 }
 setInterval(lyrTick, 100);
 
@@ -961,13 +1018,16 @@ function kClusters(l){
   const s = l.x.normalize('NFC');
   const segs = kSeg ? Array.from(kSeg.segment(s), g => g.segment) : [...s];
   const kt = new Map(l.k.map(([p, t]) => [p, t]));
-  let cp = 0;
+  let cp = 0, depth = 0;
   const out = segs.map(g => {
     const n = [...g].length;
     let t = null;
     for(let q = cp; q < cp + n; q++) if(kt.has(q)){ t = kt.get(q); break; }
     cp += n;
-    return {g, t};
+    if(/[(（]/.test(g)) depth++;
+    const bk = depth > 0;
+    if(/[)）]/.test(g)) depth = Math.max(0, depth - 1);
+    return {g, t, bk};
   });
   // กลุ่มที่โมเดลไม่รู้จัก (อังกฤษ/ตัวเลข/เว้นวรรค) -> เกลี่ยเวลาระหว่างตัวที่รู้ข้างหน้า-ข้างหลัง
   let prev = -1;
@@ -983,20 +1043,32 @@ function kClusters(l){
 }
 
 // วาดแถว: ข้อความเปล่า หรือ (โหมดคาราโอเกะ + ท่อนนั้นมีเวลารายคำ) แตกเป็น span ทีละกลุ่มอักษร
-function lyRow(el, text, j){
+// vo (แยกเสียงร้อง เปิดอยู่): ส่วนในวงเล็บ = คอรัส/แอดลิบ ตัวเล็กจาง + สีตามเสียงของบรรทัด (v: 2, 3, "bg")
+const VOICE_CLS = v => v === 'bg' ? 'vbg' : (v === 2 || v === '2') ? 'v2' : (v === 3 || v === '3') ? 'v3' : '';
+function bkSpans(text){
+  return lycParts(text).map(([s, bk]) => { const sp = document.createElement('span'); sp.textContent = s;
+    if(bk) sp.className = 'bk'; return sp; });
+}
+function lyRow(el, text, j, line, vo){
   const l = j >= 0 && LY ? LY.lines[j] : null;
   const kc = l && kUse(l) ? kClusters(l) : null;
-  const sig = kc && kc.length ? 'k' + j + ':' + l.x : 't' + text;
+  const vc = vo && line ? VOICE_CLS(line.v) : '';
+  const bk = vo && /[(（]/.test(text);
+  const sig = (kc && kc.length ? 'k' + j + ':' + l.x : 't' + text) + '|' + vc + (bk ? 'b' : '');
   if(el._sig === sig) return;
   el._sig = sig;
+  el.classList.remove('v2', 'v3', 'vbg');
+  if(vc) el.classList.add(vc);
   if(!kc || !kc.length){
     el._k = null;
     el.classList.remove('kara');
-    el.textContent = text;
+    if(bk){ el.textContent = ''; el.append(...bkSpans(text)); }
+    else el.textContent = text;
     return;
   }
   el.textContent = '';
-  const spans = kc.map(c => { const s = document.createElement('span'); s.textContent = c.g; return s; });
+  const spans = kc.map(c => { const s = document.createElement('span'); s.textContent = c.g;
+    if(bk && c.bk) s.className = 'bk'; return s; });
   el.append(...spans);
   el._k = {spans, ts: kc.map(c => c.t), n: 0};
   el.classList.add('kara');

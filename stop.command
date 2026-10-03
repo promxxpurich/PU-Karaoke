@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ปิดเซิร์ฟเวอร์คาราโอเกะ + จอหลัก  ->  ดับเบิลคลิกไฟล์นี้ หรือสั่ง ./stop.command
 cd "$(dirname "$0")"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 PORT=8080
 PROFILE="$PWD/.chrome-player"
@@ -25,6 +26,13 @@ server_pids() {
 }
 
 targets="$(server_pids | tr '\n' ' ')"
+
+# --- ปิดลิงก์ Cloudflare ก่อน (ลิงก์ทดลองใช้ต่อไม่ได้แล้ว และล้าง publicUrl ให้ QR กลับเป็น IP ในบ้าน) ---
+if [ -f /tmp/kara-cloudflare.pid ] && kill -0 "$(cat /tmp/kara-cloudflare.pid)" 2>/dev/null; then
+  echo "🌐 ปิดลิงก์ Cloudflare"
+  ./cloudflare.command --stop >/dev/null 2>&1 || true
+  did=1
+fi
 
 # --- ปิดจอหลักก่อน (เฉพาะโปรไฟล์ของเรา ไม่ยุ่ง Chrome ปกติ) ---
 # ต้องมาก่อนการปิดเซิร์ฟเวอร์: uvicorn รอ WebSocket ปิดก่อนถึงจะจบด้วย TERM
