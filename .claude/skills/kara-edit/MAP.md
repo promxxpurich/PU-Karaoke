@@ -202,12 +202,14 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! เวลาในบล็อกเป็น "เวลาเนื้อ" — lyrTick หัก songOff() + LYR_OFFSET ครั้งเดียวก่อนเรียก lycFrame
 
 ### โหมดคาราโอเกะ (ไล่สีตามเวลาที่ร้องจริง) + 👥 แยกเสียงร้อง / คอรัส
-คำค้น: คาราโอเกะ, karaoke, ไล่สี, colour fill, เวลารายคำ, words, word timing, FA, ตัวอักษร, กลุ่มอักษร, สระลอย, แยกเสียงร้อง, voices, คนที่ 2, สีฟ้า, คนที่ 3, คอรัส, วงเล็บ, ตัวเล็ก, ความหน่วงลำโพง, latency, บลูทูธ
+คำค้น: คาราโอเกะ, karaoke, ไล่สี, colour fill, เวลารายคำ, words, word timing, FA, ตัวอักษร, กลุ่มอักษร, สระลอย, แยกเสียงร้อง, voices, คนที่ 2, สีฟ้า, คนที่ 3, คอรัส, วงเล็บ, ตัวเล็ก, ความหน่วงลำโพง, latency, บลูทูธ, ไล่สีนุ่ม, ค่อย ๆ ไล่, smooth, wipe, ทีละตัวอักษร, karaSmooth
 - `static/player.html` `#lyr.m-kara .kara span.s{` `#lyr .bk{` `#lyr #lyrcur.v2,` — CSS สีที่ร้องแล้ว (--kara), ส่วนในวงเล็บ, สีคนที่ 2/3
 - `static/player.html` `// ===== โหมดคาราโอเกะ` `async function loadWords(url){` `function kwAttach(){` `const kUse = ` `function kClusters(l){` — โหลด lyrics.words.json, ผูก k กับบรรทัด (ข้อความต้องตรงทุกตัว), แตกกลุ่มอักษรด้วย Intl.Segmenter + เกลี่ยเวลา
 - `static/player.html` `function lyRow(el, text, j, line, vo){` `function karaPaint(el, pn){` `function karaLoop(){` `const outLat = ` — วาดแถว (span ทีละกลุ่มอักษร), ไล่สีทุกเฟรม (ย้อนได้), หักความหน่วงเสียงออก
+- `static/player.html` `body.kara-smooth #lyr.m-kara .kara span.p::after{` `const KARA_WIPE = ` `let karaSmooth = ` — 🌈 ไล่สีนุ่ม (tv.karaSmooth, Studio 📺): กลุ่มที่กำลังร้องเติมสีซ้าย→ขวา ด้วยสำเนา ::after + clip-path (--kp %) ถึงเวลากลุ่มถัดไป (สูงสุด KARA_WIPE วิ)
 - `static/player.html` `const voicesOn = ` `const VOICE_CLS = ` `function bkSpans(text){` — 👥 เปิด/ปิด (tv.voices) + คลาสสีตามเสียงของบรรทัด (v: 2/3/bg) + วงเล็บตัวเล็ก
 ! เวลารายตัวอักษรเป็นเวลาจริงในเสียง — บวกแค่ ?lyroffset= ไม่บวก offset ประจำเพลง · KARA_LEAD/KARA_GAP/kClusters มีสำเนาใน static/studio.html (อยู่นอก lyrcore — eval ไม่ตรวจ) แก้ต้องแก้ทั้งสองไฟล์
+! ไล่สีนุ่ม: ::after ต้อง line-height:normal (สืบ 1.32 มาสำเนาจะเลื่อนลงไม่ทับตัวจริง) และ span ห้ามมี transition (สลับ .p→.s จะกะพริบ) · Studio พรีวิวยังเปลี่ยนสีทีละตัวแบบเดิม
 
 ### เวลาเพลงมุมซ้ายล่าง + ตัวอ่านตำแหน่งเพลง (posNow / ytNow / lyrPos)
 คำค้น: เวลาเพลง, song time, 1:23 / 4:10, มุมซ้ายล่าง, ตำแหน่งเพลง, position, currentTime, posNow, ytNow, lyrPos, playPos, นาฬิกา

@@ -2842,6 +2842,7 @@ function renderTvForm(){
       <div class="hint">เกิน 100% บรรทัดยาว ๆ จะขึ้นเป็น 2 บรรทัด (ตัวใหญ่อ่านง่ายขึ้น แต่กินพื้นที่จอมากขึ้น)</div>
       <div class="fr"><label>สีตัวอักษร</label>${col('lyrColor')}</div>
       <div class="fr"><label>สีที่ร้องไปแล้ว (โหมดคาราโอเกะ)</label>${col('karaColor')}</div>
+      <div class="fr">${tog('karaSmooth', '🌈 ไล่สีนุ่ม — ค่อย ๆ เติมสีทีละตัวอักษร (ปิด = เปลี่ยนสีทีละตัวทันที)')}</div>
       ${rng('lyrDim', 'ความสว่างบรรทัดที่ยังไม่ถึง', 15, 100, 5, '%')}
       ${rng('lyrBg', 'ความเข้มพื้นหลังใต้ซับ', 0, 100, 5, '%')}
       <div class="fr"><label>เงา/ขอบตัวอักษร</label><span class="seg" data-seg="lyrShadow">

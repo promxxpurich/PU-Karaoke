@@ -138,6 +138,13 @@
      กลุ่มอักษร (พยัญชนะ+สระบน/ล่าง+วรรณยุกต์) เปลี่ยนสีพร้อมกัน ไม่มีสระลอยแยกสี */
   #lyr.m-kara .kara span{transition:color .12s linear}
   #lyr.m-kara .kara span.s{color:var(--kara)}
+  /* ไล่สีแบบนุ่ม (tv.karaSmooth): กลุ่มที่กำลังร้องค่อย ๆ เติมสีจากซ้ายไปขวา (--kp = ร้องไปแล้วกี่ %)
+     ทำด้วยสำเนาตัวอักษรสีที่ร้องแล้ววางทับ แล้วตัดด้วย clip-path — เงาตัวอักษรเดิมไม่เพี้ยน
+     line-height:normal = กล่องสูงเท่าตัวอักษรพอดี สำเนาจึงทับตรงเป๊ะ (สืบ 1.32 มาจะเลื่อนลง) */
+  body.kara-smooth #lyr.m-kara .kara span{transition:none;position:relative}
+  body.kara-smooth #lyr.m-kara .kara span.p::after{content:attr(data-g);position:absolute;left:0;top:0;
+    line-height:normal;white-space:pre;color:var(--kara);text-shadow:none;pointer-events:none;
+    clip-path:inset(-.6em calc(100% - var(--kp, 0%)) -.6em -.2em)}
   /* 👥 แยกเสียงร้อง: ส่วนในวงเล็บ (คอรัส/แอดลิบ) ตัวเล็กจาง, บรรทัดของคนร้องคนที่ 2/3 คนละสี */
   #lyr .bk{font-size:.74em;font-weight:500;opacity:.8}
   #lyr #lyrcur.v2, #lyr #lyrnext.v2{color:var(--lyrv2dim)}
@@ -949,6 +956,8 @@ function applyTv(tv){
   B.toggle('no-time', tv.time === false);
   B.toggle('no-next', tv.next === false);
   B.toggle('no-addcard', tv.addCard === false);
+  karaSmooth = tv.karaSmooth !== false;
+  B.toggle('kara-smooth', karaSmooth);
   for(let i = 0; i < 4; i++) B.toggle('sh' + i, num('lyrShadow', 2) === i);
   const logoOn = !!(tv.logo && tv.logoUrl);
   B.toggle('logo', logoOn);
@@ -1139,6 +1148,9 @@ setInterval(lyrTick, 100);
 // ท่อนที่ไม่มีเวลารายคำ (FA ไม่มั่นใจ / เนื้อถูกแก้แล้วยังทำใหม่ไม่เสร็จ) แสดงแบบ 2 บรรทัดปกติ
 const KARA_LEAD = 0.06;     // เปลี่ยนสีก่อนเสียงนิดเดียว ชดเชยเวลาที่ตาเห็นสีเปลี่ยน
 const KARA_GAP = 3.0;       // k ตัวแรกห่างจากเวลาบรรทัดเกินนี้ = วางผิดรอบ ไม่ใช้ (ตรงกับ WORDS_MAX_GAP)
+const KARA_WIPE = 0.6;      // ไล่สีนุ่ม: เติมสีกลุ่มหนึ่งนานสุดเท่านี้ (ก่อนช่วงเงียบจะได้ไม่ลากยาว)
+const KARA_TAIL = 0.3;      // ไล่สีนุ่ม: กลุ่มสุดท้ายของบรรทัด (ไม่มีกลุ่มถัดไปบอกเวลาจบ)
+let karaSmooth = true;      // tv.karaSmooth — ปิด = เปลี่ยนสีทีละกลุ่มอักษรทันทีแบบเดิม
 let KW = null, kwUrl = null, kwTok = 0;
 const kSeg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter('th', {granularity:'grapheme'}) : null;
 
@@ -1220,9 +1232,10 @@ function lyRow(el, text, j, line, vo){
   }
   el.textContent = '';
   const spans = kc.map(c => { const s = document.createElement('span'); s.textContent = c.g;
+    s.dataset.g = c.g;                       // สำเนาสีที่ร้องแล้วของไล่สีนุ่ม (::after)
     if(bk && c.bk) s.className = 'bk'; return s; });
   el.append(...spans);
-  el._k = {spans, ts: kc.map(c => c.t), n: 0};
+  el._k = {spans, ts: kc.map(c => c.t), n: 0, p: -1};
   el.classList.add('kara');
   karaPaint(el, lyrPos());
 }
@@ -1235,6 +1248,19 @@ function karaPaint(el, pn){
   const tt = pn - outLat() - LYR_OFFSET + KARA_LEAD;
   let n = 0;
   while(n < K.ts.length && K.ts[n] <= tt) n++;
+  // ไล่สีนุ่ม: กลุ่มล่าสุดที่ถึงเวลา (n-1) ยังเติมสีไม่เต็ม -> ค่อย ๆ เติมจนถึงเวลากลุ่มถัดไป
+  let p = -1, f = 1;
+  if(karaSmooth && n > 0){
+    const a = K.ts[n-1], d = Math.min(n < K.ts.length ? K.ts[n] - a : KARA_TAIL, KARA_WIPE);
+    f = d > 0 ? (tt - a) / d : 1;
+    if(f < 1){ p = n - 1; n--; }             // กลุ่มนี้ยังไม่นับว่าร้องเสร็จ
+  }
+  if(p !== K.p){
+    if(K.p >= 0 && K.spans[K.p]) K.spans[K.p].classList.remove('p');
+    if(p >= 0) K.spans[p].classList.add('p');
+    K.p = p;
+  }
+  if(p >= 0) K.spans[p].style.setProperty('--kp', (f * 100).toFixed(1) + '%');
   if(n === K.n) return;
   for(let q = Math.min(n, K.n); q < Math.max(n, K.n); q++) K.spans[q].classList.toggle('s', q < n);
   K.n = n;                                   // ถอยหลังได้ด้วย (กรอเพลงย้อน)
