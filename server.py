@@ -3237,6 +3237,14 @@ def tv_player_page(key: str):
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/watch", response_class=HTMLResponse)
+def watch_page():
+    """📺 จอที่สอง: เปิดจากเครื่องไหนก็ได้ (ลิงก์อยู่ในตั้งค่ารีโมท) — ดูอย่างเดียว ปิดเสียงเป็นค่าเริ่มต้น
+    ไม่ส่ง hello แบบจอหลัก จึงแย่งจอ/ข้ามเพลง/ทำเวลาเพี้ยนไม่ได้ ไม่ต้องมีรหัสเหมือน /tv/<รหัส>"""
+    return HTMLResponse((BASE / "static" / "player.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
 def _tv_key_ok(key: Any) -> bool:
     return isinstance(key, str) and bool(key) and hmac.compare_digest(key.lower(), _studio_cfg()["tv"].lower())
 
@@ -5663,6 +5671,11 @@ async def ws_endpoint(ws: WebSocket):
                     continue
                 act = msg.get("action")
                 if act == "hello":
+                    if msg.get("role") == "mirror":
+                        # 📺 จอที่สอง (/watch): ดูอย่างเดียว ไม่แย่งจอหลัก — ได้ state เหมือนทุกคน + ตำแหน่งเพลงไว้ซิงก์
+                        ws._is_mirror = True
+                        await _ws_send(ws, json.dumps(room.state()))
+                        continue
                     # เฉพาะเครื่องนี้ หรือเครื่องที่เปิดผ่านลิงก์ /tv/<รหัส> ที่เป็นจอหลักได้ มีได้ทีละตัว ตัวใหม่ชนะ
                     if msg.get("role") != "player":
                         continue
@@ -5685,6 +5698,12 @@ async def ws_endpoint(ws: WebSocket):
                         if t is not None:
                             room.pos = t
                             room.pos_at = time.monotonic()
+                            # ส่งต่อให้จอที่สองไว้ซิงก์ภาพ (ข้อความเล็ก ไม่ broadcast state ทั้งก้อน)
+                            cur_id = (room.current or {}).get("id")
+                            pm = json.dumps({"type": "pos", "t": t, "id": cur_id})
+                            mirrors = [o for o in list(room.clients) if getattr(o, "_is_mirror", False)]
+                            if mirrors:            # พร้อมกันทุกจอ — จอช้า (ผ่าน Cloudflare) ห้ามถ่วงข้อความของจอหลัก
+                                await asyncio.gather(*(_ws_send(o, pm) for o in mirrors))
                     continue
                 if act == "history":
                     await _ws_send(ws, json.dumps({"type": "history", "items": room.history}))

@@ -198,6 +198,9 @@
  .fl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-bottom:8px}
  .fl b{margin-left:auto;color:var(--accent);font-size:14px;font-variant-numeric:tabular-nums}
  .hint{font-size:11.5px;color:var(--dim);margin-top:7px;line-height:1.5}
+ /* 📺 ลิงก์จอที่สอง (ล่างสุดของ ⚙️) */
+ .wurl{display:block;padding:10px 12px;border-radius:12px;background:var(--panel);border:1px solid var(--line);
+   font-size:13px;color:var(--fg);word-break:break-all;text-decoration:none;user-select:all;-webkit-user-select:all}
  .hint b{color:var(--fg)}
  .mixpre{display:flex;gap:6px;margin-top:8px}
  .mixpre button{flex:1;padding:8px 4px;font-size:12.5px;border-radius:11px}
@@ -511,6 +514,16 @@
         <button data-act="lockbtns" data-v="vol">🔉 ลดเสียง · 🔊 เพิ่มเสียง</button>
       </div>
       <div class="hint">iPhone แสดงได้ทีละคู่ · Android แสดงครบทุกปุ่ม · ปุ่มเสียงข้างเครื่องปรับเสียงมือถือ ไม่ใช่ทีวี</div>
+    </div>
+    <div class="fld">
+      <div class="fl">📺 เปิดจอที่สอง (เครื่องไหนก็ได้)</div>
+      <a class="wurl" id="watchurl" target="_blank" rel="noopener"></a>
+      <div class="mixpre" style="margin-top:8px">
+        <button data-act="copywatch">📋 คัดลอกลิงก์</button>
+        <button data-act="openwatch">↗ เปิด</button>
+      </div>
+      <div class="hint">เปิดบนทีวี/คอม/แท็บเล็ตเครื่องไหนก็ได้ ภาพและเนื้อตรงกับจอหลัก · ปิดเสียงไว้กันเสียงซ้อน
+        (กด 🔇 บนจอนั้นเพื่อเปิดเสียง) · คุมเพลงจากรีโมทเหมือนเดิม · ลิงก์ Cloudflare แบบทดลองเปลี่ยนทุกครั้งที่เปิดระบบใหม่</div>
     </div>
 
   </div>
@@ -1328,7 +1341,14 @@ function addByKey(k){
   if(k[0]==='h'){ const h=S.hist.find(x=>('h'+(x.videoId||x.path||'')+'@'+x.at)===k);
                   if(h) openPreview({source:h.source, videoId:h.videoId, path:h.path, title:h.title, thumb:h.thumb}); }
 }
+const watchUrl = st => ((st && st.baseUrl) || location.origin) + '/watch';   // 📺 จอที่สอง
 const ACTIONS = {
+  copywatch:() => { const u = watchUrl(S.st);
+    const done = () => toast('📋 คัดลอกลิงก์จอที่สองแล้ว');
+    const pick = () => { const r = document.createRange(); r.selectNodeContents($('#watchurl'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('เลือกลิงก์แล้ว — กดค้างเพื่อคัดลอก'); };
+    if(navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(u).then(done, pick); else pick(); },
+  openwatch:() => window.open(watchUrl(S.st), '_blank', 'noopener'),
   up:      k => send({action:'up',      id:k}),
   down:    k => send({action:'down',    id:k}),
   playnow: k => send({action:'playnow', id:k}),
@@ -1455,6 +1475,8 @@ function renderMix(st){
   setText($('#lyrnote'), ln);
   setCls($('#lyrnote'),'hide', !ln);
   $('#autorow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === !!st.autoplay));
+  const wu = watchUrl(st);                  // baseUrl = ลิงก์ Cloudflare ถ้าเปิดไว้ ไม่งั้นลิงก์วงแลน
+  if($('#watchurl').getAttribute('href') !== wu){ $('#watchurl').href = wu; setText($('#watchurl'), wu); }
 
 }
 
