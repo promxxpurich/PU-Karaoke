@@ -354,9 +354,6 @@
  .swb.no{color:var(--bad)}
  .swb.up{width:54px;height:54px;font-size:24px;color:#8fd0ff}
  .swb.yes{color:var(--ok)}
- .swgen{width:100%;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:6px;
-   font-size:14px;padding:12px 14px}
- .swgen span{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
  /* รายการถูกใจ: เลื่อนเข้ามาทับจากขวา */
  #swliked{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:var(--bg);
    padding:calc(8px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
@@ -367,26 +364,6 @@
  .swfoot{display:flex;gap:8px;margin-top:10px}
  .swfoot button{flex:1;padding:12px 8px;font-size:14px}
  .swfoot .primary{flex:1.6}
- /* แผ่นเลือกแนว: เลื่อนขึ้นจากล่าง */
- #swscrim{position:absolute;inset:0;z-index:6;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .25s}
- #swscrim.show{opacity:1;pointer-events:auto}
- #swgenre{position:absolute;left:0;right:0;bottom:0;z-index:7;display:flex;flex-direction:column;max-height:86%;
-   background:rgba(14,14,24,.99);border:1px solid var(--line);border-bottom:none;border-radius:22px 22px 0 0;
-   box-shadow:0 -20px 50px rgba(0,0,0,.5);padding:0 14px calc(14px + env(safe-area-inset-bottom));
-   transform:translateY(100%);visibility:hidden;
-   transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s linear .28s}
- #swgenre.open{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
- #swgenre .shd{position:relative;padding:14px 2px 10px}
- .swglist{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
- .swg{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;border-radius:16px}
- .swg i{font-style:normal;font-size:20px;width:26px;text-align:center}
- .swg span{flex:1;min-width:0}
- .swg small{display:block;font-size:11.5px;color:var(--dim)}
- .swg:after{content:"";width:22px;height:22px;flex:none;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
- .swg.on{border-color:rgba(255,77,141,.55);background:linear-gradient(135deg,rgba(255,77,141,.18),rgba(124,92,255,.16)),var(--panel)}
- .swg.on:after{content:"✓";display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;border:none;
-   background:linear-gradient(135deg,var(--accent),var(--accent2))}
- #swgenre > .primary{padding:14px}
 
  #toast{position:fixed;left:50%;transform:translate(-50%,10px);
    bottom:calc(var(--barh) + 14px);
@@ -591,7 +568,6 @@
     <button class="swb up" data-act="swgo" data-v="up" aria-label="เข้าคิวเลย">★</button>
     <button class="swb yes" data-act="swgo" data-v="right" aria-label="ถูกใจ">♥&#xFE0E;</button>
   </div>
-  <button class="swgen" data-act="swgenre">🎚 ตั้งค่าแนวเพลง <span id="swgsel"></span></button>
 
   <section id="swliked" aria-label="เพลงที่ถูกใจ">
     <div class="swhd">
@@ -606,12 +582,6 @@
     </div>
   </section>
 
-  <div id="swscrim"></div>
-  <section id="swgenre" aria-label="เลือกแนวเพลง">
-    <div class="shd"><b>อยากร้องแนวไหน</b><button class="shx" data-act="swgclose">✕</button></div>
-    <div class="swglist swscroll" id="swglist"></div>
-    <button class="primary" data-act="swstart">เริ่มปัด</button>
-  </section>
 </div>
 
 <nav class="dock" id="dock">
@@ -1084,8 +1054,7 @@ $('#scrim').addEventListener('touchmove', e=>e.preventDefault(), {passive:false}
 document.addEventListener('keydown', e=>{
   if(e.key !== 'Escape') return;
   if(S.ov.open) closeOv();
-  else if(SW.open){ if($('#swgenre').classList.contains('open')) swGenreClose();
-                    else if($('#swliked').classList.contains('open')) swLiked(false); else swClose(); }
+  else if(SW.open){ if($('#swliked').classList.contains('open')) swLiked(false); else swClose(); }
   else setSheet(null);
 });
 
@@ -1119,13 +1088,13 @@ $('#repsend').onclick = () => {
 
 // ===== 7c. 🃏 PU Match: ปัดหาเพลง ======================================
 // ซ้าย = ข้าม · ขวา = ❤️ เก็บไว้ในเครื่องนี้ · ขึ้น = ★ เข้าคิวเลย · แตะ = ดูสถานะ (หน้าเดียวกับกด ＋)
-// การ์ดมาจาก /api/swipe: เพลงในเครื่องก่อน ไม่พอค่อยเติมจาก YouTube ตามแนวที่เลือก
-// เก็บใน localStorage (หายได้ ไม่เป็นไร): แนวที่เลือก / ❤️ / เพลงที่เห็นแล้ว (กันวนซ้ำ)
-const SW_KEYS = {g:'swipeGenres', liked:'swipeLiked', seen:'swipeSeen'};
+// การ์ดมาจาก /api/swipe: สุ่มจากทุกเพลงในเครื่องก่อน ไม่พอค่อยเติมจาก YouTube
+// เก็บใน localStorage (หายได้ ไม่เป็นไร): ❤️ / เพลงที่เห็นแล้ว (กันวนซ้ำ)
+const SW_KEYS = {liked:'swipeLiked', seen:'swipeSeen'};
 const swLoad = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; }catch(e){ return d; } };
 const swSave = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
-const SW = { open:false, genres:swLoad(SW_KEYS.g, null), liked:swLoad(SW_KEYS.liked, []), seen:swLoad(SW_KEYS.seen, []),
-             gl:null, gsel:[], deck:[], hist:[], loading:false, done:false, err:'', tok:0, busy:false };
+const SW = { open:false, liked:swLoad(SW_KEYS.liked, []), seen:swLoad(SW_KEYS.seen, []),
+             deck:[], hist:[], loading:false, done:false, err:'', tok:0, busy:false };
 if(!Array.isArray(SW.liked)) SW.liked = [];
 if(!Array.isArray(SW.seen)) SW.seen = [];
 
@@ -1134,65 +1103,15 @@ function swOpen(){
   const el = $('#swipe');
   setCls(el,'hide',false); void el.offsetWidth; setCls(el,'show',true);
   document.body.classList.add('swiping');
-  swLoadGenres();
-  if(!Array.isArray(SW.genres)) swGenreOpen();           // ครั้งแรก: ให้เลือกแนวก่อน
-  else { swRender(); swFill(); }
+  swRender(); swFill();
 }
 function swClose(){
   SW.open = false;
   setCls($('#swipe'),'show',false);
   document.body.classList.remove('swiping');
   setTimeout(()=>{ if(!SW.open) setCls($('#swipe'),'hide',true); }, 220);
-  swLiked(false); swGenreClose();
+  swLiked(false);
 }
-async function swLoadGenres(){
-  try{
-    SW.gl = (await (await fetch('/api/genres')).json()).genres || [];
-    if(Array.isArray(SW.genres)){                       // แนวที่ถูกลบใน Studio ไปแล้ว -> ตัดทิ้ง
-      const ids = new Set(SW.gl.map(g=>g.id)), keep = SW.genres.filter(g=>ids.has(g));
-      if(keep.length !== SW.genres.length){ SW.genres = keep; swSave(SW_KEYS.g, keep); }
-    }
-  }catch(e){ SW.gl = SW.gl || []; }
-  swGenreLabel(); if($('#swgenre').classList.contains('open')) swGenreRender();
-}
-function swGenreLabel(){
-  const sel = SW.genres || [], gl = SW.gl || [];
-  const names = sel.map(id => (gl.find(g=>g.id===id) || {}).name).filter(Boolean);
-  setText($('#swgsel'), '· ' + (names.length ? names.join(', ') : 'ทุกแนว'));
-}
-
-// ---- แผ่นเลือกแนว ----
-function swGenreOpen(){
-  SW.gsel = [...(SW.genres || [])];
-  swGenreRender();
-  setCls($('#swgenre'),'open',true); setCls($('#swscrim'),'show',true);
-}
-function swGenreClose(){ setCls($('#swgenre'),'open',false); setCls($('#swscrim'),'show',false); }
-function swGenreRender(){
-  const gl = SW.gl, box = $('#swglist');
-  if(!gl){ setHTML(box, '<div class="skel" style="height:58px"></div>'.repeat(4)); return; }
-  const row = (id, ic, name, sub, on) =>
-    `<button class="swg${on?' on':''}" data-act="swgpick" data-v="${esc(id)}"><i>${esc(ic)}</i>`
-    + `<span>${esc(name)}<small>${esc(sub)}</small></span></button>`;
-  setHTML(box, row('', '🔀', 'ทุกแนว', 'สุ่มจากทุกเพลง', !SW.gsel.length)
-    + gl.map(g => row(g.id, g.icon || '🎵', g.name,
-        g.auto ? `อัปโหลดภายใน 1 ปี · ในเครื่อง ${g.count} เพลง`
-               : g.count ? `ในเครื่อง ${g.count} เพลง · ไม่พอดึงจาก YouTube เพิ่ม` : 'ยังไม่มีในเครื่อง · ดึงจาก YouTube',
-        SW.gsel.includes(g.id))).join(''));
-}
-function swGenrePick(id){
-  if(!id) SW.gsel = [];
-  else SW.gsel = SW.gsel.includes(id) ? SW.gsel.filter(x=>x!==id) : [...SW.gsel, id];
-  swGenreRender();
-}
-function swGenreStart(){
-  const was = JSON.stringify(SW.genres), now = JSON.stringify(SW.gsel);
-  SW.genres = [...SW.gsel]; swSave(SW_KEYS.g, SW.genres);
-  swGenreClose(); swGenreLabel();
-  if(was !== now){ SW.deck = []; SW.hist = []; SW.done = false; SW.err = ''; SW.tok++; SW.loading = false; }
-  swRender(); swFill();
-}
-
 // ---- กองการ์ด ----
 async function swFill(){
   if(SW.loading || SW.done || SW.deck.length > 3) return;
@@ -1200,10 +1119,9 @@ async function swFill(){
   if(!SW.deck.length) swRender();
   try{
     const r = await fetch('/api/swipe', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({genres: SW.genres || [], n: 10,
-                            seen: SW.seen.slice(-260).concat(SW.deck.map(c=>c.videoId))})});
+      body: JSON.stringify({n: 10, seen: SW.seen.slice(-260).concat(SW.deck.map(c=>c.videoId))})});
     const d = await r.json();
-    if(my !== SW.tok) return;                       // เปลี่ยนแนวไปแล้ว ผลชุดนี้ทิ้ง
+    if(my !== SW.tok) return;                       // กดเริ่มใหม่ไปแล้ว ผลชุดนี้ทิ้ง
     const have = new Set(SW.deck.map(c=>c.videoId));
     const add = (d.cards || []).filter(c => !have.has(c.videoId));
     SW.deck.push(...add);
@@ -1215,9 +1133,7 @@ function swMeta(c){
   return [c.channel, fmt(c.duration), c.year].filter(Boolean).map(x=>esc(String(x))).join(' · ');
 }
 function swChips(c){
-  const gl = SW.gl || [];
-  return (c.genres || []).map(id => { const g = gl.find(x=>x.id===id); return g ? chip('', `${g.icon||''} ${g.name}`.trim()) : ''; }).join('')
-    + (c.archived ? chip('ok','⚡ มีในเครื่อง') : chip('wait','⬇️ ต้องโหลดก่อน'))
+  return (c.archived ? chip('ok','⚡ มีในเครื่อง') : chip('wait','⬇️ ต้องโหลดก่อน'))
     + (c.archived && c.lyrLines ? chip('ok','📝 เนื้อ') : '');
 }
 function swCardNode(c){
@@ -1256,9 +1172,8 @@ function swRender(){
     e.className = 'swempty';
     if(SW.loading){ e.classList.add('skel'); e.innerHTML = '<b>🔎 กำลังหาเพลง…</b>'; }
     else e.innerHTML = `<b>${SW.err ? '😵 ' + esc(SW.err) : '🎉 ปัดครบแล้ว'}</b>`
-      + (SW.err ? '' : 'ยังไม่มีเพลงใหม่ในแนวนี้')
-      + `<button data-act="swreset">↺ เริ่มใหม่ (ให้เพลงเดิมวนกลับมา)</button>`
-      + `<button data-act="swgenre">🎚 เปลี่ยนแนวเพลง</button>`;
+      + (SW.err ? '' : 'ยังไม่มีเพลงใหม่ให้ปัด')
+      + `<button data-act="swreset">↺ เริ่มใหม่ (ให้เพลงเดิมวนกลับมา)</button>`;
     box.appendChild(e);
   }
   setText($('#swlkc'), String(SW.liked.length)); setText($('#swlkn'), String(SW.liked.length));
@@ -1327,7 +1242,7 @@ function swReset(){
 let swDrag = null;
 $('#swdeck').addEventListener('pointerdown', e=>{
   const n = e.target.closest('.swcard.top');
-  if(!n || e.button > 0 || $('#swgenre').classList.contains('open')) return;
+  if(!n || e.button > 0) return;
   swDrag = {n, id:e.pointerId, x:e.clientX, y:e.clientY, t:Date.now(), dx:0, dy:0, moved:false};
   n.setPointerCapture(e.pointerId);
   n.classList.add('drag');
@@ -1357,7 +1272,6 @@ $('#swdeck').addEventListener('pointerup', swDragEnd);
 $('#swdeck').addEventListener('pointercancel', swDragEnd);
 // เลื่อนได้เฉพาะในรายการ ไม่ให้หน้าข้างหลังไหล
 $('#swipe').addEventListener('touchmove', e=>{ if(!e.target.closest('.swscroll')) e.preventDefault(); }, {passive:false});
-$('#swscrim').addEventListener('click', swGenreClose);
 
 // ---- รายการถูกใจ ----
 function swLiked(on){
@@ -1450,10 +1364,6 @@ const ACTIONS = {
   swgo:    (_k,b) => swFling(b.dataset.v),
   swundo:  () => swUndo(),
   swreset: () => swReset(),
-  swgenre: () => swGenreOpen(),
-  swgclose:() => swGenreClose(),
-  swgpick: (_k,b) => swGenrePick(b.dataset.v),
-  swstart: () => swGenreStart(),
   swliked: () => swLiked(true),
   swback:  () => swLiked(false),
   swdel:   k => k && swUnlike(k.slice(1)),

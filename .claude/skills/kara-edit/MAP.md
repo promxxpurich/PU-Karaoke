@@ -91,14 +91,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/remote.html` `const lm = ['scroll','dual','off']` — ไฮไลต์ปุ่มตาม state + โน้ต #lyrnote ตอนเพลงยังไม่มีเวลารายคำ
 ! โหมดเนื้อ (st.lyrMode) ตั้งได้จากรีโมทเท่านั้น · 👥 คือค่าเดียวกับใน Studio (st.tv.voices) · คาราโอเกะไล่สีได้เฉพาะเพลงที่มี wordsUrl — ไม่มีจอขึ้นแบบ 2 บรรทัดแทน
 
-### 🃏 PU Match — ปัดหาเพลง (กองการ์ด / แผ่นเลือกแนว / ❤️ ถูกใจ)
-คำค้น: PU Match, ปัดเพลง, ปัดหาเพลง, swipe, tinder, การ์ดสุ่มเพลง, ปัดซ้าย, ปัดขวา, ปัดขึ้น, ถูกใจ, ❤️, liked, แนวเพลง, เลือกแนว, genre, ไม่รู้จะร้องอะไร, ย้อนการปัด
-- `static/remote.html` `id="swipebtn"` `id="swipe"` `id="swdeck"` `id="swliked"` `id="swgenre"` — HTML: การ์ดทางเข้าใต้ "กำลังเล่น", overlay เต็มจอ, แผงถูกใจ (เลื่อนจากขวา), แผ่นเลือกแนว (เลื่อนจากล่าง)
-- `static/remote.html` ` #swipebtn{width:100%` ` #swipe{position:fixed` ` .swcard{position:absolute` ` .swdeck{position:relative` ` #swgenre{position:absolute` — CSS (overlay z 35: ทับแถบล่าง แต่ต่ำกว่า toast/หน้าสถานะ #addov)
+### 🃏 PU Match — ปัดหาเพลง (กองการ์ดสุ่มจากทุกเพลง / ❤️ ถูกใจ)
+คำค้น: PU Match, ปัดเพลง, ปัดหาเพลง, swipe, tinder, การ์ดสุ่มเพลง, ปัดซ้าย, ปัดขวา, ปัดขึ้น, ถูกใจ, ❤️, liked, สุ่มเพลง, ไม่รู้จะร้องอะไร, ย้อนการปัด
+- `static/remote.html` `id="swipebtn"` `id="swipe"` `id="swdeck"` `id="swliked"` — HTML: การ์ดทางเข้าใต้ "กำลังเล่น", overlay เต็มจอ, แผงถูกใจ (เลื่อนจากขวา)
+- `static/remote.html` ` #swipebtn{width:100%` ` #swipe{position:fixed` ` .swcard{position:absolute` ` .swdeck{position:relative` — CSS (overlay z 35: ทับแถบล่าง แต่ต่ำกว่า toast/หน้าสถานะ #addov)
 - `static/remote.html` `// ===== 7c. 🃏 PU Match` `const SW_KEYS =` `function swOpen(){` `async function swFill(){` `function swRender(){` `function swCommit(c, dir){` `function swFling(dir){` `function swUndo(){` `function swDragEnd(e){` — POST /api/swipe เติมการ์ดเมื่อเหลือ ≤3 ใบ, ลาก (pointer) เกิน 28% กว้าง = ซ้าย/ขวา, ขึ้นเกิน 18% สูง = ★ addItem เข้าคิว, แตะ = openPreview
-- `static/remote.html` `function swGenreOpen(){` `function swGenreStart(){` `async function swLoadGenres(){` — แนวจาก /api/genres (แนวที่เพิ่มใน Studio โผล่เอง), จำใน localStorage swipeGenres, เปิดครั้งแรกเด้งแผ่นแนวให้เลือก
 - `static/remote.html` `function swRenderLiked(){` `function swAddAll(){` `function swOnAdded(vid){` — รายการ ❤️ (key w+videoId ใน addByKey), ＋ เปิดหน้าสถานะ เพิ่มแล้วเอาออกจากรายการเอง
-! ❤️ / เพลงที่เห็นแล้ว / แนวที่เลือก เก็บใน localStorage ของมือถือเครื่องนั้นเท่านั้น (swipeLiked ≤100, swipeSeen ≤300) · ไม่มีปุ่มเปิด/ปิดใน tv.json เพราะไม่ได้แสดงบนจอทีวี
+! ไม่มีแนวเพลงแล้ว (ลบออก 2026-10-06) — การ์ดสุ่มจากทุกเพลงในเครื่อง · ❤️ / เพลงที่เห็นแล้ว เก็บใน localStorage ของมือถือเครื่องนั้นเท่านั้น (swipeLiked ≤100, swipeSeen ≤300) · ไม่มีปุ่มเปิด/ปิดใน tv.json เพราะไม่ได้แสดงบนจอทีวี
 ! swRender ห้ามถอด/ใส่การ์ดที่อยู่ถูกที่แล้ว (transition หาย ใบถัดไปกระตุก) · .swdeck ต้องมี z-index ไม่งั้นการ์ดลอยทับแผงถูกใจ
 
 ### ⏩ ข้ามอินโทร + 🎬 คอมโบ (การ์ดข้าง PU Match / แผ่นรายการคอมโบ)
@@ -239,7 +238,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 คำค้น: layout, โครงหน้า, header, หัว, แท็บ, tab, เพลงทั้งหมด, กำลังเล่น & คิว, หน้าจอหลัก, สลับหน้า, data-view, มือถือ, mobile, จอแคบ, responsive, iPad, ← รายการ, back, ซูม, pinch, iOS ซูมเอง, 16px
 - `static/studio.html` ` .app{display:grid` ` .main{display:grid` — CSS (ซ้ายรายการ 380px | ขวาตัวแก้)
 - `static/studio.html` ` .tabs{display:flex` `body:not([data-view=songs]) .main` `<nav class="tabs" id="tabs">` — แท็บ + ซ่อน/โชว์ตาม body[data-view]
-- `static/studio.html` `// ===== 16b. แท็บ` `function setView(v){` — สลับแท็บ (จำใน localStorage studioView), หยุดพรีวิวเมื่อออกจากแท็บเพลง, เข้าแท็บคิว/ทีวี/แนวเพลงแล้ววาด/โหลด
+- `static/studio.html` `// ===== 16b. แท็บ` `function setView(v){` — สลับแท็บ (จำใน localStorage studioView), หยุดพรีวิวเมื่อออกจากแท็บเพลง, เข้าแท็บคิว/ทีวี/ตัดต่อแล้ววาด/โหลด
 - `static/studio.html` `@media (max-width:999px){` `input,select,textarea{font-size:16px}` `$('#back').onclick` — จอ ≤999px โชว์ทีละฝั่ง (body.editing) + ปุ่ม ← รายการ (ถามก่อนทิ้งงาน)
 - `static/studio.html` `<meta name="viewport"` `// ===== 0. ล็อกซูมบนมือถือ` — กัน pinch บนจอสัมผัส (iOS ไม่สน user-scalable=no)
 ! บนจอแคบช่องพิมพ์ต้อง ≥16px (กฎใน @media) ไม่งั้น iOS ซูมเข้าเองตอนแตะ
@@ -370,15 +369,6 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/studio.html` `// ===== 16d.` `const TV_CHIP_LB = ` `async function loadTv(){` `function renderTvForm(){` `function fillTvForm(){` `function tvSet(patch){` `function renderTvPreview(){` — GET/POST /api/studio/tv (บันทึกเอง หน่วง 300ms), อัป/ลบรูป PUT/DELETE /api/studio/tv/logo (≤10 MB), คืนค่าเริ่มต้น
 ! ค่าใหม่ (data-tv="key") ต้องเพิ่มใน TV_SCHEMA ของ server.py + applyTv ใน static/player.html + renderTvPreview ที่นี่ · ชิปใหม่ต้องตรงกับ TV_CHIPS (server.py) และ CH ใน static/player.html
 
-### 🗂 แท็บแนวเพลง: บอร์ดลากวาง (ช่องแนวซ้าย / เพลงทั้งหมดขวา)
-คำค้น: แนวเพลง, genre, หมวดหมู่, category, ลากวาง, drag and drop, ลากเพลง, ย้ายแนว, เพิ่มแนว, ลบแนว, เรียงแนว, ระบบเดา, ยืนยันที่เดา, เพลงใหม่, PU Match, คำค้น YouTube
-- `static/studio.html` `แนวเพลง: บอร์ดลากวาง (ซ้าย` ` .gnwrap{display:grid` ` .gcol{background` ` .gs{display:flex` ` .gghost{position:fixed` — CSS บอร์ด / ช่อง / แถวเพลง (เส้นประ = ระบบเดา) / ป้ายลอยตอนลาก
-- `static/studio.html` `id="vgenres"` `id="gngrid"` `id="gside"` `id="glist"` — HTML (จอแคบ: รายการขึ้นบน บอร์ดอยู่ล่าง)
-- `static/studio.html` `// ===== 16e. 🗂 แนวเพลง` `async function loadGenres(){` `function renderGenres(){` `function renderGenreList(){` `async function gnAssign(` `async function gnUndo(){` `function gnMenu(id){` — วาดบอร์ด (จำ scroll ของแต่ละช่อง), เปลี่ยนบนจอก่อนแล้ว POST assign (พลาด = โหลดใหม่), ⌘Z = POST set ค่าเดิม, ⋯ = ชื่อ/ไอคอน/คำค้น YouTube/✓ ยืนยันที่เดา/ลบแนว
-- `static/studio.html` `function gnStart(d){` `function gnEnd(e, cancel){` `function gnScrollLoop(){` `const GN_HOLD =` — ลากด้วย pointer events: เมาส์ลากทันที, นิ้วต้องแตะค้าง 280ms; ขวา→ช่อง = เพิ่ม, ช่อง→ช่อง = ย้าย (Alt = ก๊อป), ช่อง→ขวา = เอาออก, หัวช่อง = เรียงลำดับ; แตะเพลงขวา = เลือกหลายเพลง แล้วแตะช่อง = ใส่ทั้งหมด
-- `static/studio.html` `id="gotogn"` — หัวเพลงในแท็บเพลงทั้งหมดโชว์แนว (? = เดา) กดแล้วไปแท็บนี้
-! ใช้ HTML5 drag ไม่ได้ (ไม่ทำงานบนจอสัมผัส) · ช่อง "เพลงใหม่" 🔒 คำนวณจากวันอัปโหลด ลากใส่ไม่ได้
-
 ### ✂️ แท็บตัดต่อ & คอมโบ (แทร็กสองเพลง + จอทีวีเล็ก + แก้คอมโบ)
 คำค้น: ตัดต่อ, ตัดคลิป, จุดเริ่ม, จุดจบ, trim, เฟดรายเพลง, คอมโบ, combo, เพลย์ลิสต์, ฟังรอยต่อ, จอเล็ก, บันทึกคิวเป็นคอมโบ, โหมด custom
 - `static/studio.html` `id="vcut"` ` .cutgrid{display:grid` ` .ctrk canvas{` ` .cbx{background` — HTML/CSS: รายการซ้าย (คิว/คอมโบ), จอเล็ก #ctvv + แผ่นดำ #ctvbk + ซับ #cl1/#cl2, แทร็ก A/B, กล่องแก้คอมโบ
@@ -475,12 +465,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `@app.get("/api/archive")` `def _song_meta(` — ทุกเพลงที่มี video.mp4 เรียงตามจำนวนครั้งที่ถูกสั่ง (นับจากประวัติ) พร้อม stems/จำนวนบรรทัด/ชนิดเนื้อ, ชื่อและความยาวอ่านจาก info.json (แคชด้วย mtime)
 - `server.py` `@app.get("/api/songinfo")` `@app.get("/api/library")` — สถานะเพลงก่อนกดเพิ่ม (ใช้ตัวเติมฟิลด์ชุดเดียวกับคิว, เพลงที่ยังไม่เข้าไปป์ไลน์จะได้ "new") / ไฟล์สื่อที่วางเองใน songs/ (ไม่รวม yt/)
 
-### แนวเพลง genres.json + 🃏 PU Match (genres / swipe / studio genres)
-คำค้น: แนวเพลง, genre, genres.json, เดาแนว, GENRE_RULES, แร็ป, วัยรุ่น, ลูกทุ่ง, เพลงใหม่, upload_date, PU Match, swipe, ปัดเพลง, การ์ดสุ่ม, คำค้น YouTube, ลากวาง
-- `server.py` `# ===== แนวเพลง + 🃏 PU Match` `GENRES_FILE = ` `GENRE_RULES: dict` `def _genres_db(` `def _genres_save(` `def _genre_guess(` `def _song_genres(` `def _song_is_new(` — genres.json = {cats:[{id,name,icon,q}], songs:{vid:[id]}}, เพลงที่ไม่อยู่ใน songs = เดาจากชื่อ/ช่อง/แท็ก/คำอธิบาย (ได้เฉพาะ rap/teen/luk), "เพลงใหม่" = upload_date ภายใน 365 วัน (ไม่เก็บลงไฟล์)
-- `server.py` `@app.get("/api/genres")` `@app.post("/api/swipe")` `def _swipe_pick(` `def _swipe_yt(` — การ์ด PU Match: เพลงในเครื่องตามแนว (ตัด seen/คิว, สุ่มถ่วงน้ำหนัก plays/เนื้อ/ไกด์) ไม่พอเติมจาก YouTube ด้วยคำค้น q ของแนว (แคช 30 นาที, ตัดคลิปปิดฝัง)
-- `server.py` `@app.get("/api/studio/genres")` `@app.post("/api/studio/genres/assign")` `@app.post("/api/studio/genres/set")` `@app.post("/api/studio/genres/confirm")` `@app.post("/api/studio/genres/cat")` `def _genre_names(` — บอร์ดลากวางใน Studio: assign (add/remove ทีละหลายเพลง, เพลงที่เดาไว้ถูกก๊อปผลเดาลงไฟล์ก่อน), set (⌘Z, null = กลับไปเดา), confirm ที่เดาทั้งแนว, เพิ่ม/แก้/ลบ/เรียงแนว
-! _song_meta เก็บ date/tags/desc (400 ตัว) ไว้เดาแนวด้วย — ห้ามเก็บ info.json ทั้งก้อน · รายการว่าง [] ใน songs = ตั้งใจว่าไม่มีแนว (ไม่เดาทับ) · ลบแนวแล้วเพลงที่เดาไว้หลายแนวถูกบันทึกแนวที่เหลือไว้ก่อน
+### 🃏 PU Match ฝั่ง server (swipe)
+คำค้น: PU Match, swipe, ปัดเพลง, การ์ดสุ่ม, คำค้น YouTube, สุ่มเพลง
+- `server.py` `# ===== 🃏 PU Match` `@app.post("/api/swipe")` `def _swipe_pick(` `def _swipe_yt(` `SWIPE_YT_Q = ` — การ์ด PU Match: ทุกเพลงในเครื่อง (ตัด seen/คิว, สุ่มถ่วงน้ำหนัก plays/เนื้อ/ไกด์) ไม่พอเติมจาก YouTube ด้วยคำค้นเดียว SWIPE_YT_Q (แคช 30 นาที, ตัดคลิปปิดฝัง)
+! _song_meta ห้ามเก็บ info.json ทั้งก้อน (ไฟล์ละหลายร้อย KB) · แนวเพลง (genres.json, แท็บ 🗂 ใน Studio) ถูกลบออกแล้ว 2026-10-06
 
 ### สุขภาพระบบและ log จากจอ (health / clientlog)
 คำค้น: health, เช็คระบบ, สถานะระบบ, debug, ดีบัก, คิวงาน, demucs version, yt-dlp version, ffmpeg, GPU ทำอะไรอยู่, log, clientlog, error จากจอ, console
@@ -510,6 +498,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ### แยกเสียงร้อง Demucs (stems / vocals)
 คำค้น: แยกเสียง, แยกเสียงร้อง, stems, demucs, htdemucs, vocals.m4a, no_vocals.m4a, ไกด์ร้อง, ตัดเสียงร้อง, mps, cpu, แยกเสียงใหม่
 - `server.py` `async def _enqueue_sep(` `async def _sep_worker(` `def _separate_one(` `DEMUCS_MODEL = "htdemucs"` — รัน demucs --two-stems vocals เป็น subprocess (ลอง mps ก่อนแล้ว cpu) ได้ vocals.m4a/no_vocals.m4a, เสร็จแล้วต่อไปหาเนื้อ/best/words
+- `server.py` `SEP_MAX_SEC = ` `async def _sep_skip_long(` `_sep_gone: set` — คลิปยาวเกิน 10 นาทีไม่แยกเสียง/ไม่ถอดเสียง (sep = failed + _SEP_LONG_ERR, best/words ใช้ audio.m4a แทน, ไม่ขึ้นปุ่มซ่อม), เพลงที่ลบระหว่างแยกห้ามตกไป cpu
+! จำ device เฉพาะ mps — เคยจำ cpu หลังเพลงถูกลบกลางทาง (demucs rc=-9) แล้วทุกเพลงแยกบน cpu จนรีสตาร์ท (เครื่องร้อน/ซับช้า) · cpu สำรองใช้ครึ่ง core + nice
 - `server.py` `def _sep_fields(` `def _has_stems(` `def _purge_audio_caches(` — sepStatus บนการ์ด, เช็คว่ามีสเต็มครบ, ล้างแคช FA/เสียงร้องเก่าหลังแยกใหม่
 
 ### หาเนื้อเพลง gen_lyrics และโหลดเนื้อใหม่ (lyrics pipeline)
@@ -544,7 +534,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `def _best_needed(` `def _best_decide(` `def _best_apply(` `def _best_record(` `async def _refine_dec(` `def _check_now(` — เช็คว่าต้องทำไหม, ตัดสิน keep|shift|retime|newtext|found|none, เขียน lyrics.json (สำรองลง 🕘 ก่อน), บันทึกผลลง lyrics.best.json
 - `server.py` `BEST_MANUAL = frozenset(` `BEST_VERSION = 2` — แหล่งที่ห้ามแตะ (manual-edit/manual-lrc/manual-txt) และรุ่นของงาน
 - `server.py` `def _prefetch_best(` `async def _best_sources(` `BEST_PRE_TTL = ` — เพลงใหม่: ดึงแหล่งออนไลน์ + OCR ไว้ก่อนระหว่างรอแยกเสียง (ไม่ใช้ GPU) แล้ว _run_best ใช้ชุดนั้นเมื่อ hash เนื้อ + ภาษายังเหมือนตอนดึง (ผู้สมัครชุดเดียวกัน = ผลตัดสินเดิม) ไม่งั้นดึงใหม่ · เพลงที่ต้องรอถอดเสียงไม่ดึงล่วงหน้า (OCR ซ้อน demucs/ถอดเสียงแล้วงานพวกนั้นช้าลง — ให้ไปซ้อนกับการคำนวณเสียง FA ในงานเลือกเนื้อแทน)
-- `server.py` `async def _best_fa_warm(` `_FA_WARM_TEXT = ` — คำนวณแคชเสียงร้องของ FA (ไทย + อังกฤษ) ระหว่างรอผู้สมัคร แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
+- `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบันมีคำอังกฤษ (เพลงไทยล้วน = โมเดลไทยอย่างเดียว) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
 ! บรรทัด [best] ใน log แตกเวลาเป็นขั้น (รอคิว / แหล่ง / รอGPU / FA / ซ่อม / ตรวจ) + "เนื้อใหม่ขึ้นจอหลังกดเพิ่ม" — ดูตรงนี้ก่อนถ้าเนื้อเพลงใหม่ช้า
 ! งานอัตโนมัติห้ามเขียนทับเนื้อที่คนแก้หรือวางไฟล์เอง (BEST_MANUAL) เด็ดขาด แม้มีคนกดสั่ง (เช็คทั้งตอนเข้าคิวและตอนรัน) ถ้าเนื้อเปลี่ยนระหว่างทำ (hash ไม่ตรง) ต้องทิ้งผล และเพิ่ม BEST_VERSION แล้วจะทำซ้ำทั้งคลัง
 
@@ -754,7 +744,6 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `tv.json` — ค่าจอหลักที่ตั้งจาก Studio 📺 (title, titleHide, singer, chips, lyrScale, lyrColor, lyrDim, karaColor, lyrBg, lyrShadow, lyrLift, qr, qrSize, time, next, addCard, logo, logoSize, idleText, countdown, voices, fadeIn, fadeOut, custom, customLead, customTail, customAud, skipBtn, skipMin); รูปมุมขวาบนที่ .tv/logo.png
 - `lyrics-in/README.md` `## ตั้งค่าหน้าจอหลัก` — ความหมายของแต่ละค่า (ลบไฟล์ = กลับค่าเริ่มต้น)
 - `.gitignore` `.studio.json` `history.json` `.chrome-player/` — ไฟล์ลับ/ส่วนตัวนอก git: .studio.json = {pin, secret, tv (รหัสลิงก์จอ), publicUrl, mxmToken}, history.json = ประวัติเพลง + ชื่อคนร้อง, โปรไฟล์ Chrome ของจอหลัก
-- `server.py` `GENRES_FILE = ` — genres.json (สร้างเมื่อจัดแนวครั้งแรก): แนวเพลงที่จัดใน Studio 🗂 (หัวข้อแนว + เพลงที่จัดเองแล้ว) ใช้กับ 🃏 PU Match; ไม่มีไฟล์ = แร็ป/วัยรุ่น/ลูกทุ่ง + ระบบเดาทุกเพลง
 - `server.py` `COMBOS_FILE = ` — combos.json (สร้างเมื่อสร้างคอมโบแรก): 🎬 คอมโบที่จัดในแท็บ ✂️ [{id, name, items: [{videoId, title, start?, end?, fadeIn?, fadeOut?}]}]
 - `cloudflare.command` `set_public_url() {` — ตัวอย่างแก้ .studio.json แบบรักษาฟิลด์อื่น (server อ่านใหม่เองตาม mtime ไม่ต้องรีสตาร์ท)
 ! คีย์ใหม่ใน tv.json ต้องเพิ่มใน TV_SCHEMA ของ server.py (_clean_tv ทิ้งคีย์ที่ไม่รู้จัก) + ปุ่มใน Studio 📺; ปิดแล้วจอต้องเหมือนเดิม

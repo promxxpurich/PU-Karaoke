@@ -1260,6 +1260,9 @@ class _HeavyGate:
 
 _heavy = _HeavyGate()                              # demucs/whisper/ตรวจเนื้อ แย่ง GPU กัน ให้ทีละงาน
 SEP_TIMEOUT = 30 * 60        # ต่อ device — cpu เพลงยาวยังจบทัน / ค้างเกินนี้ = ค้างจริง
+SEP_MAX_SEC = 10 * 60        # คลิปยาวกว่านี้ (เมดเลย์/ไลฟ์) ไม่แยกเสียง ไม่ถอดเสียง — 40 นาทีบน cpu = 25 นาทีเครื่องร้อน
+_SEP_LONG_ERR = "คลิปยาวเกิน 10 นาที — ไม่แยกเสียง"
+_LYR_LONG_ERR = "คลิปยาวเกิน 10 นาที — ไม่ถอดเสียง"
 LYR_TIMEOUT = 30 * 60        # gen_lyrics เต็ม (ถอดเสียง + ตรวจภาษา + ลองซ้ำเมื่อ whisper วนลูป)
 FIND_TIMEOUT = 10 * 60       # gen_lyrics --no-asr (เน็ตล้วน)
 LANG_TIMEOUT = 5 * 60        # whisper ฟัง 2 ช่วง ๆ ละ 30 วิ
@@ -1270,6 +1273,7 @@ FFMPEG_TIMEOUT = 10 * 60
 # = ขึ้นจอโดยไม่มีไกด์เสียงร้อง ซึ่งคืออาการที่ผู้ใช้เจอ
 _heavy_job: tuple[str, str] | None = None          # (ชนิดงาน, videoId) ที่ถือ _heavy อยู่ตอนนี้
 _preempt_kill: set[str] = set()                    # videoId ที่เพิ่งถูกสั่งฆ่า (ธงให้ฝั่ง thread อ่าน)
+_sep_gone: set[str] = set()                        # videoId ที่ถูกลบจาก Studio ระหว่างแยกเสียง (ห้ามตกไป cpu)
 _preempt_at = 0.0                                  # กันฆ่ารัว ตอนคนกดเลื่อนคิวหลายทีติด
 _preempt_n: dict[str, int] = {}                    # เพลงนี้ถูกแย่งไปกี่ครั้งแล้ว (กันอดตาย)
 _PREEMPT_COOLDOWN = 20.0
@@ -1858,16 +1862,27 @@ def _separate_one(vid: str) -> None:
             cmd = [sys.executable, "-m", "demucs", "-n", DEMUCS_MODEL,
                    "--two-stems", "vocals", "-d", dev,
                    "-o", str(tmp), str(audio)]
+            env = os.environ.copy()
+            if dev == "cpu":
+                # cpu = ทางสำรองที่ร้อนมาก: ใช้แค่ครึ่งหนึ่งของ core + nice เหลือเครื่องไว้ให้เพลงที่กำลังเล่น
+                th = str(max(2, (os.cpu_count() or 4) // 2))
+                env.update(OMP_NUM_THREADS=th, MKL_NUM_THREADS=th)
+                cmd = ["nice", "-n", "10"] + cmd
             try:
-                rc, _, err = _run_child("sep", vid, cmd, timeout=SEP_TIMEOUT, env=os.environ.copy())
+                rc, _, err = _run_child("sep", vid, cmd, timeout=SEP_TIMEOUT, env=env)
             except RuntimeError as exc:    # หมดเวลา — MPS ค้างก็ยังได้ลอง cpu ต่อ
                 rc, err = -1, str(exc)
             if vid in _preempt_kill:
                 _preempt_kill.discard(vid)
                 raise _Preempted()   # ห้ามตกไป dev ถัดไป ไม่งั้นโดนฆ่าแล้วไปเปิด demucs ตัวใหม่บน cpu
             if rc == 0:
-                _sep_device = dev
+                if dev == "mps":
+                    _sep_device = dev   # จำแค่ mps — เคยจำ cpu ไว้ แล้วทุกเพลงหลังจากนั้นแยกบน cpu จนรีสตาร์ท
                 break
+            if vid in _sep_gone or not audio.is_file():
+                # เพลงถูกลบจาก Studio ระหว่างแยก (demucs โดนฆ่า rc=-9) — ไม่ใช่ mps พัง ห้ามตกไป cpu
+                # ธงตั้งก่อนฆ่า: thread ตื่นมาก่อนไฟล์ถูกลบจริงก็ยังรู้
+                raise RuntimeError("เพลงถูกลบระหว่างแยกเสียง")
             print(f"[sep] {vid} device={dev} rc={rc}\n{(err or '')[-1500:]}")
         else:
             raise RuntimeError(f"demucs ล้มเหลว: {(err or '').strip()[-300:]}")
@@ -1906,9 +1921,13 @@ async def _sep_worker() -> None:
                 await _enqueue_lyr(vid)     # มี stems อยู่แล้ว -> ยังต้องต่อยอดไปหาเนื้อเหมือนกัน
                 await room.broadcast()
                 continue
+            if await _sep_skip_long(vid):   # ค้างในคิวมาก่อน (เช่น backfill ตอนเปิดเซิร์ฟเวอร์)
+                await room.broadcast()
+                continue
             _sep_state[vid] = {"status": "separating", "error": ""}
             _heavy_job = ("sep", vid)
             _preempt_kill.discard(vid)       # ล้างธงค้างจากรอบก่อน ไม่งั้นรอบนี้ตายทันทีแล้ววนไม่จบ
+            _sep_gone.discard(vid)           # เพลงที่ลบแล้วเพิ่มกลับมาใหม่
             await room.broadcast()
             _t0 = time.monotonic()
             try:
@@ -1943,11 +1962,32 @@ async def _ensure_separator() -> None:
         _sep_task = asyncio.create_task(_sep_worker())
 
 
+def _sep_too_long(vid: str) -> bool:
+    try:
+        return float(_song_meta(vid).get("duration") or 0) > SEP_MAX_SEC
+    except Exception:
+        return False      # ไม่รู้ความยาว = แยกตามปกติ
+
+
+async def _sep_skip_long(vid: str) -> bool:
+    """คลิปยาวเกิน SEP_MAX_SEC -> ไม่แยกเสียง: ตั้ง sep เป็น failed (งานเลือกเนื้อ/รายคำใช้ audio.m4a แทน vocals ได้เอง)"""
+    if not _sep_too_long(vid):
+        return False
+    if _sep_state.get(vid, {}).get("error") != _SEP_LONG_ERR:
+        _sep_state[vid] = {"status": "failed", "error": _SEP_LONG_ERR}
+        print(f"[sep] {vid} ข้าม: {_SEP_LONG_ERR}")
+        if not await _enqueue_best(vid):     # เหมือนตอนแยกเสร็จ แค่ไม่มี vocals
+            await _enqueue_words(vid)
+    return True
+
+
 async def _enqueue_sep(vid: str | None) -> None:
     if not vid or _has_stems(vid):
         return
     if not (_song_dir(vid) / "audio.m4a").is_file():
         return   # ยังโหลดไม่เสร็จ เดี๋ยว _download_worker สั่งให้เองตอนได้ไฟล์แล้ว
+    if await _sep_skip_long(vid):
+        return
     await _ensure_separator()   # ต้องอยู่ก่อน early-return: worker ที่ตายไปแล้วต้องถูกปลุกใหม่
                                 # แม้ vid จะยังค้างอยู่ใน _sep_pending (ไม่งั้นคิวล็อกถาวร)
     # ยึดตามคิวจริง ไม่ใช่ _sep_state — สถานะที่ค้าง (เช่น worker ตาย) จะได้ไม่ล็อกเพลงออกถาวร
@@ -2125,6 +2165,9 @@ async def _enqueue_lyr(vid: str | None) -> None:
             _lyrfind_pending.push(vid)
         return
     if not _has_stems(vid):
+        if _sep_too_long(vid):    # คลิปยาว: ไม่แยกเสียง จึงไม่ถอดเสียงด้วย (whisper ทั้งคลิปหนักเกิน)
+            _lyr_state[vid] = {"status": "failed", "error": _LYR_LONG_ERR}
+            return
         await _enqueue_sep(vid)   # เหลือทางถอดเสียงแล้ว -> ขอ vocals ก่อน เดี๋ยว sep ต่อให้เอง
         return
     await _ensure_lyricist()    # ต้องอยู่ก่อน early-return ด้วยเหตุผลเดียวกับ _enqueue_sep
@@ -2498,9 +2541,12 @@ def _fix_target(vid: str) -> tuple[str, str]:
         return "", ""
     if not (d / "audio.m4a").is_file():
         return "audio", "แยกไฟล์เสียงไม่สำเร็จ"
-    if not _has_stems(vid) and _sep_state.get(vid, {}).get("status") == "failed":
+    # คลิปยาวที่ตั้งใจข้าม (SEP_MAX_SEC) ไม่ใช่ของพัง — กดซ่อมก็ข้ามซ้ำ ไม่ต้องโชว์ปุ่ม
+    if not _has_stems(vid) and _sep_state.get(vid, {}).get("status") == "failed" \
+            and _sep_state[vid].get("error") != _SEP_LONG_ERR:
         return "sep", "แยกเสียงร้องไม่สำเร็จ"
-    if _lyr_meta(vid)[1] <= 0 and _lyr_state.get(vid, {}).get("status") == "failed":
+    if _lyr_meta(vid)[1] <= 0 and _lyr_state.get(vid, {}).get("status") == "failed" \
+            and _lyr_state[vid].get("error") != _LYR_LONG_ERR:
         return "lyr", "หาเนื้อเพลงไม่สำเร็จ"
     if _verify_state.get(vid, {}).get("status") == "failed":
         return "verify", "ตรวจเนื้อไม่สำเร็จ"
@@ -2908,17 +2954,14 @@ def _song_meta(vid: str) -> dict:
     hit = _meta_cache.get(vid)
     if hit and hit[0] == mt:
         return hit[1]
-    meta = {"title": "", "duration": None, "uploader": "", "date": "", "tags": [], "desc": ""}
+    meta = {"title": "", "duration": None, "uploader": "", "date": ""}
     if mt:
         try:
             j = json.loads(ij.read_text("utf-8"))
             meta = {"title": j.get("title") or "",
                     "duration": j.get("duration"),
                     "uploader": j.get("uploader") or j.get("channel") or "",
-                    # ไว้เดาแนวเพลง / "เพลงใหม่" (PU Match) — เก็บแค่ส่วนที่ใช้ ไม่เก็บทั้งก้อน
-                    "date": str(j.get("upload_date") or ""),
-                    "tags": [str(t) for t in (j.get("tags") or [])[:30]],
-                    "desc": str(j.get("description") or "")[:400]}
+                    "date": str(j.get("upload_date") or "")}   # ปีบนการ์ด PU Match — เก็บแค่ส่วนที่ใช้ ไม่เก็บทั้งก้อน
         except Exception:
             pass
     if not meta["title"]:
@@ -2962,132 +3005,8 @@ def api_archive(q: str = "", limit: int = 200):
     return {"results": out[:limit], "total": len(out)}
 
 
-# ===== แนวเพลง + 🃏 PU Match (ปัดหาเพลงบนรีโมท) =============================
-# genres.json = {"cats": [{id, name, icon, q}], "songs": {vid: [id, ...]}} — จัดใน Studio แท็บ 🗂 แนวเพลง
-# เพลงที่ยังไม่ถูกจัด = เดาจากชื่อ/ช่อง/แท็ก (GENRE_RULES) · "เพลงใหม่" คำนวณสดจากวันอัปโหลด ไม่เก็บลงไฟล์
-# q = คำค้น YouTube ที่ PU Match ใช้เติมการ์ดเมื่อแนวนั้นในเครื่องมีไม่พอ
-GENRES_FILE = BASE / "genres.json"
-GENRE_NEW = "new"
-GENRE_NEW_DAYS = 365
-GENRE_DEFAULT = [
-    {"id": "rap", "name": "แร็ป", "icon": "🎤", "q": "เพลงแร็ปไทย ฮิต"},
-    {"id": "teen", "name": "วัยรุ่น", "icon": "🎉", "q": "เพลงวัยรุ่น ฮิต"},
-    {"id": "luk", "name": "ลูกทุ่ง", "icon": "🌾", "q": "เพลงลูกทุ่ง ฮิต"},
-]
-# (regex บน ชื่อ+แท็ก+คำอธิบาย, ชื่อช่อง/ศิลปิน) — ชื่อยาว > 3 ตัวจับแบบมีอยู่ในชื่อช่อง/ชื่อเพลง สั้นกว่านั้นต้องตรงทั้งชื่อช่อง
-GENRE_RULES: dict[str, tuple[re.Pattern, tuple[str, ...]]] = {
-    "luk": (re.compile(r"ลูกทุ่ง|หมอลำ|ลำซิ่ง|luk ?thung|mor ?lam|morlam|เพื่อชีวิต"),
-            ("gmm grammy gold", "grammy gold", "topline", "r-siam", "อาร์สยาม", "ไหมไทย", "ปรีชา ปัดภัย",
-             "โรส มีเดีย", "rose media", "serng music", "เซิ้ง", "wanlove", "เพลงคนเพื่อชีวิต", "sure audio")),
-    "rap": (re.compile(r"\brap\b|แร็ป|แรป|hip ?hop|ฮิปฮอป|ฮิพฮอพ|\btrap\b|\bdrill\b|rapper"),
-            ("youngohm", "illslick", "yented", "dgerrard", "d gerrard", "saran", "maiyarap", "gavin:d", "gavin-d",
-             "diamond mqt", "suriya mqt", "1 mill", "1mill", "urboytj", "younggu", "2k", "p6ick", "teambangbaht",
-             "kicks records", "z9", "f.hero", "milli", "sprite", "twopee", "thaitanium", "rap is now",
-             "high cloud", "chunwen", "j z")),
-    "teen": (re.compile(r"\bt-?pop\b|ป๊อป|\bpop\b|วัยรุ่น"),
-             ("genelab", "yupp!", "whattheduck", "what the duck", "spicydisc", "smallroom", "boxx music", "loveis",
-              "timethai", "officialwhitemusic", "qler", "rammy", "meyou", "landokmai", "porzax", "wayfer", "4eve",
-              "jeff satur", "bonnadol", "pixxie", "tea for three", "tattoo colour", "moodly", "t!ne", "1life",
-              "mirrr", "tachaya", "kanyanut", "solitude is bliss", "pun", "ws", "patrickananda", "believe records",
-              "holyfox", "move records", "imagine's house", "gmm grammy official", "dept", "yew", "bodyslam",
-              "genierock", "the etc", "paradox", "welovekamikaze", "menxfire", "tero music", "gthchannel",
-              "shasin", "supun", "whoop live", "jaymidi", "blvckheart", "soulfear", "sa-tun", "tl2b", "pangtasia")),
-}
-_GENRE_ID_RE = re.compile(r"^[a-z0-9_-]{1,24}$")
-_genre_lock = threading.Lock()
-_genre_db: tuple[float, dict] | None = None       # (mtime, ข้อมูล) — อ่านไฟล์ใหม่เมื่อ mtime เปลี่ยน
-
-
-def _genre_q(name: str) -> str:
-    return (name if name.startswith("เพลง") else "เพลง" + name) + " ฮิต"
-
-
-def _clean_genres(raw: Any) -> dict:
-    cats, seen = [], set()
-    for c in (raw.get("cats") if isinstance(raw, dict) else None) or []:
-        if not isinstance(c, dict):
-            continue
-        gid, name = str(c.get("id") or ""), " ".join(str(c.get("name") or "").split())[:24]
-        if not _GENRE_ID_RE.match(gid) or gid == GENRE_NEW or gid in seen or not name:
-            continue
-        seen.add(gid)
-        cats.append({"id": gid, "name": name, "icon": str(c.get("icon") or "🎵")[:4],
-                     "q": " ".join(str(c.get("q") or "").split())[:80] or _genre_q(name)})
-    if not isinstance(raw, dict) or "cats" not in raw:
-        cats = [dict(c) for c in GENRE_DEFAULT]
-        seen = {c["id"] for c in cats}
-    songs = {}
-    for vid, ids in ((raw.get("songs") if isinstance(raw, dict) else None) or {}).items():
-        if _vid_ok(vid) and isinstance(ids, list):
-            songs[vid] = [g for g in dict.fromkeys(str(i) for i in ids) if g in seen]
-    return {"cats": cats, "songs": songs}
-
-
-def _genres_db() -> dict:
-    global _genre_db
-    try:
-        mt = GENRES_FILE.stat().st_mtime
-    except OSError:
-        mt = 0.0
-    if _genre_db is None or _genre_db[0] != mt:
-        raw = None
-        if mt:
-            try:
-                raw = json.loads(GENRES_FILE.read_text("utf-8"))
-            except Exception:
-                raw = None
-        _genre_db = (mt, _clean_genres(raw))
-    return _genre_db[1]
-
-
-def _genres_save(db: dict) -> None:
-    global _genre_db
-    db = _clean_genres(db)
-    _write_json_atomic(GENRES_FILE, db)
-    try:
-        _genre_db = (GENRES_FILE.stat().st_mtime, db)
-    except OSError:
-        _genre_db = None
-
-
-def _genre_guess(m: dict, cat_ids: set[str]) -> list[str]:
-    ch = (m.get("uploader") or "").lower().strip()
-    title = (m.get("title") or "").lower()
-    txt = " ".join([title, " ".join(m.get("tags") or []).lower(), (m.get("desc") or "").lower(), ch])
-    out = []
-    for gid, (rx, names) in GENRE_RULES.items():
-        if gid not in cat_ids:
-            continue
-        if rx.search(txt) or any(n == ch or (len(n) > 3 and (n in ch or n in title)) for n in names):
-            out.append(gid)
-    if "luk" in out and "teen" in out:
-        out.remove("teen")
-    return out
-
-
-def _song_genres(vid: str, db: dict | None = None) -> tuple[list[str], str]:
-    """(แนว, ที่มา) — "studio" = จัดเองใน Studio (รายการว่าง = ตั้งใจว่าไม่มีแนว) / "guess" = ระบบเดา"""
-    db = db or _genres_db()
-    if vid in db["songs"]:
-        return list(db["songs"][vid]), "studio"
-    return _genre_guess(_song_meta(vid), {c["id"] for c in db["cats"]}), "guess"
-
-
-def _genre_names(vid: str) -> list[str]:
-    db = _genres_db()
-    names = {c["id"]: f'{c["icon"]} {c["name"]}' for c in db["cats"]}
-    gs, by = _song_genres(vid, db)
-    return [names[g] + ("?" if by == "guess" else "") for g in gs if g in names]
-
-
-def _song_is_new(m: dict) -> bool:
-    try:
-        t = time.mktime(time.strptime(m.get("date") or "", "%Y%m%d"))
-    except (ValueError, OverflowError):
-        return False
-    return time.time() - t < GENRE_NEW_DAYS * 86400
-
-
+# ===== 🃏 PU Match (ปัดหาเพลงบนรีโมท) =============================================
+# สุ่มการ์ดจากทุกเพลงในเครื่อง (ถ่วงน้ำหนัก) — ไม่พอค่อยเติมจากผลค้น YouTube คำเดียว (SWIPE_YT_Q)
 def _song_year(m: dict) -> int | None:
     d = m.get("date") or ""
     return int(d[:4]) if d[:4].isdigit() else None
@@ -3097,31 +3016,13 @@ def _archive_vids() -> list[str]:
     return [vid for vid, d in _dir_index().items() if (d / "video.mp4").is_file()]
 
 
-def _genre_list() -> list[dict]:
-    """แนวที่รีโมทเลือกได้ + จำนวนเพลงในเครื่อง (เพลงใหม่ต่อท้ายเสมอ)"""
-    db = _genres_db()
-    cnt = {c["id"]: 0 for c in db["cats"]}
-    n_new = 0
-    for vid in _archive_vids():
-        for g in _song_genres(vid, db)[0]:
-            if g in cnt:
-                cnt[g] += 1
-        n_new += _song_is_new(_song_meta(vid))
-    return ([{"id": c["id"], "name": c["name"], "icon": c["icon"], "count": cnt[c["id"]]} for c in db["cats"]]
-            + [{"id": GENRE_NEW, "name": "เพลงใหม่", "icon": "✨", "count": n_new, "auto": True}])
-
-
-@app.get("/api/genres")
-async def api_genres():
-    return {"genres": await asyncio.to_thread(_genre_list)}
-
-
 SWIPE_YT_TTL = 1800.0
+SWIPE_YT_Q = "เพลงใหม่ล่าสุด {year}"
 _swipe_yt_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
 def _swipe_yt(q: str) -> list[dict]:
-    """ผลค้น YouTube ของแนวหนึ่ง (เฉพาะคลิปที่ฝังได้) — แคช 30 นาที ไม่ยิงเน็ตทุกครั้งที่ปัด"""
+    """ผลค้น YouTube (เฉพาะคลิปที่ฝังได้) — แคช 30 นาที ไม่ยิงเน็ตทุกครั้งที่ปัด"""
     hit = _swipe_yt_cache.get(q)
     if hit and time.monotonic() - hit[0] < SWIPE_YT_TTL:
         return hit[1]
@@ -3130,10 +3031,7 @@ def _swipe_yt(q: str) -> list[dict]:
     return res
 
 
-def _swipe_pick(genres: list[str], seen: set[str], n: int) -> dict:
-    db = _genres_db()
-    cat_ids = {c["id"] for c in db["cats"]}
-    want = [g for g in genres if g in cat_ids or g == GENRE_NEW]
+def _swipe_pick(seen: set[str], n: int) -> dict:
     busy = {it.get("videoId") for it in ([room.current] if room.current else []) + room.queue}
     plays: dict[str, int] = {}
     for e in room.history:
@@ -3147,57 +3045,41 @@ def _swipe_pick(genres: list[str], seen: set[str], n: int) -> dict:
         if vid in seen or vid in busy:
             continue
         m = _song_meta(vid)
-        gs, _by = _song_genres(vid, db)
-        if _song_is_new(m):
-            gs = gs + [GENRE_NEW]
-        if want and not set(want) & set(gs):
-            continue
         _mt, lyr_n, _w, _s, _t = _lyr_meta(vid)
         stems = _has_stems(vid)
         w = 1.0 + 0.5 * min(plays.get(vid, 0), 5) + (1.0 if lyr_n else 0.0) + (0.5 if stems else 0.0)
         pool.append((random.random() ** (1.0 / w), {
             "source": "yt", "videoId": vid, "title": m["title"], "channel": m["uploader"],
             "duration": m["duration"], "thumb": f"/song/{vid}/cover.jpg", "year": _song_year(m),
-            "genres": gs, "archived": True, "stems": stems, "lyrLines": lyr_n}))
+            "archived": True, "stems": stems, "lyrLines": lyr_n}))
     pool.sort(key=lambda x: -x[0])
     cards = [c for _k, c in pool[:n]]
 
-    # 2) ไม่พอ -> เติมจาก YouTube ตามคำค้นของแต่ละแนว (สลับกันทีละแนว)
+    # 2) ไม่พอ -> เติมจาก YouTube
     yt_err = ""
     if len(cards) < n:
-        have = set(_dir_index())
-        qs = [(g, f"เพลงใหม่ล่าสุด {time.localtime().tm_year}" if g == GENRE_NEW
-               else next(c["q"] for c in db["cats"] if c["id"] == g))
-              for g in (want or [c["id"] for c in db["cats"]])]
-        lists = []
-        for g, q in qs:
-            try:
-                lists.append((g, list(_swipe_yt(q))))
-            except Exception as exc:
-                yt_err = f"{type(exc).__name__}: {exc}"
-        taken = seen | busy | have | {c["videoId"] for c in cards}
-        for lst in lists:
-            random.shuffle(lst[1])
-        while len(cards) < n and any(l for _g, l in lists):
-            for g, lst in lists:
-                while lst:
-                    r = lst.pop()
-                    if r["videoId"] in taken:
-                        continue
-                    taken.add(r["videoId"])
-                    cards.append({"source": "yt", "videoId": r["videoId"], "title": r["title"],
-                                  "channel": r.get("channel") or "", "duration": r.get("duration"),
-                                  "thumb": r.get("thumb"), "year": None, "genres": [g],
-                                  "archived": False, "embeddable": True})
-                    break
-                if len(cards) >= n:
-                    break
+        taken = seen | busy | set(_dir_index()) | {c["videoId"] for c in cards}
+        try:
+            lst = list(_swipe_yt(SWIPE_YT_Q.format(year=time.localtime().tm_year)))
+        except Exception as exc:
+            lst, yt_err = [], f"{type(exc).__name__}: {exc}"
+        random.shuffle(lst)
+        for r in lst:
+            if len(cards) >= n:
+                break
+            if r["videoId"] in taken:
+                continue
+            taken.add(r["videoId"])
+            cards.append({"source": "yt", "videoId": r["videoId"], "title": r["title"],
+                          "channel": r.get("channel") or "", "duration": r.get("duration"),
+                          "thumb": r.get("thumb"), "year": None,
+                          "archived": False, "embeddable": True})
     return {"cards": cards, "more": len(cards) >= n, "ytError": yt_err}
 
 
 @app.post("/api/swipe")
 async def api_swipe(request: Request):
-    """การ์ดชุดถัดไปของ PU Match: body {genres: [...] (ว่าง = ทุกแนว), seen: [videoId...], n}"""
+    """การ์ดชุดถัดไปของ PU Match: body {seen: [videoId...], n}"""
     if not _same_origin(request.headers):
         return JSONResponse({"error": "คำขอข้ามเว็บ"}, status_code=403)
     try:
@@ -3206,167 +3088,12 @@ async def api_swipe(request: Request):
         body = None
     if not isinstance(body, dict):
         return JSONResponse({"error": "ข้อมูลไม่ถูกต้อง"}, status_code=400)
-    genres = [str(g) for g in (body.get("genres") or [])][:20] if isinstance(body.get("genres"), list) else []
     seen = {str(v) for v in (body.get("seen") or [])[-300:]} if isinstance(body.get("seen"), list) else set()
     try:
         n = max(1, min(int(body.get("n") or 10), 20))
     except (TypeError, ValueError):
         n = 10
-    return await asyncio.to_thread(_swipe_pick, genres, seen, n)
-
-
-# --- Studio 🗂 แนวเพลง (บอร์ดลากวาง) -----------------------------------------
-def _studio_genre_row(vid: str, db: dict) -> dict:
-    m = _song_meta(vid)
-    gs, by = _song_genres(vid, db)
-    return {"videoId": vid, "title": m["title"], "channel": m["uploader"], "thumb": f"/song/{vid}/cover.jpg",
-            "year": _song_year(m), "isNew": _song_is_new(m), "genres": gs, "by": by}
-
-
-@app.get("/api/studio/genres")
-async def studio_genres(request: Request):
-    _studio_guard(request)
-
-    def run():
-        db = _genres_db()
-        rows = [_studio_genre_row(v, db) for v in _archive_vids()]
-        rows.sort(key=lambda r: r["title"].lower())
-        return {"cats": db["cats"], "songs": rows, "newDays": GENRE_NEW_DAYS}
-    return await asyncio.to_thread(run)
-
-
-async def _studio_body(request: Request) -> dict:
-    _studio_guard(request)
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="ข้อมูลไม่ถูกต้อง")
-    return body
-
-
-def _genre_vids(body: dict) -> list[str]:
-    vids = body.get("vids") if isinstance(body.get("vids"), list) else [body.get("vid")]
-    vids = [str(v) for v in vids if _vid_ok(str(v or ""))][:500]
-    if not vids:
-        raise HTTPException(status_code=400, detail="videoId ไม่ถูกต้อง")
-    return vids
-
-
-@app.post("/api/studio/genres/assign")
-async def studio_genres_assign(request: Request):
-    """ลากวาง: {vids|vid, add?: id, remove?: id} — ย้าย = remove + add ในคำขอเดียว
-    เพลงที่ระบบเดาไว้ -> เอาผลเดามาตั้งต้นก่อนแล้วค่อยแก้ (กลายเป็นจัดเอง)"""
-    body = await _studio_body(request)
-    vids, add, rem = _genre_vids(body), str(body.get("add") or ""), str(body.get("remove") or "")
-
-    def run():
-        with _genre_lock:
-            db = _genres_db()
-            ids = {c["id"] for c in db["cats"]}
-            if (add and add not in ids) or (rem and rem not in ids):
-                raise HTTPException(status_code=400, detail="ไม่มีแนวนี้")
-            db = {"cats": db["cats"], "songs": dict(db["songs"])}
-            for v in vids:
-                gs = [g for g in _song_genres(v, db)[0] if g != rem]
-                if add and add not in gs:
-                    gs.append(add)
-                db["songs"][v] = gs
-            _genres_save(db)
-            db = _genres_db()
-            return {"changed": {v: {"genres": _song_genres(v, db)[0], "by": "studio"} for v in vids}}
-    return await asyncio.to_thread(run)
-
-
-@app.post("/api/studio/genres/set")
-async def studio_genres_set(request: Request):
-    """ตั้งแนวของเพลงตรง ๆ (ใช้กับ ⌘Z): {vid, genres: [...] | null} — null = กลับไปให้ระบบเดา"""
-    body = await _studio_body(request)
-    vids, genres = _genre_vids(body), body.get("genres")
-
-    def run():
-        with _genre_lock:
-            db = _genres_db()
-            db = {"cats": db["cats"], "songs": dict(db["songs"])}
-            for v in vids:
-                if genres is None:
-                    db["songs"].pop(v, None)
-                elif isinstance(genres, list):
-                    db["songs"][v] = [str(g) for g in genres]
-            _genres_save(db)
-            db = _genres_db()
-            return {"changed": {v: dict(zip(("genres", "by"), _song_genres(v, db))) for v in vids}}
-    return await asyncio.to_thread(run)
-
-
-@app.post("/api/studio/genres/confirm")
-async def studio_genres_confirm(request: Request):
-    """✓ ยืนยันทุกเพลงที่ระบบเดาว่าอยู่แนว {id} (ผลเดาทั้งชุดของเพลงนั้นถูกบันทึกเป็นจัดเอง)"""
-    body = await _studio_body(request)
-    gid = str(body.get("id") or "")
-
-    def run():
-        with _genre_lock:
-            db = _genres_db()
-            db = {"cats": db["cats"], "songs": dict(db["songs"])}
-            changed = {}
-            for v in _archive_vids():
-                gs, by = _song_genres(v, db)
-                if by == "guess" and gid in gs:
-                    db["songs"][v] = gs
-                    changed[v] = {"genres": gs, "by": "studio"}
-            if changed:
-                _genres_save(db)
-            return {"changed": changed}
-    return await asyncio.to_thread(run)
-
-
-@app.post("/api/studio/genres/cat")
-async def studio_genres_cat(request: Request):
-    """จัดการหัวข้อแนว: {op: add|edit|delete|order, id?, name?, icon?, q?, order?: [ids]}"""
-    body = await _studio_body(request)
-    op = body.get("op")
-
-    def run():
-        with _genre_lock:
-            db = _genres_db()
-            cats = [dict(c) for c in db["cats"]]
-            songs = dict(db["songs"])
-            gid = str(body.get("id") or "")
-            if op == "add":
-                name = " ".join(str(body.get("name") or "").split())[:24]
-                if not name:
-                    raise HTTPException(status_code=400, detail="ใส่ชื่อแนวก่อน")
-                if any(c["name"] == name for c in cats):
-                    raise HTTPException(status_code=400, detail="มีแนวชื่อนี้แล้ว")
-                gid = "c" + secrets.token_hex(3)
-                cats.append({"id": gid, "name": name, "icon": str(body.get("icon") or "🎵")[:4],
-                             "q": str(body.get("q") or "") or _genre_q(name)})
-            elif op == "edit":
-                c = next((c for c in cats if c["id"] == gid), None)
-                if not c:
-                    raise HTTPException(status_code=404, detail="ไม่มีแนวนี้")
-                for k in ("name", "icon", "q"):
-                    if body.get(k) is not None:
-                        c[k] = str(body[k])
-            elif op == "delete":
-                # เพลงที่ระบบเดาว่าอยู่แนวนี้: บันทึกแนวอื่นที่เดาได้ไว้ก่อน ไม่ให้แนวที่เหลือหายตามไปด้วย
-                full = {"cats": cats, "songs": songs}
-                for v in _archive_vids():
-                    gs, by = _song_genres(v, full)
-                    rest = [g for g in gs if g != gid]
-                    if by == "guess" and gid in gs and rest:
-                        songs[v] = rest
-                cats = [c for c in cats if c["id"] != gid]
-            elif op == "order":
-                order = [str(i) for i in (body.get("order") or [])]
-                cats.sort(key=lambda c: order.index(c["id"]) if c["id"] in order else len(order))
-            else:
-                raise HTTPException(status_code=400, detail="op ไม่ถูกต้อง")
-            _genres_save({"cats": cats, "songs": songs})
-            return {"cats": _genres_db()["cats"], "id": gid}
-    return await asyncio.to_thread(run)
+    return await asyncio.to_thread(_swipe_pick, seen, n)
 
 
 @app.get("/api/songinfo")
@@ -3634,7 +3361,6 @@ def _studio_item(vid: str, d: Path, plays: dict[str, int], qpos: dict[str, int])
         "words": _words_brief(vid),
         "best": _best_brief(vid),
         "lang": _song_lang(vid)[0], "langBy": _song_lang(vid)[1],
-        "genreNames": _genre_names(vid),                    # 🗂 โชว์ในหัวเพลง (แก้ในแท็บแนวเพลง)
         "check": ({"verdict": ck.get("verdict") or "", "score": ck.get("score"),
                    "shift": shift, "reports": len(ck.get("reports") or []),
                    "measuredBy": ck.get("measuredBy") or "", "at": ck_at, "v": int(ck.get("v") or 1),
@@ -5116,7 +4842,16 @@ async def _best_sources(vid: str, base: str) -> tuple[list, dict, bool]:
     return cands, used, False
 
 
-_FA_WARM_TEXT = ["ก ab"]                           # ไทย + ละติน ≥ 2 ตัว (fa_align.has_latin) = คำนวณแคชของทั้งสองโมเดล
+def _fa_warm_text(vid: str) -> list[str]:
+    """ข้อความหลอกสำหรับอุ่นแคช FA: "ก ab" (ไทย + ละติน ≥ 2 ตัว ตาม fa_align.has_latin) = ทั้งสองโมเดล
+    เพลงไทยล้วนอุ่นแค่โมเดลไทย ("ก") — โมเดลอังกฤษ ~1.2 GB เคยโหลดทุกเพลงใหม่
+    ผู้สมัครจาก OCR/ออนไลน์มีคำอังกฤษทีหลัง ขั้นให้คะแนนคำนวณรอบอังกฤษเองในช่อง GPU (ผลไม่เปลี่ยน)"""
+    try:
+        if _song_lang(vid)[0] == "en" or _fa_mod().has_latin(_lyr_texts(vid)):
+            return ["ก ab"]
+    except Exception:
+        return ["ก ab"]   # ตัดสินไม่ได้ = ทำแบบเดิม
+    return ["ก"]
 
 
 async def _best_fa_warm(vid: str) -> None:
@@ -5125,11 +4860,12 @@ async def _best_fa_warm(vid: str) -> None:
     วัดแล้วการคำนวณนี้กิน 29-40 วิ — เดิมเริ่มหลังได้ผู้สมัครครบ ต่อกันเป็นทอด ๆ"""
     global _heavy_job
     async with _heavy.slot(f"bestwarm:{vid}", lambda: _prio(vid) + 0.4):
-        if _fa_cached_for(vid, _FA_WARM_TEXT):
+        warm_text = _fa_warm_text(vid)
+        if _fa_cached_for(vid, warm_text):
             return
         _heavy_job = ("best", vid)
         try:
-            await asyncio.to_thread(_fa_call, vid, {"texts": _FA_WARM_TEXT, "duration": 0}, "best")
+            await asyncio.to_thread(_fa_call, vid, {"texts": warm_text, "duration": 0}, "best")
         except Exception as exc:
             print(f"[best] {vid} เตรียมเสียง FA ไม่ได้: {type(exc).__name__}: {exc}")   # ขั้นให้คะแนนคำนวณเองอีกที
         finally:
@@ -5755,6 +5491,8 @@ async def studio_delete(vid: str, request: Request, edits: int = 0):
         # งานเบื้องหลังของเพลงนี้ที่กำลังรัน (demucs/whisper/yt-dlp) ต้องตายก่อน ไม่งั้นเขียนไฟล์กลับลงโฟลเดอร์ที่ลบไปแล้ว
         with _children_lock:
             procs = [p for _k, v, p in _children.values() if v == vid]
+        if procs:
+            _sep_gone.add(vid)        # ก่อนฆ่า — demucs ที่ตายจากการลบห้ามไปเปิดตัวใหม่บน cpu
         for p in procs:
             try:
                 p.kill()
