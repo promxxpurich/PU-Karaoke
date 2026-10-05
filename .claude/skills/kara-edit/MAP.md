@@ -101,6 +101,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ❤️ / เพลงที่เห็นแล้ว / แนวที่เลือก เก็บใน localStorage ของมือถือเครื่องนั้นเท่านั้น (swipeLiked ≤100, swipeSeen ≤300) · ไม่มีปุ่มเปิด/ปิดใน tv.json เพราะไม่ได้แสดงบนจอทีวี
 ! swRender ห้ามถอด/ใส่การ์ดที่อยู่ถูกที่แล้ว (transition หาย ใบถัดไปกระตุก) · .swdeck ต้องมี z-index ไม่งั้นการ์ดลอยทับแผงถูกใจ
 
+### ⏩ ข้ามอินโทร + 🎬 คอมโบ (การ์ดข้าง PU Match / แผ่นรายการคอมโบ)
+คำค้น: ข้ามอินโทร, skip intro, อินโทรยาว, ปุ่มลอย, คอมโบ, combo, เพลย์ลิสต์, playlist, ชุดเพลง, เพิ่มทั้งชุด, addcombo
+- `static/remote.html` ` /* ---------- ⏩ ข้ามอินโทร` ` #skipintro{position:fixed` `id="skipintro"` `function renderSkip(){` — ปุ่มลอยกลางเหนือแถบล่าง (z 22 ใต้ scrim/แผ่น) โผล่เมื่อ current.introEnd มี + ยังไม่พ้น (livePos) + ไม่ fading, แถบนับถอยหลัง --w, กดแล้วส่ง action skipintro
+- `static/remote.html` ` /* ---------- 🎬 คอมโบ` ` .entries{display:grid` ` #combobtn{display:flex` `id="combobtn"` `id="sh-combo"` — การ์ด 🎬 ข้าง 🃏 (2 คอลัมน์เมื่อ st.combos > 0) + แผ่นรายการ
+- `static/remote.html` `// ===== 7d. 🎬 คอมโบ` `async function loadCombos(){` `function renderCombos(){` `function addCombo(id){` `function renderEntries(st){` — GET /api/combos ตอนเปิดแผ่น, ＋ ส่ง addcombo พร้อมชื่อคนร้องจาก ⚙️, toast จาก event added (m.combo)
+! ปุ่ม ⏩ ไม่มีสวิตช์ในรีโมท — เปิด/ปิด + เกณฑ์อยู่ใน Studio 📺 (tv.skipBtn / skipMin) และเซิร์ฟเวอร์เป็นคนตัดสินว่าโผล่ (introEnd) · การ์ดคิวจากคอมโบมีชิป 🎬 ใน statusChips
+
 ### ปุ่มบนจอล็อกมือถือ 🔒 (Media Session)
 คำค้น: จอล็อก, lock screen, หน้าจอล็อก, Media Session, ปุ่มบนจอล็อก, เสียงเงียบ, silent audio, iPhone, Android, ⏮, ⏭, ลดเสียงทีวี, ปกเพลงบนจอล็อก
 - `static/remote.html` `id="lockrow"` `id="lockbtns"` `<audio id="lsaudio"` — HTML เปิด/ปิด + เลือกคู่ปุ่ม + audio เงียบ
@@ -142,6 +149,15 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/player.html` `sendWs({action:'pos'` — รายงานตำแหน่งทุก 2 วิ (หลัง attached เท่านั้น)
 ! แก้ไฟล์นี้แล้วแค่รีโหลดจอ — server.py อ่าน static/player.html จากดิสก์ทุกคำขอ (no-store) ไม่ต้องรีสตาร์ท
 ! ส่ง 'ended' ต้องแนบ id: curItem เสมอ (เซิร์ฟเวอร์ทิ้ง ended ที่ค้าง/ซ้ำ — เพลงเดียวกันต่อกันสองรอบ URL เหมือนเดิม)
+
+### เฟดเปลี่ยนเพลง (จอดำ + เสียงไล่ระดับ) + จุดจบโหมด Custom/คอมโบ + ⏩ ดำแวบ
+คำค้น: เฟด, fade, เฟดเข้า, เฟดออก, จอดำ, blackout, ค่อยๆดำ, ค่อยๆเบา, เปลี่ยนเพลงนุ่ม, โหมด custom, จุดจบ, endAt, startAt, ข้ามอินโทร, seekToken
+- `static/player.html` ` #blackout{position:absolute` `<div id="blackout">` — แผ่นดำทับแค่วิดีโอ (z 3) ชื่อเพลง/ซับ/♪●●● ยังเห็น
+- `static/player.html` `// ===== เฟดเปลี่ยนเพลง` `function fadeTo(` `function armFadeIn(` `function fadeTick(){` `function seekDip(){` `function resetFade(){` — fadeK คูณเสียงรวมใน applyMix (ไม่แตะระหว่าง fadeUntil), เฟดเข้าเมื่อภาพเล่นจริงที่ตำแหน่งถูก (mediaLive, กันค้าง 6 วิ), เฟดออกเมื่อ st.fading = ใบนี้ หรือเหลือ ≤ fadeOut ก่อนจุดจบ, ถึง c.endAt ส่ง ended, seekToken เปลี่ยน = ดำแวบแล้ว seek
+- `static/player.html` `function audOutSec(c){` `const fadeInSec =` — ค่ารายคลิป (c.fadeIn/c.fadeOut) ทับค่าใน 📺; โหมด Custom เสียงเฟดออกใช้ customAud
+- `static/player.html` `startSeconds: at` — YouTube iframe เริ่มที่ตำแหน่งห้อง (จุดเริ่ม Custom / รีโหลดกลางเพลง)
+! จุดเริ่มไม่มีโค้ดของตัวเอง — เซิร์ฟเวอร์ตั้ง room.pos = startAt แล้ว apply() seek เองผ่าน resumeAt · ทุกค่า 0/ปิด (fadeIn/fadeOut 0, custom ปิด) = resetFade ทันที จอเหมือนเดิม
+! applyMix ห้ามตั้ง gMaster/volume ระหว่างเฟด (ทับ ramp) · fadeTick อยู่นอก // <lyrcore> และใช้ lyrPos()
 
 ### เครื่องผสมเสียงสเต็ม (Web Audio): ไกด์ / ดนตรี / เสียงรวม / คีย์ + แตะจอเพื่อเปิดเสียง
 คำค้น: สเต็ม, stems, ไกด์เสียงร้อง, vocal guide, ดนตรี, instrumental, เสียงรวม, master, volume, Web Audio, AudioContext, mix, คีย์, key, เลื่อนคีย์, crossfade, เสียงสะดุด, เสียงกระโดด, เสียงซ้อน, drift, แตะจอเพื่อเปิดเสียง, unlock, autoplay, nostems
@@ -361,6 +377,16 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/studio.html` `id="gotogn"` — หัวเพลงในแท็บเพลงทั้งหมดโชว์แนว (? = เดา) กดแล้วไปแท็บนี้
 ! ใช้ HTML5 drag ไม่ได้ (ไม่ทำงานบนจอสัมผัส) · ช่อง "เพลงใหม่" 🔒 คำนวณจากวันอัปโหลด ลากใส่ไม่ได้
 
+### ✂️ แท็บตัดต่อ & คอมโบ (แทร็กสองเพลง + จอทีวีเล็ก + แก้คอมโบ)
+คำค้น: ตัดต่อ, ตัดคลิป, จุดเริ่ม, จุดจบ, trim, เฟดรายเพลง, คอมโบ, combo, เพลย์ลิสต์, ฟังรอยต่อ, จอเล็ก, บันทึกคิวเป็นคอมโบ, โหมด custom
+- `static/studio.html` `id="vcut"` ` .cutgrid{display:grid` ` .ctrk canvas{` ` .cbx{background` — HTML/CSS: รายการซ้าย (คิว/คอมโบ), จอเล็ก #ctvv + แผ่นดำ #ctvbk + ซับ #cl1/#cl2, แทร็ก A/B, กล่องแก้คอมโบ
+- `static/studio.html` `// ===== 16e. ✂️ ตัดต่อ` `function cutEntries(){` `function cutEff(e){` `async function cutEnsure(vid){` `async function cutEnv(vid){` `function renderCut(){` `function cutTrackHtml(` — รายการเพลงที่ตัด, ค่าที่ใช้จริง (ว่าง = อัตโนมัติ/ต้นคลิป/ท้ายคลิป/ค่า 📺), GET /api/studio/song/{vid}/clip + lyrics + คลื่นเสียงร้อง 10 จุด/วิ
+- `static/studio.html` `function cutDraw(el){` `function cutHit(` `function cutSnap(` `function cutSave(e){` — วาดคลื่น/ท่อนร้อง/ช่วงตัด/เส้นลาดเฟด/ที่จับ, ลากขีด = จุดเริ่ม/จบ (ดูดต้นท่อน, Alt = ไม่ดูด), ลากจุดกลม = เฟด (ทีละ 0.5 วิ), บันทึกหน่วง 400ms
+- `static/studio.html` `function cutLoadPv(` `function cutJoin(){` `function cutTick(){` — จอเล็กเล่นไฟล์ในเครื่อง + จำลองเฟด + ซับจาก lycFrame, ▶ ฟังรอยต่อ (A จบ−8 วิ → B จุดเริ่ม 8 วิ)
+- `static/studio.html` `function renderCutCombo(){` `async function cutComboClick(b){` `async function cutComboSave(c){` `async function cutComboFromQueue(){` `function cutRoom(){` — ชื่อ/เรียง/ลบ/ค้นเพลงเพิ่ม, ▶ เพิ่มเข้าคิว (ws addcombo), 💾 คิว → คอมโบ (คัดค่าที่เห็นจริงรวมค่าอัตโนมัติไปเป็นค่าตัดเอง), วาดใหม่เมื่อคิว/ค่าจอเปลี่ยน
+! state แยกจาก S ของตัวแก้เนื้อ (CUT) — แก้ที่นี่ไม่ทำให้เนื้อ dirty · เพลงในคิว = ค่าประจำเพลง (trim.json ใช้ตอนเปิด Custom) / ใบคิวจากคอมโบ = แก้รอบนี้ (queue clip) / โหมดคอมโบ = บันทึกทั้งคอมโบ
+! SPAN_MIN (15 วิ) ต้องตรงกับ server.py · ซับในจอเล็กเรียก lycPrep/lycFrame อย่างเดียว ห้ามแก้บล็อก lyrcore
+
 ### websocket ของ Studio (อัปเดตสด) + สถานะเชื่อมต่อ
 คำค้น: websocket, ws, อัปเดตสด, live update, เชื่อมต่อแล้ว, กำลังเชื่อมต่อ, รีเฟรชรายการ, archiveRev, jobsRev, Studio หลายเครื่อง
 - `static/studio.html` ` .st{margin-left:auto` `id="ststr"` — CSS/HTML ป้ายสถานะบนหัว
@@ -406,6 +432,14 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `elif act == "next":` `elif act == "ended":` `elif act == "playnow":` `elif act == "toggle":` `elif act == "restart":` `elif act == "remove":` — ข้ามเพลง/เพลงจบ/เล่นเลย/หยุด-เล่นต่อ/เริ่มใหม่/ลบออกจากคิว (up/down อยู่ถัดจาก remove)
 - `server.py` `def add(self, item` `def next(self)` `def move(self, item_id` `def _targets_current(` `def _finite(` — เมธอดจัดคิวของ Room (next รีเซ็ตไกด์ร้องกับคีย์ทุกเพลง), กันข้ามสองเพลงจากคำสั่งที่มาช้า, กรองตัวเลข NaN/Inf
 ! ทุกคำสั่งรันภายใต้ room.lock ห้าม await งานยาวหรือยิงเน็ตข้างใน (ชื่อเพลงจาก oEmbed ดึงก่อนเข้า lock) คำสั่งที่เปลี่ยนลำดับคิวต้องเรียก _reprioritize() ด้วย การลบออกจากคิวไม่ยกเลิกการโหลด เพราะตั้งใจสะสมคลังไว้
+
+### เฟดก่อนเปลี่ยนเพลง / โหมด Custom (จุดเริ่ม-จบ) / ⏩ ข้ามอินโทร / คอมโบเข้าคิว
+คำค้น: เฟด, fade, fading, โหมด custom, จุดเริ่ม, จุดจบ, startAt, endAt, introEnd, ข้ามอินโทร, skipintro, seekToken, คอมโบ, addcombo
+- `server.py` `def _play_span(` `def _span_fields(` `def _intro_end(` `def _auto_span(` `def _lyr_span(` `def _fade_out_sec(` — (เริ่ม, จบ, เฟดเข้า, เฟดออก) ของใบคิว: คอมโบ = clipStart/clipEnd เสมอ / เพลงทั่วไปเฉพาะ tv.custom: trim.json > อัตโนมัติ (เวลาเนื้อ + offset ∓ customLead/customTail) · state เติม endAt/fadeIn/fadeOut/introEnd ของเพลงที่เล่นอยู่ทุก broadcast
+- `server.py` `self.fading: str | None` `def next(self)` — next() ตั้ง pos = startAt (จอ seek เองผ่าน resumeAt) + ล้าง fading
+- `server.py` `def _begin_fade(` `async def _finish_fade(` `def _playnow(` — next/playnow ตอนกำลังเล่น + fadeOut > 0 = ตั้ง fading แล้ว sleep นอก lock ค่อยเปลี่ยนเพลง; กดซ้ำ = ทันที, restart = ยกเลิก
+- `server.py` `elif act == "skipintro":` `elif act == "addcombo":` `async def _queue_yt(` `def _history_add(` — ⏩ ตั้ง pos = introEnd + seek_token += 1 (เฉพาะยังไม่พ้นอินโทร); คอมโบเข้าคิวทีละเพลงทางเดียวกับ add พร้อม clip* + combo
+! _finish_fade ต้องตรวจ fade_token + current id ก่อนเปลี่ยนเพลง (งานเก่าค้าง/ถูกแทน) · ended ยังเปลี่ยนทันที (จอเฟดเองก่อนส่ง)
 
 ### เสียงไกด์ / ระดับเสียง / เปลี่ยนคีย์ / โหมดเนื้อ (mix / key / lyrMode)
 คำค้น: เสียงร้องไกด์, vocal, ดนตรี, music, master, ระดับเสียง, volume, mix, คีย์, key, pitch, เปลี่ยนคีย์, เลื่อนคีย์, ครึ่งเสียง, pedalboard, โหมดเนื้อ, lyrMode, karaoke, scroll, dual, คอรัส, voices, 👥
@@ -539,6 +573,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `@app.get("/api/studio/tv")` `@app.post("/api/studio/tv")` — อ่าน/ตั้งค่า (ส่งมาเฉพาะค่าที่เปลี่ยนก็ได้, reset = กลับค่าเริ่มต้น) แล้ว broadcast ให้จอเปลี่ยนสด
 - `server.py` `@app.put("/api/studio/tv/logo")` `@app.delete("/api/studio/tv/logo")` `def _save_logo(` `@app.get("/tv/logo.png")` — อัป/ลบรูปมุมขวาบน (ครอปเป็นจัตุรัส PNG 512px เก็บที่ .tv/logo.png, ไม่เกิน 10MB)
 ! จะเพิ่มค่าตั้งใหม่ของจอ ต้องเพิ่มใน TV_SCHEMA ก่อน (คีย์ที่ไม่อยู่ใน schema ถูกทิ้งเงียบ ๆ) แล้วไปอ่านค่าใน static/player.html และ studio.html
+
+### ✂️ จุดเริ่ม/จบรายเพลง (trim.json) + 🎬 คอมโบ (combos.json)
+คำค้น: trim, trim.json, จุดเริ่ม, จุดจบ, ตัดต่อ, คอมโบ, combo, combos.json, clip, queue clip
+- `server.py` `CLIP_KEYS = ` `def _clean_clip(` `def _trim(` `def _set_trim(` — {start, end, fadeIn, fadeOut} เป็นเวลาในเสียง ตรวจด้วย _finite (เฟด ≤ 10 วิ), ว่าง = ลบไฟล์
+- `server.py` `@app.get("/api/studio/song/{vid}/clip")` `@app.post("/api/studio/song/{vid}/trim")` `@app.post("/api/studio/queue/{qid}/clip")` — ข้อมูลแทร็กของแท็บ ✂️ (trim + auto + ไฟล์สื่อ/เนื้อ), ตั้งค่าประจำเพลง, แก้ใบคิวคอมโบรอบนี้ (แทนที่ทั้ง 4 ค่า)
+- `server.py` `COMBO_MAX_ITEMS = ` `def _combos()` `def _clean_combo(` `def _combo_public(` `@app.get("/api/combos")` `@app.get("/api/studio/combos")` `@app.post("/api/studio/combos")` `@app.delete("/api/studio/combos/{cid}")` — combos.json แคชตาม mtime, รีโมทเห็นชื่อ/เพลง/ความยาวรวมหลังตัด, Studio สร้าง/แก้ทั้งก้อน (คงลำดับ) แล้ว archive_rev += 1
+! trim.json ไม่อยู่ในรายการลบของ _clear_lyrics / เลือกเนื้อใหม่ (เวลาในเสียง ใช้ต่อได้) · คอมโบไม่ใช้ trim.json/ค่าอัตโนมัติเลย
 
 ### FA จับเวลาละเอียด / แผนที่ความคลาด 🗺 / ซ่อมเวลา 🩺
 คำค้น: FA, forced alignment, จับเวลาละเอียด, wav2vec2, fa_align, แผนที่ความคลาด, drift, 🗺, ซ่อมเวลา, refine, 🩺, lyrics_refine, เวลาเพี้ยน, KARA_REFINE
@@ -681,7 +722,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ค่า v ต้องตรงกันสามที่: gen_lyrics.VOICES, server._clean_edit_lines, จอ VOICE_CLS (player.html/studio.html); make_wanted.py / lyrics_check.py ใช้ path สัมพัทธ์ ต้องรันจากรากโปรเจกต์
 
 ### โฟลเดอร์เพลง songs/yt/<ชื่อคลิป [videoId]>/ — ไฟล์ในแต่ละเพลง
-คำค้น: โฟลเดอร์เพลง, songs, songs/yt, ไฟล์เพลง, videoId, info.json, vocals.m4a, no_vocals.m4a, audio.m4a, video.mp4, cover.jpg, สเต็ม, stems, แยกเสียง, demucs, lyrics.words.json, lyrics.best.json, lyrics.check.json, lang.json, lyrics.edits, lyrics.offset.json, คีย์
+คำค้น: โฟลเดอร์เพลง, songs, songs/yt, ไฟล์เพลง, videoId, info.json, vocals.m4a, no_vocals.m4a, audio.m4a, video.mp4, cover.jpg, สเต็ม, stems, แยกเสียง, demucs, lyrics.words.json, lyrics.best.json, lyrics.check.json, lang.json, lyrics.edits, lyrics.offset.json, คีย์, trim.json, จุดเริ่ม, จุดจบ
 - `scripts/gen_lyrics.py` `RE_VID = re.compile` `def song_duration(` — ชื่อโฟลเดอร์ลงท้าย [videoId 11 ตัว]; info.json (yt-dlp: title/uploader/duration/description/automatic_captions), ไม่มี duration ค่อย ffprobe audio.m4a/video.mp4
 - `scripts/fa_align.py` `def song_dir(` `def default_audio(` — หาโฟลเดอร์จาก vid; เสียงร้อง vocals.m4a (demucs) ไม่มีใช้ audio.m4a; no_vocals.m4a = ดนตรี, video.mp4, cover.jpg
 - `scripts/fetch_subs.py` `ซับไทยของจริง (คนพิมพ์)` `auto-caption (ASR ของ YouTube) คนละชั้นคุณภาพ` — sub.<lang>.vtt / auto.<lang>.vtt
@@ -689,6 +730,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `scripts/verify_lyrics.py` `off_f = folder / "lyrics.offset.json"` `def check_path(` — lyrics.offset.json {offset} (ปรับจากรีโมท/Studio), lyrics.check.json {v, score, shift, g, defects, verdict, measuredBy, reports…}
 - `scripts/lyrics_sources.py` `def write_lang(` — lang.json {lang, by, at} (by = title/lrclib/whisper/manual …)
 - `lyrics-in/README.md` `## โหมดคาราโอเกะ` `## ระบบเลือกเนื้อดีที่สุดจากทุกแหล่ง` `## เปลี่ยนคีย์เพลง` — lyrics.words.json {texts, k, conf, en, audio}, lyrics.best.json {action, reason, cands, refine}, vocals.k+N.m4a / no_vocals.k+N.m4a
+- `server.py` `def _trim(` — trim.json {start, end, fadeIn, fadeOut, at} จุดเริ่ม/จบ/เฟดรายเพลง (แท็บ ✂️ ใช้ตอนเปิดโหมด Custom)
 - `.gitignore` `songs/` — songs/ ไม่อยู่ใน git (ไม่มีใน worktree); lyrics.edits/ (ประวัติ 20 รุ่น), lyrics.reports.json (แจ้งเนื้อไม่ตรง), songs/.thumbs/ สร้างโดย server.py
 ! ห้ามอ่าน/แก้ไฟล์เนื้อจริงใน songs/yt (lyrics*.json) — ดูโครงด้วย ls / คีย์ JSON เท่านั้น; ทดสอบใช้คลังจำลองผ่าน KARA_SONGS_DIR
 ! แยกเสียงใหม่ = แคช FA/_va เดิมใช้ไม่ได้ (ผูกลายเซ็นไฟล์เสียง) — server ลบให้ใน _purge_audio_caches
@@ -706,11 +748,12 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ตั้ง KARA_FA_CACHE อย่างเดียว → _va/_ocr ย้ายไปอยู่ข้างโฟลเดอร์ _fa นั้นอัตโนมัติ (เว้นแต่ตั้ง KARA_VA_CACHE/KARA_OCR_CACHE)
 
 ### ตั้งค่าจอทีวี tv.json + ไฟล์ลับ .studio.json
-คำค้น: tv.json, ตั้งค่าจอ, ตั้งค่าหน้าจอหลัก, จอทีวี, โลโก้, logo, .tv/logo.png, .studio.json, PIN, รหัส Studio, secret, token, mxmToken, publicUrl, gitignore, ความลับ, history.json
-- `tv.json` — ค่าจอหลักที่ตั้งจาก Studio 📺 (title, titleHide, singer, chips, lyrScale, lyrColor, lyrDim, karaColor, lyrBg, lyrShadow, lyrLift, qr, qrSize, time, next, addCard, logo, logoSize, idleText, countdown, voices); รูปมุมขวาบนที่ .tv/logo.png
+คำค้น: tv.json, combos.json, ตั้งค่าจอ, ตั้งค่าหน้าจอหลัก, จอทีวี, โลโก้, logo, .tv/logo.png, .studio.json, PIN, รหัส Studio, secret, token, mxmToken, publicUrl, gitignore, ความลับ, history.json
+- `tv.json` — ค่าจอหลักที่ตั้งจาก Studio 📺 (title, titleHide, singer, chips, lyrScale, lyrColor, lyrDim, karaColor, lyrBg, lyrShadow, lyrLift, qr, qrSize, time, next, addCard, logo, logoSize, idleText, countdown, voices, fadeIn, fadeOut, custom, customLead, customTail, customAud, skipBtn, skipMin); รูปมุมขวาบนที่ .tv/logo.png
 - `lyrics-in/README.md` `## ตั้งค่าหน้าจอหลัก` — ความหมายของแต่ละค่า (ลบไฟล์ = กลับค่าเริ่มต้น)
 - `.gitignore` `.studio.json` `history.json` `.chrome-player/` — ไฟล์ลับ/ส่วนตัวนอก git: .studio.json = {pin, secret, tv (รหัสลิงก์จอ), publicUrl, mxmToken}, history.json = ประวัติเพลง + ชื่อคนร้อง, โปรไฟล์ Chrome ของจอหลัก
 - `server.py` `GENRES_FILE = ` — genres.json (สร้างเมื่อจัดแนวครั้งแรก): แนวเพลงที่จัดใน Studio 🗂 (หัวข้อแนว + เพลงที่จัดเองแล้ว) ใช้กับ 🃏 PU Match; ไม่มีไฟล์ = แร็ป/วัยรุ่น/ลูกทุ่ง + ระบบเดาทุกเพลง
+- `server.py` `COMBOS_FILE = ` — combos.json (สร้างเมื่อสร้างคอมโบแรก): 🎬 คอมโบที่จัดในแท็บ ✂️ [{id, name, items: [{videoId, title, start?, end?, fadeIn?, fadeOut?}]}]
 - `cloudflare.command` `set_public_url() {` — ตัวอย่างแก้ .studio.json แบบรักษาฟิลด์อื่น (server อ่านใหม่เองตาม mtime ไม่ต้องรีสตาร์ท)
 ! คีย์ใหม่ใน tv.json ต้องเพิ่มใน TV_SCHEMA ของ server.py (_clean_tv ทิ้งคีย์ที่ไม่รู้จัก) + ปุ่มใน Studio 📺; ปิดแล้วจอต้องเหมือนเดิม
 ! ห้าม commit/แสดงค่าใน .studio.json (PIN, secret, token Musixmatch; KARA_STUDIO_PIN ทับ PIN ได้); tv.json อยู่ใน git แต่ผู้ใช้แก้จาก Studio บ่อย (มักมีการแก้ค้างที่ยังไม่ commit) — อย่า commit ทับ

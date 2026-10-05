@@ -140,6 +140,7 @@ def _song_dir(vid: str) -> Path:
 HISTORY_FILE = BASE / "history.json"   # ประวัติเพลงที่เคยเพิ่ม (ทุกมือถือในห้อง)
 TV_FILE = BASE / "tv.json"             # ตั้งค่าหน้าจอหลัก (ตั้งจาก Studio เท่านั้น)
 TV_DIR = BASE / ".tv"                  # รูปมุมขวาบนของจอหลัก (logo.png)
+COMBOS_FILE = BASE / "combos.json"     # 🎬 คอมโบ (ชุดเพลงที่ตัดจุดเริ่ม/จบไว้เอง) — จัดใน Studio แท็บ ✂️
 HISTORY_MAX = 200
 
 
@@ -230,6 +231,14 @@ TV_SCHEMA: dict[str, tuple] = {
     "idleText": (str, ""),           # ข้อความหน้าจอว่าง (ตอนไม่มีเพลง)
     "countdown": (bool, True),       # ♪ ● ● ● นับถอยหลังก่อนเข้าท่อนแรก/หลังช่วงดนตรี
     "voices": (bool, True),          # 👥 แยกเสียงร้อง: คนที่ 2/3 คนละสี, (คอรัส/แอดลิบในวงเล็บ) ตัวเล็กจาง
+    "fadeIn": (int, 2, 0, 5),        # เฟดเข้าตอนเริ่มทุกเพลง (วิ) 0 = ไม่เฟด
+    "fadeOut": (int, 3, 0, 5),       # เฟดออกตอนจบ/ข้าม (ภาพ+เสียง) 0 = ตัดทันทีแบบเดิม
+    "custom": (bool, False),         # ✂️ โหมด Custom: เล่นแต่ละเพลงจากจุดเริ่มถึงจุดจบ
+    "customLead": (int, 4, 1, 10),   # อัตโนมัติ: เริ่มก่อนท่อนแรกกี่วิ
+    "customTail": (int, 5, 0, 15),   # อัตโนมัติ: จบหลังท่อนสุดท้ายกี่วิ
+    "customAud": (int, 0, 0, 5),     # โหมด Custom: เฟดเสียงออกกี่วิ (0 = ตัดเสียงทันที ภาพยังเฟด)
+    "skipBtn": (bool, True),         # ⏩ ปุ่มข้ามอินโทรบนรีโมท
+    "skipMin": (int, 15, 5, 60),     # อินโทรยาวเกินกี่วิถึงโผล่ปุ่ม
 }
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -522,6 +531,9 @@ class Room:
         self.player_id: str | None = None
         self.pos = 0.0
         self.pos_at = time.monotonic()
+        self.fading: str | None = None    # id ใบคิวที่กำลังเฟดออกก่อนเปลี่ยนเพลง (กดข้าม/เล่นเลย)
+        self.fade_token = 0               # งานเฟดที่ค้างอยู่ — เลขไม่ตรง = ถูกแทน/ยกเลิกแล้ว
+        self.seek_token = 0               # ⏩ ข้ามอินโทร: จอ seek ไป position เมื่อเลขเปลี่ยน
         self.clients: set[WebSocket] = set()
         self.lock = asyncio.Lock()
         self.history = _load_history()
@@ -541,6 +553,8 @@ class Room:
             _sep_fields(it)
             _lyr_fields(it)
             _fix_fields(it)      # ต้องท้ายสุด: อ่านผลของสามตัวบน
+        if self.current:
+            _span_fields(self.current, self.tv)
         return {
             "type": "state",
             "current": self.current,
@@ -554,6 +568,9 @@ class Room:
             "archiveRev": self.archive_rev,
             "jobsRev": _jobs_rev(),
             "position": self.position(),
+            "fading": self.fading,
+            "seekToken": self.seek_token,
+            "combos": sum(1 for c in _combos() if c["items"]),   # รีโมทโชว์การ์ด 🎬 เมื่อมีคอมโบ
             "baseUrl": base_url(),
         }
 
@@ -579,13 +596,19 @@ class Room:
             self.next()
 
     def next(self) -> None:
-        self.pos = 0.0
-        self.pos_at = time.monotonic()
         self.mix["vocal"] = MIX_DEFAULT["vocal"]   # ไกด์เสียงร้อง = ค่าเริ่มต้นทุกเพลง
         self.mix["key"] = MIX_DEFAULT["key"]
         # master/music ไม่รีเซ็ต — เป็นค่าของห้อง ถ้าล้างทุกเพลงจะน่ารำคาญ
         self.current = self.queue.pop(0) if self.queue else None
         self.playing = self.current is not None
+        self.fading = None
+        self.fade_token += 1
+        # โหมด Custom / คอมโบ: เริ่มที่จุดเริ่ม — จอ seek ไปเองผ่านกลไกเล่นต่อจากตำแหน่งเดิม (resumeAt)
+        start = _play_span(self.current, self.tv)[0] if self.current else 0.0
+        if self.current:
+            self.current["startAt"] = start
+        self.pos = start
+        self.pos_at = time.monotonic()
 
     def remove(self, item_id: str) -> None:
         # เอาออกจากคิว ≠ ยกเลิกโหลด/แยกเสียง — โปรเจกต์นี้ตั้งใจสะสมอาร์ไคฟ์ไว้
@@ -1449,6 +1472,163 @@ def _set_lyr_offset(vid: str, off: float) -> float:
         os.replace(tmp, f)
     _off_cache.pop(vid, None)
     return off
+
+
+# ===== ✂️ จุดเริ่ม/จบ + เฟดรายเพลง (โหมด Custom / คอมโบ) =====
+# trim.json = {start, end, fadeIn, fadeOut} เป็น "เวลาในเสียง" (ไม่ใช่เวลาเนื้อ) ตั้งในแท็บ ✂️ ของ Studio
+# แยกจากไฟล์เนื้อโดยตั้งใจ: สร้าง/ล้างเนื้อใหม่แล้วไม่หาย และไม่แตะเนื้อที่ผู้ใช้แก้เอง
+# คอมโบเก็บค่าของตัวเองในใบคิว (clipStart/clipEnd/clipFadeIn/clipFadeOut) — ตัดด้วยมือล้วน ไม่ใช้ค่าอัตโนมัติ
+CLIP_KEYS = ("start", "end", "fadeIn", "fadeOut")
+FADE_MAX = 10.0
+SPAN_MIN = 15.0          # ช่วงเล่นสั้นกว่านี้ = ทิ้งจุดจบ (ตั้งผิด/เนื้อเพี้ยน) เล่นต่อจนจบคลิป
+AUTO_SKIP_MIN = 5.0      # อัตโนมัติ: ข้ามได้ไม่ถึงนี้ = เริ่มจาก 0 ไม่คุ้มกระโดด
+_trim_cache: dict[str, tuple[float, dict]] = {}
+_span_cache: dict[str, tuple[float, tuple[float, float] | None]] = {}
+
+
+def _clean_clip(raw: Any, dur: float) -> dict:
+    """{start, end, fadeIn, fadeOut} จากภายนอก -> เฉพาะตัวเลขจริงในช่วง (ค่าอื่น/None = ไม่ตั้ง)"""
+    out: dict[str, float] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in CLIP_KEYS:
+        v = raw.get(k)
+        if v is None or isinstance(v, bool):
+            continue
+        x = _finite(v, 0.0, FADE_MAX if k.startswith("fade") else dur)
+        if x is not None:
+            out[k] = round(x, 2)
+    if "start" in out and "end" in out and out["end"] <= out["start"]:
+        del out["end"]
+    return out
+
+
+def _dur_of(vid: str) -> float:
+    try:
+        return float(_song_meta(vid)["duration"] or 0) or 86400.0
+    except Exception:
+        return 86400.0
+
+
+def _trim(vid: str) -> dict:
+    f = _song_dir(vid) / "trim.json"
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return {}
+    hit = _trim_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        t = _clean_clip(json.loads(f.read_text("utf-8")), 86400.0)
+    except Exception:
+        t = {}
+    _trim_cache[vid] = (mt, t)
+    return t
+
+
+def _set_trim(vid: str, raw: Any) -> dict:
+    t = _clean_clip(raw, _dur_of(vid))
+    f = _song_dir(vid) / "trim.json"
+    if t:
+        _write_json_atomic(f, {**t, "at": int(time.time())})
+    else:
+        f.unlink(missing_ok=True)
+    _trim_cache.pop(vid, None)
+    return t
+
+
+def _lyr_span(vid: str) -> tuple[float, float] | None:
+    """(เวลาเริ่มบรรทัดแรก, เวลาจบบรรทัดสุดท้าย) เป็นเวลาเนื้อ — แคชด้วย mtime ของ lyrics.json"""
+    f = _song_dir(vid) / "lyrics.json"
+    try:
+        mt = f.stat().st_mtime
+    except OSError:
+        return None
+    hit = _span_cache.get(vid)
+    if hit and hit[0] == mt:
+        return hit[1]
+    sp = None
+    try:
+        L = [l for l in (json.loads(f.read_text("utf-8")).get("lines") or [])
+             if isinstance(l.get("t"), (int, float)) and str(l.get("x") or "").strip()]
+        if L:
+            sp = (min(float(l["t"]) for l in L),
+                  max(float(l["t"]) + float(l.get("d") or 0) for l in L))
+    except Exception:
+        sp = None
+    _span_cache[vid] = (mt, sp)
+    return sp
+
+
+def _auto_span(vid: str, tv: dict) -> tuple[float, float | None]:
+    """จุดเริ่ม/จบอัตโนมัติจากเวลาเนื้อ (เวลาเนื้อ + offset ประจำเพลง = เวลาในเสียง) — ไม่มีเนื้อ = ทั้งคลิป"""
+    sp = _lyr_span(vid)
+    if not sp:
+        return 0.0, None
+    off = _lyr_offset(vid)
+    s = sp[0] + off - tv.get("customLead", 4)
+    if s < AUTO_SKIP_MIN:
+        s = 0.0
+    e: float | None = sp[1] + off + tv.get("customTail", 5)
+    if e >= _dur_of(vid) - 1:
+        e = None
+    return round(s, 2), (round(e, 2) if e is not None else None)
+
+
+def _intro_end(item: dict, tv: dict) -> float:
+    """จุดที่ ⏩ ข้ามอินโทรกระโดดไป: จุดเริ่มที่ตั้งเอง > อัตโนมัติ (ใบคิวจากคอมโบ/ไม่ใช่ YouTube = 0)"""
+    vid = item.get("videoId")
+    if item.get("combo") or item.get("source") != "yt" or not vid:
+        return 0.0
+    st = _trim(vid).get("start")
+    return st if st is not None else _auto_span(vid, tv)[0]
+
+
+def _play_span(item: dict | None, tv: dict) -> tuple[float, float | None, float | None, float | None]:
+    """(จุดเริ่ม, จุดจบ, เฟดเข้า, เฟดออก) ของใบคิว — None = ใช้ค่าปกติ (ต้นคลิป/ท้ายคลิป/ค่าใน 📺)
+    คอมโบ = ค่าที่ตัดเองเสมอไม่ดูโหมด · เพลงทั่วไป = trim.json > อัตโนมัติ เฉพาะตอนเปิดโหมด Custom"""
+    if not item:
+        return 0.0, None, None, None
+    if item.get("combo"):
+        s, e = item.get("clipStart") or 0.0, item.get("clipEnd")
+        fi, fo = item.get("clipFadeIn"), item.get("clipFadeOut")
+    elif tv.get("custom") and item.get("source") == "yt" and item.get("videoId"):
+        vid = item["videoId"]
+        t, a = _trim(vid), _auto_span(vid, tv)
+        s = t["start"] if "start" in t else a[0]
+        e = t["end"] if "end" in t else a[1]
+        fi, fo = t.get("fadeIn"), t.get("fadeOut")
+    else:
+        return 0.0, None, None, None
+    if e is not None and e <= s + SPAN_MIN:
+        e = None
+    return float(s), e, fi, fo
+
+
+def _span_fields(item: dict, tv: dict) -> None:
+    """เติม endAt / fadeIn / fadeOut / introEnd ของเพลงที่เล่นอยู่ทุก broadcast (แก้ใน Studio = มีผลสด)"""
+    for k in ("endAt", "fadeIn", "fadeOut", "introEnd"):
+        item.pop(k, None)
+    _, e, fi, fo = _play_span(item, tv)
+    if e is not None:
+        item["endAt"] = e
+    if fi is not None:
+        item["fadeIn"] = fi
+    if fo is not None:
+        item["fadeOut"] = fo
+    # โหมด Custom เริ่มหลังอินโทรอยู่แล้ว / คอมโบตัดเองแล้ว -> ไม่ต้องมีปุ่ม
+    if tv.get("skipBtn", True) and not tv.get("custom") and not item.get("combo"):
+        ie = _intro_end(item, tv)
+        if ie >= tv.get("skipMin", 15):
+            item["introEnd"] = ie
+
+
+def _fade_out_sec(item: dict | None, tv: dict) -> float:
+    if not item:
+        return 0.0
+    fo = _play_span(item, tv)[3]
+    return float(fo if fo is not None else tv.get("fadeOut", 0))
 
 
 def _lyr_fields(item: dict) -> None:
@@ -3901,6 +4081,154 @@ async def studio_offset(vid: str, request: Request):
     return {"ok": True, "offset": off}
 
 
+# ===== ✂️ ตัดต่อ: จุดเริ่ม/จบรายเพลง + 🎬 คอมโบ =====
+COMBO_MAX_ITEMS = 50
+_combo_db: tuple[float, list[dict]] = (-1.0, [])
+
+
+def _combos() -> list[dict]:
+    """combos.json = [{id, name, items: [{videoId, title, start?, end?, fadeIn?, fadeOut?}], at}] — แคชตาม mtime"""
+    global _combo_db
+    try:
+        mt = COMBOS_FILE.stat().st_mtime
+    except OSError:
+        mt = 0.0
+    if mt == _combo_db[0]:
+        return _combo_db[1]
+    out: list[dict] = []
+    if mt:
+        try:
+            raw = json.loads(COMBOS_FILE.read_text("utf-8"))
+            out = [c for c in (_clean_combo(r) for r in (raw if isinstance(raw, list) else [])) if c]
+        except Exception as e:
+            print(f"[combo] อ่าน combos.json ไม่ได้: {e}")
+    _combo_db = (mt, out)
+    return out
+
+
+def _clean_combo(raw: Any) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    cid = str(raw.get("id") or "")
+    if not re.fullmatch(r"[a-z0-9]{6,16}", cid):
+        cid = uuid.uuid4().hex[:8]
+    name = " ".join(str(raw.get("name") or "").split())[:40] or "คอมโบใหม่"
+    items = []
+    for it in (raw.get("items") if isinstance(raw.get("items"), list) else [])[:COMBO_MAX_ITEMS]:
+        if not isinstance(it, dict) or not _vid_ok(it.get("videoId")):
+            continue
+        vid = it["videoId"]
+        title = " ".join(str(it.get("title") or "").split())[:200] or vid
+        items.append({"videoId": vid, "title": title, **_clean_clip(it, _dur_of(vid))})
+    return {"id": cid, "name": name, "items": items, "at": int(raw.get("at") or time.time())}
+
+
+def _combos_save(db: list[dict]) -> None:
+    global _combo_db
+    _write_json_atomic(COMBOS_FILE, db)
+    _combo_db = (COMBOS_FILE.stat().st_mtime, db)
+
+
+def _combo_get(cid: str) -> dict | None:
+    return next((c for c in _combos() if c["id"] == cid), None)
+
+
+def _combo_public(c: dict) -> dict:
+    """ข้อมูลที่รีโมทเห็น: ชื่อ เพลง ความยาวรวมหลังตัด (ว่าง = ต้นคลิป/ท้ายคลิป)"""
+    items, total = [], 0.0
+    for it in c["items"]:
+        vid = it["videoId"]
+        dur = float(_song_meta(vid)["duration"] or 0)
+        s, e = it.get("start") or 0.0, it.get("end")
+        total += max(0.0, (e if e is not None else dur) - s)
+        items.append({"videoId": vid, "title": it["title"],
+                      "thumb": f"/song/{vid}/cover.jpg" if (_song_dir(vid) / "cover.jpg").is_file() else f"/thumb/{vid}"})
+    return {"id": c["id"], "name": c["name"], "n": len(items), "total": round(total), "items": items}
+
+
+@app.get("/api/combos")
+async def api_combos():
+    return {"combos": await asyncio.to_thread(lambda: [_combo_public(c) for c in _combos() if c["items"]])}
+
+
+@app.get("/api/studio/combos")
+async def studio_combos(request: Request):
+    _studio_guard(request)
+    return {"combos": _combos()}
+
+
+@app.post("/api/studio/combos")
+async def studio_combo_save(request: Request):
+    """สร้าง/แก้คอมโบทั้งก้อน (id ว่างหรือไม่มีในไฟล์ = สร้างใหม่)"""
+    _studio_guard(request)
+    body = await request.json()
+    c = await asyncio.to_thread(_clean_combo, body)
+    if not c:
+        raise HTTPException(status_code=400, detail="ข้อมูลคอมโบไม่ถูกต้อง")
+    # คงลำดับเดิมของคอมโบที่แก้ (ของใหม่ต่อท้าย)
+    cur = _combos()
+    idx = next((i for i, x in enumerate(cur) if x["id"] == c["id"]), len(cur))
+    db = [x for x in cur if x["id"] != c["id"]]
+    db.insert(min(idx, len(db)), c)
+    await asyncio.to_thread(_combos_save, db)
+    room.archive_rev += 1
+    await room.broadcast()
+    return {"combo": c}
+
+
+@app.delete("/api/studio/combos/{cid}")
+async def studio_combo_delete(cid: str, request: Request):
+    _studio_guard(request)
+    db = [x for x in _combos() if x["id"] != cid]
+    await asyncio.to_thread(_combos_save, db)
+    room.archive_rev += 1
+    await room.broadcast()
+    return {"ok": True}
+
+
+@app.get("/api/studio/song/{vid}/clip")
+async def studio_clip_info(vid: str, request: Request):
+    """ข้อมูลที่แท็บ ✂️ ใช้วาดแทร็กของเพลงหนึ่ง: ค่าที่ตั้งเอง + ค่าอัตโนมัติ + ไฟล์สื่อ/เนื้อ"""
+    _studio_guard(request)
+    d = _studio_vid(vid)
+    mt = _lyr_meta(vid)[0]
+    a = _auto_span(vid, room.tv)
+    return {"videoId": vid, "title": _song_meta(vid)["title"] or vid,
+            "duration": _song_meta(vid)["duration"], "trim": _trim(vid),
+            "auto": {"start": a[0], "end": a[1]}, "lyrOffset": _lyr_offset(vid),
+            "lyricsUrl": f"/song/{vid}/lyrics.json?v={int(mt * 1000)}" if mt else None,
+            "video": (d / "video.mp4").is_file(), "audio": (d / "audio.m4a").is_file(),
+            "vocals": (d / "vocals.m4a").is_file()}
+
+
+@app.post("/api/studio/song/{vid}/trim")
+async def studio_trim(vid: str, request: Request):
+    _studio_guard(request)
+    _studio_vid(vid)
+    body = await request.json()
+    t = await asyncio.to_thread(_set_trim, vid, body)
+    await room.broadcast()             # เพลงที่เล่นอยู่ได้จุดจบ/เฟดใหม่สด
+    return {"ok": True, "trim": t}
+
+
+@app.post("/api/studio/queue/{qid}/clip")
+async def studio_queue_clip(qid: str, request: Request):
+    """แก้จุดเริ่ม/จบ/เฟดของใบคิวที่มาจากคอมโบ (เฉพาะรอบนี้ ไม่แตะไฟล์คอมโบ)"""
+    _studio_guard(request)
+    body = await request.json()
+    async with room.lock:
+        it = room.find(qid)
+        if not it or not it.get("combo"):
+            raise HTTPException(status_code=404, detail="ไม่พบเพลงคอมโบนี้ในคิว")
+        t = _clean_clip(body, _dur_of(it.get("videoId") or ""))
+        for k, q in (("start", "clipStart"), ("end", "clipEnd"), ("fadeIn", "clipFadeIn"), ("fadeOut", "clipFadeOut")):
+            it.pop(q, None)
+            if k in t:
+                it[q] = t[k]
+        await room.broadcast()
+    return {"ok": True, "clip": t}
+
+
 @app.post("/api/studio/song/{vid}/autotime")
 async def studio_autotime(vid: str, request: Request):
     _studio_guard(request)
@@ -5487,6 +5815,86 @@ def _targets_current(msg: dict) -> bool:
     return msg.get("id") is not None and msg.get("id") == cur.get("id")
 
 
+async def _queue_yt(vid: str, title: str, thumb: str, singer: str,
+                    extra: dict | None = None) -> dict:
+    """เพลง YouTube เข้าคิว + สั่งโหลด/แยกเสียง/หาเนื้อ (ใช้ร่วมกันระหว่าง add กับ addcombo) — เรียกภายใต้ room.lock"""
+    room.add({
+        "source": "yt",
+        "videoId": vid,
+        "title": title,
+        "thumb": thumb,
+        "singer": singer,
+        "dlStatus": "queued",
+        "dlError": "",
+        **(extra or {}),
+    })
+    it = room.queue[-1] if room.queue else room.current
+    now = time.monotonic()
+    for k in [k for k, t in _added_at.items() if now - t > 3600]:
+        del _added_at[k]
+    _added_at[it["videoId"]] = now
+    if not _mark_ready_if_archived(it):
+        await _ensure_downloader()
+        _dl_pending.push(it["videoId"])
+    # เพลงที่มีในอาร์ไคฟ์แล้ว -> แยกเสียงได้เลย
+    # เพลงที่เพิ่งเข้าคิวโหลด -> no-op เพราะยังไม่มี audio.m4a
+    # แล้ว _download_worker จะสั่งซ้ำให้เองตอนโหลดเสร็จ
+    await _enqueue_sep(it.get("videoId"))
+    # เพลงที่แยกเสียงไว้แล้วแต่ยังไม่มีเนื้อ -> หาเนื้อให้ทันที
+    await _enqueue_lyr(it.get("videoId"))
+    return it
+
+
+def _history_add(it: dict) -> None:
+    room.history.insert(0, {
+        "videoId": it.get("videoId"),
+        "path": it.get("path"),
+        "source": it.get("source"),
+        "title": it.get("title"),
+        "thumb": it.get("thumb"),
+        "singer": it.get("singer") or "",
+        "at": time.time(),
+    })
+    del room.history[HISTORY_MAX:]
+
+
+def _playnow(item_id: Any) -> bool:
+    for i, q in enumerate(room.queue):
+        if q["id"] == item_id:
+            room.queue.insert(0, room.queue.pop(i))
+            room.next()
+            return True
+    return False
+
+
+def _begin_fade(cmd: tuple[str, Any]) -> bool:
+    """กดข้าม/เล่นเลย -> จอค่อย ๆ ดำ + เสียงเบาก่อน แล้วค่อยเปลี่ยนเพลงจริงใน _finish_fade
+    คืน False = เปลี่ยนทันทีแบบเดิม (ปิดเฟด / ห้องหยุดอยู่ / กดซ้ำระหว่างเฟด)"""
+    cur = room.current
+    if not cur or not room.playing or room.fading == cur.get("id"):
+        return False
+    sec = _fade_out_sec(cur, room.tv)
+    if sec <= 0:
+        return False
+    room.fading = cur.get("id")
+    room.fade_token += 1
+    _bg(_finish_fade(cur.get("id"), room.fade_token, cmd, sec))
+    return True
+
+
+async def _finish_fade(item_id: str, token: int, cmd: tuple[str, Any], sec: float) -> None:
+    await asyncio.sleep(sec)               # รอนอก lock — ห้ามถือห้องไว้ระหว่างเฟด
+    async with room.lock:
+        if room.fade_token != token or room.fading != item_id \
+                or (room.current or {}).get("id") != item_id:
+            return                         # เปลี่ยนเพลงไปแล้ว / เริ่มใหม่ / ถูกงานใหม่แทน
+        if not (cmd[0] == "playnow" and _playnow(cmd[1])):
+            room.next()                    # เพลงที่สั่งเล่นเลยถูกลบระหว่างเฟด -> ข้ามไปเพลงถัดไปแทน (จอดำไปแล้ว)
+            await _autoplay_fill()
+        await _reprioritize()
+        await room.broadcast()
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     # เว็บอื่น (แท็บไหนก็ได้ในเครื่องนี้/มือถือในวงแลน) เปิด WebSocket ข้ามเว็บได้โดยไม่ติด CORS
@@ -5571,39 +5979,8 @@ async def ws_endpoint(ws: WebSocket):
                             if not _vid_ok(vid):
                                 # ต้องตรวจก่อน room.add: ค่าที่ไม่ใช่สตริงเข้าคิวแล้ว room.state() พังทุก broadcast
                                 raise ValueError(f"videoId ไม่ถูกต้อง: {str(vid)[:40]!r}")
-                            room.add({
-                                "source": "yt",
-                                "videoId": vid,
-                                "title": title or vid,
-                                "thumb": _thumb_for(vid, msg.get("thumb")),
-                                "singer": singer,
-                                "dlStatus": "queued",
-                                "dlError": "",
-                            })
-                            it = room.queue[-1] if room.queue else room.current
-                            now = time.monotonic()
-                            for k in [k for k, t in _added_at.items() if now - t > 3600]:
-                                del _added_at[k]
-                            _added_at[it["videoId"]] = now
-                            if not _mark_ready_if_archived(it):
-                                await _ensure_downloader()
-                                _dl_pending.push(it["videoId"])
-                            # เพลงที่มีในอาร์ไคฟ์แล้ว -> แยกเสียงได้เลย
-                            # เพลงที่เพิ่งเข้าคิวโหลด -> no-op เพราะยังไม่มี audio.m4a
-                            # แล้ว _download_worker จะสั่งซ้ำให้เองตอนโหลดเสร็จ
-                            await _enqueue_sep(it.get("videoId"))
-                            # เพลงที่แยกเสียงไว้แล้วแต่ยังไม่มีเนื้อ -> หาเนื้อให้ทันที
-                            await _enqueue_lyr(it.get("videoId"))
-                        room.history.insert(0, {
-                            "videoId": it.get("videoId"),
-                            "path": it.get("path"),
-                            "source": it.get("source"),
-                            "title": it.get("title"),
-                            "thumb": it.get("thumb"),
-                            "singer": it.get("singer") or "",
-                            "at": time.time(),
-                        })
-                        del room.history[HISTORY_MAX:]
+                            it = await _queue_yt(vid, title or vid, _thumb_for(vid, msg.get("thumb")), singer)
+                        _history_add(it)
                         await asyncio.to_thread(_save_history)
                         # cid = แท็บรีโมทที่กด -> เครื่องนั้นเปิดหน้าสถานะเต็มจอ ส่วนจอทีวีขึ้นการ์ด
                         added = {"type": "added", "id": it.get("id"),
@@ -5628,13 +6005,15 @@ async def ws_endpoint(ws: WebSocket):
                             room.next()
                             await _autoplay_fill()
                     elif act == "next":
-                        if _targets_current(msg):
+                        if _targets_current(msg) and not _begin_fade(("next", None)):
                             room.next()
                             await _autoplay_fill()
                     elif act == "autoplay":
                         room.autoplay = bool(msg.get("on"))
                         await _autoplay_fill()         # เปิดตอนจอว่าง = ขึ้นเพลงเลย
                     elif act == "restart":
+                        room.fading = None             # กดเริ่มใหม่ระหว่างเฟดออก = ยกเลิกการเปลี่ยนเพลง
+                        room.fade_token += 1
                         room.pos = 0.0
                         room.pos_at = time.monotonic()
                         room.restart_token += 1
@@ -5654,11 +6033,41 @@ async def ws_endpoint(ws: WebSocket):
                     elif act == "playnow":
                         # เล่นเฉพาะตอนเจอ id — กดรัวสองที ครั้งที่สองเพลงนั้นกลายเป็นเพลงที่เล่นอยู่แล้ว
                         # ของเดิมเรียก next() ทุกกรณี = ข้ามเพลงที่เพิ่งกดเล่นทิ้ง
-                        for i, q in enumerate(room.queue):
-                            if q["id"] == msg.get("id"):
-                                room.queue.insert(0, room.queue.pop(i))
-                                room.next()
-                                break
+                        pid = msg.get("id")
+                        if any(q["id"] == pid for q in room.queue) and not _begin_fade(("playnow", pid)):
+                            _playnow(pid)
+                    elif act == "skipintro":
+                        # ⏩ จากรีโมท: กระโดดไปก่อนท่อนแรก — กดรัว/มาช้า (พ้นอินโทรแล้ว) = ไม่ทำ
+                        cur = room.current
+                        ie = (cur or {}).get("introEnd")
+                        if cur and _targets_current(msg) and not room.fading and ie \
+                                and room.position() < ie - 1:
+                            room.pos = float(ie)
+                            room.pos_at = time.monotonic()
+                            room.seek_token += 1
+                            room.playing = True
+                    elif act == "addcombo":
+                        # 🎬 เพิ่มทั้งคอมโบเข้าคิว — แต่ละเพลงจำจุดเริ่ม/จบ/เฟดที่ตัดไว้ในใบคิว
+                        cb = _combo_get(str(msg.get("id") or ""))
+                        if not cb:
+                            raise ValueError("ไม่พบคอมโบนี้")
+                        singer = " ".join(str(msg.get("singer") or "").split())[:24] or DEFAULT_SINGER
+                        first = None
+                        for ci in cb["items"]:
+                            extra = {"combo": cb["name"], "comboId": cb["id"]}
+                            for k, q in (("start", "clipStart"), ("end", "clipEnd"),
+                                         ("fadeIn", "clipFadeIn"), ("fadeOut", "clipFadeOut")):
+                                if ci.get(k) is not None:
+                                    extra[q] = ci[k]
+                            it = await _queue_yt(ci["videoId"], ci.get("title") or ci["videoId"],
+                                                 _thumb_for(ci["videoId"], None), singer, extra)
+                            _history_add(it)
+                            first = first or it
+                        await asyncio.to_thread(_save_history)
+                        if first:
+                            added = {"type": "added", "id": first.get("id"),
+                                     "cid": str(msg.get("cid") or "")[:40], "combo": cb["name"],
+                                     "n": len(cb["items"])}
                     elif act == "fix":
                         # "มีอะไรพัง -> กดทีเดียว" เซิร์ฟเวอร์เลือกขั้นที่พังให้เอง
                         it = room.find(msg.get("id")) or room.current
@@ -5680,7 +6089,7 @@ async def ws_endpoint(ws: WebSocket):
                             print(f"[report] {vid} แจ้งซับไม่ตรงที่ {pos:.0f}s "
                                   f"{','.join(rep['tags']) or '-'} {rep['note']!r} โดย {rep['by']}")
                     if act in ("add", "next", "ended", "remove", "up", "down",
-                               "playnow", "fix", "autoplay"):
+                               "playnow", "fix", "autoplay", "addcombo"):
                         await _reprioritize()
                     await room.broadcast()     # คำสั่งที่ถูกเมินก็ broadcast ด้วย ให้เครื่องที่ส่งตามทัน
                     if added:

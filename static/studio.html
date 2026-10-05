@@ -284,6 +284,57 @@
  .qbtns{display:flex;flex-direction:column;gap:6px}
  .qhead .bl{font-size:12px;color:#bff0dc;margin-top:6px;line-height:1.5}
  .qhead .bl.bad{color:#ffb8ca}
+ /* ---------- ✂️ ตัดต่อ & คอมโบ ---------- */
+ body:not([data-view=cut]) #vcut{display:none}
+ .cutgrid{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;max-width:1280px;margin:0 auto;padding:18px 18px 60px}
+ .cutside{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px;align-self:start;position:sticky;top:0}
+ .cutside .ci{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border-color:transparent;padding:9px 10px;margin-bottom:2px;overflow:hidden}
+ .cutside .ci span{overflow:hidden;text-overflow:ellipsis}
+ .cutside .ci.on{background:rgba(255,77,141,.14);border-color:rgba(255,77,141,.35);color:#fff}
+ .cutside .ci b{margin-left:auto;font-weight:400;color:var(--dim);font-size:12px}
+ .cutside .sec{font-size:11px;letter-spacing:.08em;color:var(--dim);margin:12px 8px 6px}
+ .cutside .add{color:#ffc2d8}
+ .cutmain{min-width:0}
+ .cwarn{padding:9px 12px;border-radius:12px;background:rgba(255,182,72,.1);color:#ffd08a;font-size:13px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .ctv{position:relative;width:min(100%,560px);aspect-ratio:16/9;margin:0 auto;border-radius:14px;overflow:hidden;background:#000;container-type:inline-size}
+ .ctv video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+ .ctv .bk{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none}
+ .ctv .ly{position:absolute;left:0;right:0;bottom:0;padding:6cqw 4cqw 3.5cqw;text-align:center;pointer-events:none;
+   background:linear-gradient(transparent,rgba(0,0,0,.65))}
+ .ctv .ly div{font-size:4.2cqw;font-weight:700;line-height:1.35;color:rgba(255,255,255,.5);text-shadow:0 2px 6px #000;min-height:1.35em}
+ .ctv .ly div.on{color:#fff}
+ .ctv .tt{position:absolute;left:3cqw;top:2.5cqw;right:3cqw;font-size:2.6cqw;color:#eee;text-shadow:0 1px 4px #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ctv .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font-size:14px;text-align:center;padding:20px}
+ .ctp{display:flex;align-items:center;justify-content:center;gap:8px;margin:12px 0 4px;flex-wrap:wrap}
+ .ctp .tm{font-variant-numeric:tabular-nums;color:var(--dim);min-width:120px;text-align:center}
+ .ctp .pg{color:var(--dim);min-width:110px;text-align:center}
+ .ctrk{margin-top:14px}
+ .ctrk .hd{display:flex;align-items:baseline;gap:8px;margin-bottom:5px;min-width:0}
+ .ctrk .hd .ab{flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:12px;background:var(--panel3)}
+ .ctrk .hd b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ctrk .hd small{color:var(--dim);white-space:nowrap}
+ .ctrk canvas{display:block;width:100%;height:90px;border-radius:10px;background:var(--panel);border:1px solid var(--line);cursor:pointer;touch-action:none}
+ .ctrk .ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--dim)}
+ .ctrk .ctl input{width:84px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 7px;text-align:center;font-variant-numeric:tabular-nums}
+ .ctrk .ctl input.f{width:58px}
+ .ctrk .ctl input::placeholder{color:#6d6d86}
+ .ctrk .ctl button{padding:4px 8px;font-size:12px}
+ .ctrk .ctl .gap{width:12px}
+ .ctrk.empty canvas{opacity:.4;cursor:default}
+ .cbx{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-top:18px}
+ .cbx .fr input[type=text]{flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
+ .cbsongs{margin:8px 0}
+ .cbsongs .r{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 6px;border-radius:9px;cursor:pointer}
+ .cbsongs .r:hover{background:var(--panel2)}
+ .cbsongs .r.on{background:rgba(255,77,141,.12)}
+ .cbsongs .r span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .cbsongs .r small{color:var(--dim)}
+ .cbsongs .r button{padding:3px 8px;font-size:12px}
+ .cbfind{position:relative}
+ .cbfind input{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
+ .cbres{position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:4px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+ .cbres button{display:block;width:100%;text-align:left;border:none;border-radius:0;background:none;padding:8px 12px;overflow:hidden;text-overflow:ellipsis}
+ .cbres button:hover{background:var(--panel3)}
  /* ---------- 📺 หน้าจอหลัก ---------- */
  .tvgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:18px;max-width:1280px;margin:0 auto;padding:18px}
  .tvside{position:sticky;top:0;align-self:start}
@@ -434,6 +485,7 @@
       <button data-view="songs" class="on">🎵 เพลงทั้งหมด</button>
       <button data-view="queue">▶ กำลังเล่น &amp; คิว<span class="cnt hide" id="qcnt"></span></button>
       <button data-view="tv">📺 หน้าจอหลัก</button>
+      <button data-view="cut">✂️ ตัดต่อ &amp; คอมโบ</button>
       <button data-view="genres">🗂 แนวเพลง</button>
     </nav>
     <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
@@ -570,6 +622,30 @@
       <div class="glist" id="glist"></div>
       <div class="gdrop">วางตรงนี้ = เอาออกจากแนว</div>
     </aside>
+  </div></section>
+
+  <section class="view" id="vcut"><div class="cutgrid">
+    <aside class="cutside" id="cutside"></aside>
+    <div class="cutmain">
+      <div class="cwarn hide" id="cwarn">⚠️ โหมด Custom ปิดอยู่ — จุดเริ่ม/จบที่ตั้งยังไม่มีผลบนทีวี (คอมโบเล่นตามที่ตัดไว้เสมอ) <button id="cwon">เปิดโหมด Custom</button></div>
+      <div class="ctv" id="ctv">
+        <video id="ctvv" playsinline preload="auto"></video>
+        <div class="bk" id="ctvbk"></div>
+        <div class="tt" id="ctvt"></div>
+        <div class="ly"><div id="cl1"></div><div id="cl2"></div></div>
+        <div class="ph" id="ctvph">เลือกเพลงในคิวหรือคอมโบทางซ้าย</div>
+      </div>
+      <div class="ctp">
+        <button id="cprev" title="คู่ก่อนหน้า">◀</button><span class="pg" id="cpg"></span><button id="cnext" title="คู่ถัดไป">▶</button>
+        <button class="primary" id="cjoin" title="เล่นท้ายเพลง A แล้วเฟดไปต้นเพลง B">▶ ฟังรอยต่อ</button>
+        <button id="cplay" title="เล่น/หยุด (Space)">⏯</button><span class="tm" id="ctm">0:00 / 0:00</span>
+      </div>
+      <div id="ctracks"></div>
+      <div class="cbx hide" id="cbx"></div>
+      <div class="hint" style="margin-top:14px">ลากขีดชมพูซ้าย/ขวา = จุดเริ่ม/จุดจบ · ลากจุดกลมด้านบน = ความยาวเฟดเข้า/ออก (เส้นลาด = ระดับเสียง ภาพเฟดตามเสียง) ·
+        แตะแทร็ก = ดูตรงนั้นในจอเล็ก · ⤓ = ใช้ตำแหน่งที่จอเล็กเล่นอยู่ · × = กลับค่าเดิม · กด <kbd>Alt</kbd> ค้างระหว่างลาก = ไม่ดูดเข้าต้นท่อน ·
+        เพลงในคิว: แก้แล้วจำเป็นค่าประจำเพลง (ใช้ตอนเปิดโหมด Custom) · เพลงจากคอมโบในคิว: แก้เฉพาะรอบนี้</div>
+    </div>
   </div></section>
 
   <section class="view" id="vtv"><div class="tvgrid">
@@ -2202,7 +2278,7 @@ document.addEventListener('keydown', e => {
 });
 
 // ===== 16b. แท็บ: เพลงทั้งหมด / กำลังเล่น & คิว / หน้าจอหลัก / แนวเพลง ========
-const VIEWS = ['songs', 'queue', 'tv', 'genres'];
+const VIEWS = ['songs', 'queue', 'tv', 'genres', 'cut'];
 function setView(v){
   if(!VIEWS.includes(v)) v = 'songs';
   document.body.dataset.view = v;
@@ -2212,6 +2288,7 @@ function setView(v){
   if(v === 'queue') renderQueue();
   if(v === 'tv') loadTv();
   if(v === 'genres') loadGenres();
+  if(v === 'cut') cutOpen(); else cutPause();
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
 $('#meta').addEventListener('click', e => { if(e.target.id === 'gotogn'){ e.preventDefault(); setView('genres'); } });
@@ -2302,6 +2379,440 @@ function updateQCount(){
   $('#qcnt').textContent = n; $('#qcnt').classList.toggle('hide', !n);
 }
 
+// ===== 16e. ✂️ ตัดต่อ & คอมโบ ================================================
+// แทร็กสองเพลงที่เรียงกัน (A = เพลงนี้, B = เพลงถัดไป) — ลากจุดเริ่ม/จบ/ความยาวเฟด + จอทีวีเล็กไว้ดูว่าร้องท่อนไหน
+// โหมดคิว: เพลงทั่วไปบันทึกเป็นค่าประจำเพลง (trim.json ใช้ตอนเปิด Custom) / ใบคิวจากคอมโบแก้เฉพาะรอบนี้
+// โหมดคอมโบ: ค่าตัดด้วยมือล้วน ๆ (ว่าง = ต้นคลิป/ท้ายคลิป) บันทึกทั้งคอมโบ
+// แยกจาก state S ของตัวแก้เนื้อทั้งหมด — แก้ที่นี่ไม่ทำให้เนื้อ dirty
+const CUT = {mode:'queue', cid:null, combos:[], loaded:false, pair:0, info:{}, infoFail:{}, env:{}, envBusy:{},
+             lyr:{}, qclip:{}, saveT:{}, pv:null, join:null, drag:null, find:''};
+const CLIP_K = ['start', 'end', 'fadeIn', 'fadeOut'];
+const SPAN_MIN = 15;                       // ตรงกับ server.py — ช่วงเล่นสั้นกว่านี้ถูกทิ้งจุดจบ
+const cutTv = () => (S.room && S.room.tv) || TV.cur || {};
+const cutCombo = () => CUT.combos.find(c => c.id === CUT.cid) || null;
+async function cutOpen(){
+  if(!CUT.loaded){ CUT.loaded = true; await cutLoadCombos(); }
+  renderCut();
+}
+async function cutLoadCombos(){
+  try{ CUT.combos = (await api('/api/studio/combos')).combos || []; }catch(e){ toast('⚠️ ' + e.message); }
+}
+// รายการเพลงที่กำลังตัด: คิว (เพลงที่เล่นอยู่ + คิว เฉพาะ YouTube) หรือเพลงในคอมโบ
+function cutEntries(){
+  if(CUT.mode === 'combo'){
+    const c = cutCombo(); if(!c) return [];
+    return c.items.map((it, i) => ({key:'c' + i, vid:it.videoId, title:it.title, combo:true, idx:i, clip:it}));
+  }
+  const st = S.room || {};
+  return [st.current, ...(st.queue || [])].filter(i => i && i.source === 'yt' && i.videoId).map(i => {
+    if(i.combo){
+      if(!CUT.qclip[i.id]){ const q = {}; [['start','clipStart'],['end','clipEnd'],['fadeIn','clipFadeIn'],['fadeOut','clipFadeOut']]
+        .forEach(([k, f]) => { if(i[f] != null) q[k] = i[f]; }); CUT.qclip[i.id] = q; }
+      return {key:'q' + i.id, vid:i.videoId, title:i.title, singer:i.singer, combo:true, qid:i.id, comboName:i.combo,
+              clip:CUT.qclip[i.id], cur:i === st.current};
+    }
+    const inf = CUT.info[i.videoId];
+    return {key:'q' + i.id, vid:i.videoId, title:i.title, singer:i.singer, combo:false, qid:i.id,
+            clip:inf ? inf.trim : {}, cur:i === st.current};
+  });
+}
+// ค่าที่ใช้จริง (ช่องว่าง = ค่าอัตโนมัติ/ต้นคลิป/ท้ายคลิป/ค่าใน 📺)
+function cutEff(e){
+  const inf = CUT.info[e.vid] || {}, D = +inf.duration || 0, c = e.clip || {}, tv = cutTv();
+  const auto = !e.combo && inf.auto ? inf.auto : {start:0, end:null};
+  const s = c.start != null ? +c.start : (+auto.start || 0);
+  let en = c.end != null ? +c.end : (auto.end != null ? +auto.end : D);
+  if(D && en > D) en = D;
+  const sp = Math.max(0, en - s);
+  return {D, s, e:en, autoS:auto.start, autoE:auto.end,
+          fi: Math.min(c.fadeIn != null ? +c.fadeIn : +(tv.fadeIn ?? 0), sp / 2),
+          fo: Math.min(c.fadeOut != null ? +c.fadeOut : +(tv.fadeOut ?? 0), sp / 2)};
+}
+async function cutEnsure(vid){
+  if(CUT.info[vid] || (CUT.infoFail[vid] && Date.now() - CUT.infoFail[vid] < 10000)) return;
+  CUT.infoFail[vid] = Date.now();
+  try{
+    const inf = await api(`/api/studio/song/${vid}/clip`);
+    delete CUT.infoFail[vid];
+    CUT.info[vid] = inf;
+    if(inf.lyricsUrl){
+      try{ const j = await (await fetch(inf.lyricsUrl, {cache:'no-store'})).json();
+        const L = (j.lines || []).filter(l => typeof l.t === 'number' && l.x).map(l => ({t:l.t, d:l.d, x:l.x, v:l.v}));
+        L.sort((a, b) => a.t - b.t); CUT.lyr[vid] = lycPrep(L); }catch(e){}
+    }
+    renderCut();
+    cutEnv(vid);
+  }catch(e){ /* ยังไม่อยู่ในเครื่อง (โหลดไม่เสร็จ) — ลองใหม่รอบหน้า */ }
+}
+// คลื่นเสียงร้องแบบหยาบ (10 จุด/วิ) ไว้ให้เห็นว่าร้องตรงไหน — decode ครั้งเดียวต่อเพลง
+async function cutEnv(vid){
+  const inf = CUT.info[vid]; if(!inf || CUT.env[vid] || CUT.envBusy[vid]) return;
+  const file = inf.vocals ? 'vocals.m4a' : inf.audio ? 'audio.m4a' : null; if(!file) return;
+  CUT.envBusy[vid] = true;
+  try{
+    const buf = await (await fetch(`/song/${vid}/${file}`)).arrayBuffer();
+    const ab = await new OfflineAudioContext(1, 1, 8000).decodeAudioData(buf);
+    const d = ab.getChannelData(0), hop = Math.round(ab.sampleRate / 10), m = Math.floor(d.length / hop), env = new Float32Array(m);
+    for(let i = 0; i < m; i++){ let q = 0; const o = i * hop; for(let k = 0; k < hop; k += 4){ const v = d[o + k]; q += v * v; } env[i] = Math.sqrt(q / (hop / 4)); }
+    const ref = Float32Array.from(env).sort()[Math.floor(m * 0.97)] || 1;
+    for(let i = 0; i < m; i++) env[i] = Math.min(1, env[i] / ref);
+    CUT.env[vid] = env; cutDrawAll();
+  }catch(e){}
+  finally{ CUT.envBusy[vid] = false; }
+}
+function renderCut(){
+  if(document.body.dataset.view !== 'cut') return;
+  if(CUT.mode === 'combo' && !cutCombo()) CUT.mode = 'queue';
+  const st = S.room || {}, nq = [st.current, ...(st.queue || [])].filter(i => i && i.source === 'yt').length;
+  $('#cutside').innerHTML =
+    `<button class="ci ${CUT.mode === 'queue' ? 'on' : ''}" data-cq="1">▶ <span>คิวตอนนี้</span><b>${nq}</b></button>`
+    + `<div class="sec">🎬 คอมโบ</div>`
+    + CUT.combos.map(c => `<button class="ci ${CUT.mode === 'combo' && CUT.cid === c.id ? 'on' : ''}" data-cc="${esc(c.id)}">🎬 <span>${esc(c.name)}</span><b>${c.items.length}</b></button>`).join('')
+    + `<button class="ci add" data-cnew="1">＋ คอมโบใหม่</button>`
+    + `<button class="ci" data-csaveq="1" title="เอาเพลงในคิวตอนนี้ (พร้อมจุดที่ตั้งไว้) มาทำเป็นคอมโบ">💾 <span>บันทึกคิวเป็นคอมโบ</span></button>`;
+  const E = cutEntries();
+  CUT.pair = clamp(CUT.pair, 0, Math.max(0, E.length - 2));
+  const A = E[CUT.pair], B = E[CUT.pair + 1];
+  for(const e of [A, B]) if(e) cutEnsure(e.vid);
+  $('#cwarn').classList.toggle('hide', !(CUT.mode === 'queue' && !cutTv().custom && E.some(e => !e.combo)));
+  $('#cpg').textContent = E.length ? (B ? `เพลง ${CUT.pair + 1}–${CUT.pair + 2} จาก ${E.length}` : `เพลง ${CUT.pair + 1} จาก ${E.length}`) : '';
+  $('#cprev').disabled = CUT.pair <= 0; $('#cnext').disabled = CUT.pair >= E.length - 2;
+  $('#cjoin').disabled = !(A && B && CUT.info[A.vid] && CUT.info[B.vid]);
+  if(!CUT.drag) $('#ctracks').innerHTML = !E.length
+    ? `<div class="empty">${CUT.mode === 'combo' ? 'คอมโบนี้ยังไม่มีเพลง — ค้นเพลงด้านล่างแล้วกด ＋' : 'ยังไม่มีเพลง YouTube ในคิว'}</div>`
+    : [A, B].map((e, r) => e ? cutTrackHtml(e, r) : '').join('');
+  cutDrawAll();
+  renderCutCombo();
+  // จอเล็กค้างเพลงที่ไม่อยู่ในคู่นี้แล้ว (เลื่อนคู่ / เพิ่ม-ลบเพลงในคอมโบ) -> กลับมาที่เพลง A
+  if(CUT.pv && !CUT.join && ![A, B].some(e => e && e.key === CUT.pv.key)){ cutPause(); CUT.pv = null; }
+  if(!CUT.pv && A && CUT.info[A.vid]) cutLoadPv(A, cutEff(A).s, false);
+  if(!E.length && CUT.pv){ cutPause(); CUT.pv = null; $('#ctvv').removeAttribute('src'); $('#ctvph').classList.remove('hide'); $('#ctvt').textContent = ''; }
+}
+function cutTrackHtml(e, r){
+  const inf = CUT.info[e.vid], f = inf ? cutEff(e) : null, c = e.clip || {}, tv = cutTv();
+  const ph = (k, v) => c[k] != null ? '' : v;
+  const sPh = e.combo ? 'ต้นคลิป' : (inf && inf.auto && inf.auto.start ? 'อัตโนมัติ ' + fmtD(inf.auto.start) : 'ต้นคลิป');
+  const ePh = e.combo ? 'ท้ายคลิป' : (inf && inf.auto && inf.auto.end != null ? 'อัตโนมัติ ' + fmtD(inf.auto.end) : 'ท้ายคลิป');
+  const val = (k, fmt) => c[k] != null ? fmt(c[k]) : '';
+  return `<div class="ctrk ${inf ? '' : 'empty'}" data-ck="${esc(e.key)}">
+    <div class="hd"><span class="ab">${r ? 'B' : 'A'}</span><b>${esc(e.title)}</b>
+      <small>${e.cur ? '▶ กำลังเล่น · ' : ''}${e.singer ? '🎤 ' + esc(e.singer) + ' · ' : ''}${e.comboName ? '🎬 ' + esc(e.comboName) + ' · ' : ''}${inf ? (f ? 'เล่น ' + fmtD(f.e - f.s) + ' จาก ' + fmtD(f.D) : '') : 'ยังโหลดไม่เสร็จ'}</small></div>
+    <canvas></canvas>
+    ${inf ? `<div class="ctl">เริ่ม <input data-cf="start" value="${val('start', fmtT)}" placeholder="${esc(ph('start', sPh))}">
+      <button data-cset="start" title="ใช้ตำแหน่งที่จอเล็กเล่นอยู่">⤓</button><button data-cclr="start" title="กลับค่าเดิม">×</button>
+      <button data-cgo="start" title="เล่นจากจุดเริ่ม">▶</button><span class="gap"></span>
+      จบ <input data-cf="end" value="${val('end', fmtT)}" placeholder="${esc(ph('end', ePh))}">
+      <button data-cset="end" title="ใช้ตำแหน่งที่จอเล็กเล่นอยู่">⤓</button><button data-cclr="end" title="กลับค่าเดิม">×</button>
+      <button data-cgo="end" title="เล่น 6 วิสุดท้ายก่อนจบ">▶</button><span class="gap"></span>
+      เฟดเข้า <input class="f" data-cf="fadeIn" value="${val('fadeIn', v => (+v).toFixed(1))}" placeholder="${tv.fadeIn ?? 0}"> วิ
+      เฟดออก <input class="f" data-cf="fadeOut" value="${val('fadeOut', v => (+v).toFixed(1))}" placeholder="${tv.fadeOut ?? 0}"> วิ
+      ${e.combo ? '' : '<button data-cclr="all" title="ล้างค่าที่ตั้งเองทั้งหมดของเพลงนี้">↺ ทั้งหมด</button>'}</div>` : ''}
+  </div>`;
+}
+function cutEntryByKey(k){ return cutEntries().find(e => e.key === k); }
+// ----- วาดแทร็ก -----
+function cutDrawAll(){ document.querySelectorAll('#ctracks .ctrk').forEach(el => cutDraw(el)); }
+function cutDraw(el){
+  const cv = el.querySelector('canvas'), e = cutEntryByKey(el.dataset.ck); if(!cv || !e) return;
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if(cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)){ cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const inf = CUT.info[e.vid]; if(!inf || !inf.duration) return;
+  const f = cutEff(e), X = t => t / f.D * W;
+  // คลื่นเสียงร้อง
+  const env = CUT.env[e.vid], mid = 44, amp = 26;
+  g.fillStyle = 'rgba(255,255,255,.28)';
+  if(env){ const n = env.length; for(let x = 0; x < W; x += 2){ const i0 = Math.floor(x / W * f.D * 10), i1 = Math.max(i0 + 1, Math.floor((x + 2) / W * f.D * 10));
+      let m = 0; for(let i = i0; i < i1 && i < n; i++) m = Math.max(m, env[i]); const h = Math.max(1, m * amp); g.fillRect(x, mid - h, 1.4, h * 2); } }
+  // ท่อนร้อง (เวลาเนื้อ + offset ประจำเพลง = เวลาในเสียง)
+  const L = CUT.lyr[e.vid], off = +inf.lyrOffset || 0;
+  if(L){ g.fillStyle = 'rgba(156,134,255,.75)';
+    for(const l of L){ const a = X(l.t + off), b = X(l.e != null ? l.e + off : l.t + off + (+l.d || 1)); g.fillRect(a, H - 13, Math.max(2, b - a - 1), 7); } }
+  // ช่วงที่ตัดทิ้ง
+  g.fillStyle = 'rgba(6,6,11,.62)';
+  g.fillRect(0, 0, X(f.s), H); g.fillRect(X(f.e), 0, W - X(f.e), H);
+  // กรอบช่วงที่เล่น + เส้นลาดระดับเสียง (เฟดเข้า/ออก)
+  const xs = X(f.s), xe = X(f.e), top = 9, bot = H - 4;
+  g.strokeStyle = '#ff4d8d'; g.lineWidth = 2; g.strokeRect(xs + 1, 1, Math.max(2, xe - xs - 2), H - 2);
+  g.beginPath(); g.moveTo(xs, bot); g.lineTo(X(f.s + f.fi), top); g.lineTo(X(f.e - f.fo), top); g.lineTo(xe, bot);
+  g.strokeStyle = '#ffc2d8'; g.lineWidth = 1.6; g.stroke();
+  g.fillStyle = 'rgba(255,77,141,.16)';
+  g.beginPath(); g.moveTo(xs, bot); g.lineTo(X(f.s + f.fi), top); g.lineTo(xs, top); g.fill();
+  g.beginPath(); g.moveTo(xe, bot); g.lineTo(X(f.e - f.fo), top); g.lineTo(xe, top); g.fill();
+  // ที่จับ
+  g.fillStyle = '#ff4d8d'; g.fillRect(xs - 3, 0, 6, H); g.fillRect(xe - 3, 0, 6, H);
+  g.fillStyle = '#fff';
+  for(const x of [X(f.s + f.fi), X(f.e - f.fo)]){ g.beginPath(); g.arc(x, top, 5.5, 0, 7); g.fill(); }
+  g.font = '11px "Noto Sans Thai",sans-serif'; g.fillStyle = '#ffc2d8';
+  if(f.fi > 0) g.fillText(`เฟดเข้า ${f.fi.toFixed(1)} วิ`, Math.min(X(f.s + f.fi) + 8, W - 80), 24);
+  if(f.fo > 0){ const t = `เฟดออก ${f.fo.toFixed(1)} วิ`; g.fillText(t, Math.max(4, X(f.e - f.fo) - g.measureText(t).width - 8), 24); }
+  // หัวเล่นของจอเล็ก
+  if(CUT.pv && CUT.pv.key === e.key){ const x = X($('#ctvv').currentTime || 0); g.fillStyle = '#7cc7ff'; g.fillRect(x - 1, 0, 2, H); }
+}
+// ----- ลากบนแทร็ก -----
+function cutHit(el, x, y){
+  const e = cutEntryByKey(el.dataset.ck), inf = e && CUT.info[e.vid]; if(!inf) return null;
+  const W = el.querySelector('canvas').clientWidth, f = cutEff(e), X = t => t / f.D * W;
+  if(y < 22 && Math.abs(x - X(f.s + f.fi)) < 10) return {e, part:'fadeIn'};
+  if(y < 22 && Math.abs(x - X(f.e - f.fo)) < 10) return {e, part:'fadeOut'};
+  if(Math.abs(x - X(f.s)) < 8) return {e, part:'start'};
+  if(Math.abs(x - X(f.e)) < 8) return {e, part:'end'};
+  return {e, part:'seek'};
+}
+// ดูดเข้าต้นท่อนร้องที่ใกล้ (ถือ Alt = ไม่ดูด)
+function cutSnap(e, t, alt){
+  const L = CUT.lyr[e.vid], inf = CUT.info[e.vid]; if(alt || !L || !inf) return t;
+  const off = +inf.lyrOffset || 0, px = inf.duration / 300 * 4;   // ~4px
+  let best = t, bd = Math.max(0.6, px);
+  for(const l of L){ for(const c of [l.t + off, (l.e ?? l.t + (+l.d || 0)) + off]){ const d = Math.abs(c - t); if(d < bd){ bd = d; best = c; } } }
+  return best;
+}
+function cutSetVal(e, k, v){
+  const c = e.clip;
+  if(v == null || !isFinite(v)) delete c[k]; else c[k] = r2(v);
+  cutSave(e);
+}
+document.addEventListener('pointerdown', ev => {
+  const cv = ev.target.closest && ev.target.closest('#ctracks canvas'); if(!cv) return;
+  const el = cv.closest('.ctrk'), r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const h = cutHit(el, x, y); if(!h) return;
+  const f = cutEff(h.e), t = clamp(x / r.width * f.D, 0, f.D);
+  if(h.part === 'seek'){ cutLoadPv(h.e, t, !$('#ctvv').paused); return; }
+  ev.preventDefault(); cv.setPointerCapture(ev.pointerId);
+  CUT.drag = {el, e:h.e, part:h.part, W:r.width, left:r.left};
+});
+document.addEventListener('pointermove', ev => {
+  const d = CUT.drag; if(!d) return;
+  const e = d.e, f = cutEff(e), t = clamp((ev.clientX - d.left) / d.W * f.D, 0, f.D), c = e.clip;
+  if(d.part === 'start') c.start = r2(clamp(cutSnap(e, t, ev.altKey), 0, f.e - SPAN_MIN));
+  else if(d.part === 'end') c.end = r2(clamp(cutSnap(e, t, ev.altKey), f.s + SPAN_MIN, f.D));
+  else if(d.part === 'fadeIn') c.fadeIn = Math.round(clamp(t - f.s, 0, Math.min(10, (f.e - f.s) / 2)) * 2) / 2;
+  else if(d.part === 'fadeOut') c.fadeOut = Math.round(clamp(f.e - t, 0, Math.min(10, (f.e - f.s) / 2)) * 2) / 2;
+  if(d.part === 'end' && c.end >= f.D - 0.05) delete c.end;
+  cutDraw(d.el);
+});
+document.addEventListener('pointerup', () => {
+  const d = CUT.drag; if(!d) return;
+  CUT.drag = null; cutSave(d.e); renderCut();
+  if(d.part === 'start') cutLoadPv(d.e, cutEff(d.e).s, false);
+});
+// ----- ปุ่ม / ช่องเวลา -----
+$('#vcut').addEventListener('click', async ev => {
+  const b = ev.target.closest('button'); if(!b) return;
+  if(b.dataset.cq){ CUT.mode = 'queue'; CUT.pair = 0; cutPause(); CUT.pv = null; renderCut(); return; }
+  if(b.dataset.cc){ CUT.mode = 'combo'; CUT.cid = b.dataset.cc; CUT.pair = 0; cutPause(); CUT.pv = null; renderCut(); return; }
+  if(b.dataset.cnew){ await cutComboNew([]); return; }
+  if(b.dataset.csaveq){ await cutComboFromQueue(); return; }
+  if(b.id === 'cwon'){
+    // ตั้งตรงผ่าน API — แท็บ 📺 อาจยังไม่เคยเปิด (ฟอร์มยังไม่ถูกวาด tvSet ใช้ไม่ได้)
+    try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify({custom:true})});
+         if(TV.loaded){ TV.cur = r.tv; fillTvForm(); } toast('✂️ เปิดโหมด Custom แล้ว'); }
+    catch(e){ toast('⚠️ ' + e.message); }
+    return;
+  }
+  if(b.id === 'cprev'){ CUT.pair--; CUT.pv = null; cutPause(); renderCut(); return; }
+  if(b.id === 'cnext'){ CUT.pair++; CUT.pv = null; cutPause(); renderCut(); return; }
+  if(b.id === 'cplay'){ const v = $('#ctvv'); if(!CUT.pv) return; CUT.join = null; v.paused ? v.play().catch(() => {}) : v.pause(); return; }
+  if(b.id === 'cjoin'){ cutJoin(); return; }
+  const tr = b.closest('.ctrk'), e = tr && cutEntryByKey(tr.dataset.ck);
+  if(e){
+    const f = cutEff(e);
+    if(b.dataset.cset){
+      if(!CUT.pv || CUT.pv.key !== e.key){ toast('แตะแทร็กนี้หรือกด ▶ เพื่อเล่นเพลงนี้ในจอเล็กก่อน'); return; }
+      const t = $('#ctvv').currentTime, k = b.dataset.cset;
+      if(k === 'start' && t > f.e - SPAN_MIN){ toast(`จุดเริ่มต้องก่อนจุดจบอย่างน้อย ${SPAN_MIN} วิ`); return; }
+      if(k === 'end' && t < f.s + SPAN_MIN){ toast(`จุดจบต้องหลังจุดเริ่มอย่างน้อย ${SPAN_MIN} วิ`); return; }
+      cutSetVal(e, k, t); renderCut(); return;
+    }
+    if(b.dataset.cclr){
+      if(b.dataset.cclr === 'all') CLIP_K.forEach(k => delete e.clip[k]); else delete e.clip[b.dataset.cclr];
+      cutSave(e); renderCut(); return;
+    }
+    if(b.dataset.cgo){ cutLoadPv(e, b.dataset.cgo === 'start' ? f.s : Math.max(f.s, f.e - 6), true); return; }
+  }
+  cutComboClick(b);
+});
+$('#vcut').addEventListener('change', ev => {
+  const el = ev.target, k = el.dataset && el.dataset.cf; if(!k) return;
+  const tr = el.closest('.ctrk'), e = tr && cutEntryByKey(tr.dataset.ck); if(!e) return;
+  const raw = el.value.trim(), f = cutEff(e);
+  if(!raw){ delete e.clip[k]; cutSave(e); renderCut(); return; }
+  let v = k.startsWith('fade') ? +raw.replace(',', '.') : parseT(raw);
+  if(!isFinite(v)){ toast('รูปแบบเวลาไม่ถูกต้อง (เช่น 1:23.5)'); renderCut(); return; }
+  if(k === 'start') v = clamp(v, 0, f.e - SPAN_MIN);
+  else if(k === 'end') v = clamp(v, f.s + SPAN_MIN, f.D);
+  else v = clamp(v, 0, 10);
+  cutSetVal(e, k, v); renderCut();
+});
+// ----- บันทึก (หน่วง 400ms ต่อเพลง) -----
+function cutClean(c){ const o = {}; CLIP_K.forEach(k => { if(c[k] != null && isFinite(c[k])) o[k] = +c[k]; }); return o; }
+function cutSave(e){
+  const key = e.combo && CUT.mode === 'combo' ? 'combo:' + CUT.cid : e.key;
+  clearTimeout(CUT.saveT[key]);
+  CUT.saveT[key] = setTimeout(async () => {
+    try{
+      if(CUT.mode === 'combo' && e.combo){ await cutComboSave(cutCombo()); return; }
+      if(e.combo) await api(`/api/studio/queue/${e.qid}/clip`, {method:'POST', body:JSON.stringify(cutClean(e.clip))});
+      else{
+        const r = await api(`/api/studio/song/${e.vid}/trim`, {method:'POST', body:JSON.stringify(cutClean(e.clip))});
+        if(CUT.info[e.vid]) CUT.info[e.vid].trim = r.trim;
+      }
+      toast('✓ บันทึกแล้ว', 1200);
+    }catch(err){ toast('⚠️ บันทึกไม่ได้: ' + err.message); }
+  }, 400);
+}
+// ----- จอทีวีเล็ก -----
+function cutLoadPv(e, at, play){
+  const inf = CUT.info[e.vid]; if(!inf) return;
+  const v = $('#ctvv'), src = `/song/${e.vid}/${inf.video ? 'video.mp4' : 'audio.m4a'}`;
+  CUT.pv = {key:e.key, vid:e.vid};
+  $('#ctvph').classList.add('hide'); $('#ctvt').textContent = e.title;
+  const go = () => { try{ v.currentTime = at; }catch(err){} if(play) v.play().catch(() => {}); };
+  if(v.getAttribute('src') !== src){ v.src = src; v.addEventListener('loadedmetadata', go, {once:true}); } else go();
+  cutDrawAll();
+}
+function cutPause(){ const v = $('#ctvv'); if(v && !v.paused) v.pause(); CUT.join = null; }
+// ▶ ฟังรอยต่อ: A ตั้งแต่ จบ−8 วิ -> เฟดตามค่า -> B ตั้งแต่จุดเริ่มไป 8 วิ
+function cutJoin(){
+  const E = cutEntries(), A = E[CUT.pair], B = E[CUT.pair + 1]; if(!A || !B) return;
+  const fa = cutEff(A);
+  CUT.join = {phase:'A', A, B};
+  cutLoadPv(A, Math.max(fa.s, fa.e - 8), true);
+}
+function cutTick(){
+  requestAnimationFrame(cutTick);
+  if(document.body.dataset.view !== 'cut' || !CUT.pv) return;
+  const v = $('#ctvv'), e = cutEntryByKey(CUT.pv.key), inf = e && CUT.info[e.vid];
+  const pos = v.currentTime || 0;
+  $('#ctm').textContent = `${fmtD(pos)} / ${fmtD(v.duration || (inf && inf.duration) || 0)}`;
+  if(!e || !inf) return;
+  const f = cutEff(e);
+  // จำลองเฟดแบบจอจริง: ภาพดำ + เสียงเบาตามเส้นลาด
+  let k = 1;
+  if(pos >= f.s - 0.05 && pos <= f.e + 0.05){
+    if(f.fi > 0 && pos < f.s + f.fi) k = clamp((pos - f.s) / f.fi, 0, 1);
+    if(f.fo > 0 && pos > f.e - f.fo) k = Math.min(k, clamp((f.e - pos) / f.fo, 0, 1));
+  }
+  $('#ctvbk').style.opacity = (1 - k).toFixed(3); v.volume = k;
+  if(!v.paused && pos >= f.e){
+    const J = CUT.join;
+    if(J && J.phase === 'A' && J.A.key === e.key){ J.phase = 'B'; const fb = cutEff(J.B); J.until = fb.s + 8; cutLoadPv(J.B, fb.s, true); }
+    else { v.pause(); CUT.join = null; }
+  }
+  if(CUT.join && CUT.join.phase === 'B' && CUT.join.B.key === e.key && pos >= CUT.join.until){ v.pause(); CUT.join = null; }
+  // ซับแบบจอทีวี 2 บรรทัด (lycFrame ตัวเดียวกับทีวี)
+  const L = CUT.lyr[e.vid], l1 = $('#cl1'), l2 = $('#cl2');
+  if(L && L.length){
+    const F = lycFrame(L, pos - (+inf.lyrOffset || 0), {countdown: cutTv().countdown !== false});
+    const note = '♪' + (F.cd ? ' ' + '●'.repeat(F.cd) : '');
+    [l1, l2].forEach((el, r) => { const R = F.rows[r], tx = R.j === -1 ? note : R.j < 0 ? '' : L[R.j].x;
+      if(el.textContent !== tx) el.textContent = tx; el.classList.toggle('on', R.on); });
+  }else{ l1.textContent = ''; l2.textContent = ''; }
+  if(!v.paused) cutDrawAll();
+}
+requestAnimationFrame(cutTick);
+document.addEventListener('keydown', ev => {
+  if(document.body.dataset.view !== 'cut' || isTyping() || ev.code !== 'Space') return;
+  ev.preventDefault(); $('#cplay').click();
+});
+addEventListener('resize', () => { if(document.body.dataset.view === 'cut') cutDrawAll(); });
+// ห้องเปลี่ยน (คิวขยับ / ค่าจอเปลี่ยน) -> วาดใหม่ ยกเว้นตอนกำลังลาก
+let cutRoomSig = '';
+function cutRoom(){
+  if(document.body.dataset.view !== 'cut' || CUT.drag) return;
+  const st = S.room || {}, sig = [(st.current || {}).id, ...(st.queue || []).map(q => q.id), JSON.stringify(st.tv || {}), st.archiveRev].join('|');
+  if(sig === cutRoomSig) return;
+  if(st.archiveRev !== cutRoom.rev){ cutRoom.rev = st.archiveRev; if(CUT.loaded) cutLoadCombos().then(renderCut); }
+  cutRoomSig = sig; renderCut();
+}
+// ----- 🎬 คอมโบ -----
+function renderCutCombo(){
+  const box = $('#cbx'), c = CUT.mode === 'combo' && cutCombo();
+  box.classList.toggle('hide', !c); if(!c) return;
+  if(box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { renderCutFind(); return; }
+  const tot = c.items.reduce((a, it, i) => { const e = {vid:it.videoId, combo:true, clip:it}; const inf = CUT.info[it.videoId];
+    return a + (inf ? cutEff(e).e - cutEff(e).s : 0); }, 0);
+  box.innerHTML = `<div class="fr"><label>ชื่อคอมโบ</label><input type="text" id="cbname" maxlength="40" value="${esc(c.name)}">
+      <button class="primary" data-cbq="1" ${c.items.length ? '' : 'disabled'}>▶ เพิ่มเข้าคิว</button><button data-cbdel="1" class="danger">🗑 ลบคอมโบ</button></div>
+    <div class="hint">${c.items.length} เพลง${tot ? ' · ยาวรวมประมาณ ' + fmtD(tot) : ''} · แตะชื่อเพลง = ตัดเพลงนั้น · คอมโบเล่นตามที่ตัดไว้เสมอ (ไม่ขึ้นกับโหมด Custom)</div>
+    <div class="cbsongs">${c.items.map((it, i) => `<div class="r ${i === CUT.pair || i === CUT.pair + 1 ? 'on' : ''}" data-cbi="${i}">
+      <small>${i + 1}.</small><span>${esc(it.title)}</span>
+      <span><button data-cbup="${i}" ${i ? '' : 'disabled'}>▲</button><button data-cbdn="${i}" ${i < c.items.length - 1 ? '' : 'disabled'}>▼</button><button data-cbrm="${i}">×</button></span></div>`).join('')}</div>
+    <div class="cbfind"><input type="search" id="cbq" placeholder="＋ ค้นเพลงในเครื่องเพื่อเพิ่มต่อท้าย" autocomplete="off" value="${esc(CUT.find)}"><div class="cbres hide" id="cbres"></div></div>`;
+  renderCutFind();
+}
+function renderCutFind(){
+  const res = $('#cbres'); if(!res) return;
+  const q = CUT.find.trim().toLowerCase();
+  const hits = q ? (S.songs || []).filter(x => x.videoId && (x.title || '').toLowerCase().includes(q)).slice(0, 8) : [];
+  res.classList.toggle('hide', !hits.length);
+  res.innerHTML = hits.map(x => `<button data-cbadd="${esc(x.videoId)}">＋ ${esc(x.title)}</button>`).join('');
+}
+$('#vcut').addEventListener('input', ev => { if(ev.target.id === 'cbq'){ CUT.find = ev.target.value; renderCutFind(); } });
+$('#vcut').addEventListener('change', async ev => {
+  if(ev.target.id !== 'cbname') return;
+  const c = cutCombo(); if(!c) return;
+  c.name = ev.target.value.trim() || 'คอมโบใหม่'; await cutComboSave(c); renderCut();
+});
+$('#vcut').addEventListener('click', ev => {
+  const r = ev.target.closest('.cbsongs .r'); if(!r || ev.target.closest('button')) return;
+  const c = cutCombo(), i = +r.dataset.cbi; if(!c) return;
+  CUT.pair = clamp(i, 0, Math.max(0, c.items.length - 2)); CUT.pv = null; cutPause(); renderCut();
+});
+async function cutComboClick(b){
+  const c = cutCombo(); if(!c) return;
+  const d = b.dataset, it = c.items;
+  if(d.cbadd){ const x = (S.songs || []).find(s => s.videoId === d.cbadd); if(!x) return;
+    it.push({videoId:x.videoId, title:x.title || x.videoId}); CUT.find = '';
+    CUT.pair = Math.max(0, it.length - 2); await cutComboSave(c); renderCut(); return; }
+  if(d.cbup){ const i = +d.cbup; [it[i - 1], it[i]] = [it[i], it[i - 1]]; await cutComboSave(c); renderCut(); return; }
+  if(d.cbdn){ const i = +d.cbdn; [it[i + 1], it[i]] = [it[i], it[i + 1]]; await cutComboSave(c); renderCut(); return; }
+  if(d.cbrm){ it.splice(+d.cbrm, 1); CUT.pv = null; cutPause(); await cutComboSave(c); renderCut(); return; }
+  if(d.cbdel){ if(!confirm(`ลบคอมโบ "${c.name}"?`)) return;
+    try{ await api('/api/studio/combos/' + c.id, {method:'DELETE'}); }catch(e){ toast('⚠️ ' + e.message); return; }
+    CUT.combos = CUT.combos.filter(x => x.id !== c.id); CUT.mode = 'queue'; CUT.pv = null; cutPause(); renderCut(); return; }
+  if(d.cbq){
+    const singer = prompt('ชื่อคนร้องของคอมโบนี้ (เว้นว่างได้)', '');
+    if(singer === null) return;
+    if(!ws || ws.readyState !== WebSocket.OPEN){ toast('⚠️ ยังไม่ต่อกับเซิร์ฟเวอร์'); return; }
+    ws.send(JSON.stringify({action:'addcombo', id:c.id, singer}));
+    toast(`🎬 เพิ่ม "${c.name}" ${c.items.length} เพลงเข้าคิวแล้ว`);
+  }
+}
+async function cutComboSave(c){
+  if(!c) return;
+  try{
+    const r = await api('/api/studio/combos', {method:'POST', body:JSON.stringify(c)});
+    const i = CUT.combos.findIndex(x => x.id === r.combo.id);
+    if(i >= 0){ CUT.combos[i] = r.combo; } else CUT.combos.push(r.combo);
+    if(CUT.mode === 'combo' && CUT.cid === c.id) CUT.cid = r.combo.id;
+  }catch(e){ toast('⚠️ บันทึกคอมโบไม่ได้: ' + e.message); }
+}
+async function cutComboNew(items, name){
+  try{
+    const r = await api('/api/studio/combos', {method:'POST', body:JSON.stringify({name: name || 'คอมโบใหม่', items})});
+    CUT.combos.push(r.combo); CUT.mode = 'combo'; CUT.cid = r.combo.id; CUT.pair = 0; CUT.pv = null; cutPause();
+    renderCut(); setTimeout(() => { const n = $('#cbname'); if(n){ n.focus(); n.select(); } }, 30);
+  }catch(e){ toast('⚠️ ' + e.message); }
+}
+// 💾 คิวตอนนี้ -> คอมโบ: คัดค่าที่เห็นจริง (รวมค่าอัตโนมัติ) ไปเป็นค่าตัดเอง เพราะคอมโบไม่ใช้ค่าอัตโนมัติ
+async function cutComboFromQueue(){
+  const prevMode = CUT.mode; CUT.mode = 'queue';
+  const E = cutEntries(); CUT.mode = prevMode;
+  if(!E.length){ toast('คิวยังไม่มีเพลง YouTube'); return; }
+  const name = prompt('ตั้งชื่อคอมโบ', 'คอมโบ ' + new Date().toLocaleDateString('th-TH'));
+  if(name === null) return;
+  const items = E.map(e => {
+    const it = {videoId:e.vid, title:e.title}, inf = CUT.info[e.vid];
+    if(inf){ const f = cutEff(e); if(f.s > 0) it.start = r2(f.s); if(f.D && f.e < f.D - 0.05) it.end = r2(f.e); }
+    if(e.clip.fadeIn != null) it.fadeIn = e.clip.fadeIn;
+    if(e.clip.fadeOut != null) it.fadeOut = e.clip.fadeOut;
+    return it;
+  });
+  await cutComboNew(items, name);
+  toast(`💾 บันทึกคิว ${items.length} เพลงเป็นคอมโบแล้ว`);
+}
+
 // ===== 16d. 📺 ตั้งค่าหน้าจอหลัก ==============================================
 // บันทึกเองทุกครั้งที่เปลี่ยน (หน่วง 300ms) -> เซิร์ฟเวอร์ broadcast -> ทีวีเปลี่ยนตามสด
 const TV = {cur: null, def: null, t: 0, pending: {}, loaded: false};
@@ -2337,6 +2848,17 @@ function renderTvForm(){
         <button data-v="0">ไม่มี</button><button data-v="1">บาง</button><button data-v="2">ปกติ</button><button data-v="3">ขอบหนา</button></span></div>
       ${rng('lyrLift', 'ยกซับขึ้นจากขอบล่าง', 0, 20, 1, '% ความสูงจอ')}
       <div class="hint">รูปแบบการขึ้นเนื้อ (เลื่อนขึ้น / 2 บรรทัด / คาราโอเกะ) เลือกได้ที่รีโมท</div>
+    </fieldset>
+    <fieldset><legend>การเปลี่ยนเพลง</legend>
+      ${rng('fadeIn', 'เฟดเข้าตอนเริ่มเพลง', 0, 5, 1, 'วิ (0 = ไม่เฟด)')}
+      ${rng('fadeOut', 'เฟดออกตอนจบ / กดข้าม', 0, 5, 1, 'วิ (0 = ตัดทันที)')}
+      <div class="fr">${tog('custom', '✂️ โหมด Custom — เล่นแต่ละเพลงจากจุดเริ่มถึงจุดจบ')}</div>
+      ${rng('customLead', 'อัตโนมัติ: เริ่มก่อนท่อนแรก', 1, 10, 1, 'วิ')}
+      ${rng('customTail', 'อัตโนมัติ: จบหลังท่อนสุดท้าย', 0, 15, 1, 'วิ')}
+      ${rng('customAud', 'โหมด Custom: เฟดเสียงออก', 0, 5, 1, 'วิ (0 = ตัดเสียงทันที ภาพยังเฟด)')}
+      <div class="hint">ตั้งจุดเริ่ม/จบ/เฟดรายเพลงได้ที่แท็บ ✂️ ตัดต่อ (ไม่ได้ตั้ง = อัตโนมัติจากเวลาเนื้อ · เพลงไม่มีเนื้อเล่นเต็มคลิป) · คอมโบเล่นตามที่ตัดไว้เสมอ · กด ↺ เริ่มใหม่ที่รีโมท = ฟังตั้งแต่ต้นคลิป</div>
+      <div class="fr">${tog('skipBtn', '⏩ ปุ่มข้ามอินโทรบนรีโมท')}</div>
+      ${rng('skipMin', 'โผล่เมื่ออินโทรยาวเกิน', 5, 60, 5, 'วิ')}
     </fieldset>
     <fieldset><legend>มุมจอ</legend>
       <div class="fr">${tog('qr', 'QR มุมขวาล่าง (ตอนเล่นเพลง)')}</div>
@@ -2738,7 +3260,7 @@ function connect(){
     if(m.type === 'state'){
       const sig = [m.archiveRev, m.jobsRev, m.current && m.current.id, (m.queue || []).map(q => q.id).join(',')].join('|');
       if(sig !== S.roomSig){ S.roomSig = sig; scheduleRefresh(); }
-      S.room = m; updateQCount(); renderQueue();
+      S.room = m; updateQCount(); renderQueue(); cutRoom();
       // Studio อีกเครื่องเปลี่ยนค่าจอ -> ตามให้ทัน (ยกเว้นตอนเรากำลังแก้/รอบันทึกเอง)
       if(TV.loaded && m.tv && !Object.keys(TV.pending).length){
         if(JSON.stringify(m.tv) !== JSON.stringify(TV.cur)){ TV.cur = m.tv; fillTvForm(); }

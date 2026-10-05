@@ -43,6 +43,9 @@
     background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 6px 20px rgba(255,77,141,.35)}
 
   /* ---------- idle ---------- */
+  /* เฟดเปลี่ยนเพลง: ทับแค่วิดีโอ — ชื่อเพลง/ซับ/♪●●● ยังเห็นบนจอดำ */
+  #blackout{position:absolute;inset:0;z-index:3;background:#000;opacity:0;pointer-events:none;transition:opacity 0s linear}
+  #blackout.on{opacity:1}
   #idle{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:26px;text-align:center;padding:40px;
     background:
@@ -188,6 +191,7 @@
 <div id="stage">
   <div id="yt"></div>
   <video id="local" class="hide" playsinline preload="metadata"></video>
+  <div id="blackout"></div>
 
   <div id="idle">
     <div class="brand">🎤 <b>PU KARAOKE</b></div>
@@ -388,19 +392,131 @@ function rampEl(target){
 }
 
 function applyMix(m){
-  const voc = pct(m && m.vocal, 100), mus = pct(m && m.music, 100), mas = pct(m && m.master, 80);
+  // × fadeK = ตัวคูณเฟดเปลี่ยนเพลง — ขยับสไลเดอร์ระหว่างเฟดแล้วเสียงไม่เด้งกลับ
+  const voc = pct(m && m.vocal, 100), mus = pct(m && m.music, 100), mas = pct(m && m.master, 80) * fadeK;
+  const fading = performance.now() < fadeUntil;     // กำลังไล่ระดับอยู่ -> ไม่แตะเสียงรวม (ทับ ramp ของเฟด)
   if(ctx && gMaster){
     // linear ไม่ใช่ equal-power: ที่ 100% ผลรวมต้องกลับเป็นมิกซ์เดิมเป๊ะ
     const t = ctx.currentTime, T = 0.03;
     gVoc.gain.setTargetAtTime(voc, t, T);
     gInst.gain.setTargetAtTime(mus, t, T);
-    gMaster.gain.setTargetAtTime(mas, t, T);
+    if(!fading) gMaster.gain.setTargetAtTime(mas, t, T);
   }
+  if(fading) return;
   // ทางสำรอง: วิดีโอเล่นเสียงตัวเอง — ตั้งเสมอ เพราะตอนใช้สเต็ม local.muted=true อยู่แล้ว
   // ห้ามแตะ local.muted ตรงนี้ apply() เป็นเจ้าของธงนั้น
   rampEl(mas);
   // ทางสำรอง: YouTube iframe
   if(ready){ try{ player.setVolume(Math.round(mas*100)); }catch(e){} }
+}
+
+// ===== เฟดเปลี่ยนเพลง + โหมด Custom (✂️) ==========================
+// จอดำ (#blackout) + เสียงรวมไล่ระดับ (fadeK) — เซิร์ฟเวอร์บอกจุดเริ่ม (seek ผ่าน resumeAt), จุดจบ (c.endAt)
+// และเฟดออกก่อนข้าม (st.fading) จอทำแค่ภาพกับเสียง · ค่ารายคลิป (c.fadeIn/c.fadeOut) ทับค่าใน 📺
+let fadeK = 1, fadeUntil = 0, fadeTimer = 0;
+let fadeInFor = null, fadeInAt = 0;      // ใบคิวที่รอเฟดเข้า (ดำอยู่จนกว่าภาพจะเล่นจริงที่ตำแหน่งถูก)
+let fadedOutFor = null, fadeReason = '';  // ใบคิวที่เฟดออกไปแล้ว ('skip' = รอเซิร์ฟเวอร์เปลี่ยนเพลง / 'end' = ใกล้จบ)
+let endSentFor = null, lastSeek = null;
+const tvOpt = (k, d) => { const t = window._state && window._state.tv; return t && t[k] != null ? +t[k] : d; };
+const fadeInSec = c => c && c.fadeIn != null ? +c.fadeIn : tvOpt('fadeIn', 0);
+const fadeOutSec = c => c && c.fadeOut != null ? +c.fadeOut : tvOpt('fadeOut', 0);
+// เสียงตอนเฟดออก: โหมด Custom ใช้ customAud (0 = ตัดเสียงทันที ภาพยังเฟด) · คอมโบ/ค่ารายคลิปใช้ค่าเฟดออกตัวเดียวกับภาพ
+function audOutSec(c){
+  if(c && c.fadeOut != null) return +c.fadeOut;
+  const t = window._state && window._state.tv;
+  return t && t.custom && !(c && c.combo) ? tvOpt('customAud', 0) : fadeOutSec(c);
+}
+function blackout(on, sec){
+  const el = $('#blackout');
+  el.style.transitionDuration = Math.max(0, sec || 0) + 's';
+  el.classList.toggle('on', on);
+}
+function fadeTo(k, sec){
+  fadeK = k;
+  sec = Math.max(0.03, +sec || 0);           // 0 = ตัดทันที แต่ยังลาด 30ms กันเสียงคลิก
+  fadeUntil = performance.now() + sec * 1000 + 60;
+  const m = (window._state && window._state.mix) || {};
+  const mas = pct(m.master, 80) * k;
+  if(ctx && gMaster){
+    const t = ctx.currentTime, g = gMaster.gain;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(mas, t + sec);
+  }
+  // <video> / YouTube: ไล่ตามเวลาจริงด้วย interval (rampEl ไล่เร็วเกินไปสำหรับเฟดหลายวินาที)
+  clearInterval(fadeTimer);
+  if(volRaf){ cancelAnimationFrame(volRaf); volRaf = 0; }
+  const v0 = local.volume, t0 = performance.now();
+  let y0 = mas * 100; try{ if(ready) y0 = player.getVolume(); }catch(e){}
+  fadeTimer = setInterval(()=>{
+    const q = Math.min(1, (performance.now() - t0) / (sec * 1000));
+    try{ local.volume = v0 + (mas - v0) * q; }catch(e){}
+    if(ready){ try{ player.setVolume(Math.round(y0 + (mas * 100 - y0) * q)); }catch(e){} }
+    if(q >= 1) clearInterval(fadeTimer);
+  }, 40);
+}
+function fadeOut(reason, visSec, audSec){
+  fadedOutFor = curItem; fadeReason = reason;
+  blackout(true, visSec);
+  fadeTo(0, audSec);
+}
+function fadeIn(sec){
+  fadeInFor = null; fadedOutFor = null; fadeReason = '';
+  blackout(false, sec);
+  fadeTo(1, sec);
+}
+// เพลงใหม่ (หรือหลัง ⏩): ดำไว้ก่อน แล้วรอ fadeTick เห็นภาพเล่นจริงค่อยสว่างขึ้น
+function armFadeIn(c){
+  if(fadeInSec(c) <= 0 && fadedOutFor === null){ resetFade(); return; }
+  fadedOutFor = null; fadeReason = '';
+  blackout(true, 0); fadeTo(0, 0);
+  fadeInFor = curItem; fadeInAt = performance.now();
+}
+function resetFade(){
+  fadeInFor = null; fadedOutFor = null; fadeReason = '';
+  blackout(false, 0);
+  if(fadeK !== 1){ fadeK = 1; fadeUntil = 0; clearInterval(fadeTimer); applyMix(window._state && window._state.mix); }
+}
+// ภาพกำลังเล่นจริงที่ตำแหน่งที่ถูกแล้วหรือยัง (กันสว่างขึ้นมาเห็นเฟรมต้นคลิปก่อน seek)
+function mediaLive(){
+  if(curLocal !== null) return attached && !local.paused && local.readyState >= 3;
+  try{ return ready && player.getPlayerState() === 1; }catch(e){ return false; }
+}
+function mediaEnd(c){
+  if(c && c.endAt != null) return +c.endAt;
+  if(stemMode && dur) return dur;
+  if(curLocal !== null) return isFinite(local.duration) ? local.duration : Infinity;
+  try{ const d = +player.getDuration(); return d > 0 ? d : Infinity; }catch(e){ return Infinity; }
+}
+function fadeTick(){
+  const st = window._state, c = st && st.current;
+  if(!c || evicted || !curItem || c.id !== curItem) return;
+  if(fadeInFor === curItem && (mediaLive() || performance.now() - fadeInAt > 6000)) fadeIn(fadeInSec(c) || 0.4);
+  if(!st.playing || fadeInFor === curItem || !mediaLive()) return;
+  const pos = lyrPos(), end = mediaEnd(c), left = end - pos;
+  // ใกล้จุดจบ -> เฟดออกเท่าเวลาที่เหลือ (ครั้งเดียวต่อใบคิว)
+  const fo = fadeOutSec(c);
+  if(fo > 0 && fadedOutFor !== curItem && left <= fo && left > -1)
+    fadeOut('end', Math.max(0.2, left), Math.min(Math.max(0.03, left), audOutSec(c)));
+  // จุดจบของโหมด Custom/คอมโบ = จบเพลงนี้ (เซิร์ฟเวอร์ทิ้ง ended ซ้ำ/ค้างให้อยู่แล้ว)
+  if(c.endAt != null && pos >= +c.endAt && endSentFor !== curItem){
+    endSentFor = curItem;
+    sendWs({action:'ended', id:curItem});
+  }
+}
+setInterval(fadeTick, 100);
+// ⏩ ข้ามอินโทร: ดำแวบเดียว -> seek ไปตำแหน่งของเซิร์ฟเวอร์ -> สว่างขึ้น
+function seekDip(){
+  const my = curItem;
+  blackout(true, 0.4); fadeTo(0, 0.4);
+  setTimeout(()=>{
+    if(my !== curItem) return;
+    const st = window._state, at = resumeAt(st);
+    if(curLocal !== null){
+      if(stemMode) queueOp(async()=>{ startStems(Math.min(dur, at)); if(!st.playing) await pauseAll(); }, 'seekDip');
+      else { try{ local.currentTime = at; }catch(e){} }
+    } else if(ready){ try{ player.seekTo(at, true); player.playVideo(); }catch(e){} }
+    fadedOutFor = null; endSentFor = null;
+    fadeInFor = curItem; fadeInAt = performance.now();
+  }, 420);
 }
 
 async function loadStems(c){
@@ -480,7 +596,7 @@ function driftTick(){
 
 function becomeEvicted(){
   evicted = true;
-  hideErr();                          // นับถอยหลังค้างอยู่ห้ามส่ง ended ไปข้ามเพลงของจอใหม่
+  hideErr(); resetFade();                          // นับถอยหลังค้างอยู่ห้ามส่ง ended ไปข้ามเพลงของจอใหม่
   try{ teardownStems(); }catch(e){}
   try{ local.pause(); local.muted = true; }catch(e){}
   try{ if(ready) player.pauseVideo(); }catch(e){}
@@ -612,6 +728,14 @@ function apply(st){
   $('#lyr').classList.toggle('hide', !lyShow);
   $('#lyr').classList.toggle('m-dual', st.lyrMode === 'dual' || st.lyrMode === 'karaoke');
   $('#lyr').classList.toggle('m-kara', st.lyrMode === 'karaoke');
+  if(!c) resetFade();
+  // เซิร์ฟเวอร์เริ่มเฟดออกก่อนเปลี่ยนเพลง (กดข้าม/เล่นเลย) / ยกเลิก (กดเริ่มใหม่ระหว่างเฟด) = สว่างกลับ
+  if(c && st.fading && st.fading === curItem && c.id === curItem && fadedOutFor !== curItem)
+    fadeOut('skip', fadeOutSec(c), audOutSec(c));
+  else if(c && fadedOutFor === curItem && c.id === curItem && fadeReason === 'skip' && st.fading !== curItem)
+    fadeIn(0.5);
+  if(lastSeek === null) lastSeek = st.seekToken;          // state แรก = ตั้งฐาน ไม่ใช่คำสั่ง
+  else if(st.seekToken !== lastSeek){ lastSeek = st.seekToken; if(c && c.id === curItem) seekDip(); }
   if(c){
     const m = st.mix || {}, v = m.vocal != null ? m.vocal : 100;
     // คำเตือนของระบบขึ้นเสมอ (ต้องทำอะไรสักอย่าง) — ที่เหลือเลือกได้จาก Studio (tv.chips)
@@ -654,7 +778,9 @@ function apply(st){
 
   if(useLocal){
     if(lurl !== curLocal || c.id !== curItem){
+      const newItem = c.id !== curItem;
       curLocal = lurl; curItem = c.id; hideErr(); if(ready) hideYt();
+      if(newItem){ endSentFor = null; armFadeIn(c); }
       teardownStems();
       local.muted = false;
       local.src = lurl;
@@ -685,6 +811,7 @@ function apply(st){
       lastRestart = st.restartToken;     // state แรก = ตั้งฐาน ไม่ใช่คำสั่งเริ่มใหม่
     } else if(st.restartToken !== lastRestart){
       lastRestart = st.restartToken;
+      endSentFor = null; if(fadedOutFor === curItem) fadeIn(0.5);   // เริ่มใหม่หลังเฟดออกไปแล้ว = สว่างกลับ
       if(stemMode) queueOp(async()=>{ startStems(0); if(!st.playing) await pauseAll(); });
       else local.currentTime = 0;
     }
@@ -709,14 +836,24 @@ function apply(st){
   local.pause();
   if(!ready) return;
   if(!c){ if(curId!==null) hideYt(); hideErr(); return; }
-  if(c.videoId !== curId || c.id !== curItem){ curId = c.videoId; curItem = c.id; hideErr(); player.loadVideoById(c.videoId); }
+  if(c.videoId !== curId || c.id !== curItem){
+    if(c.id !== curItem){ endSentFor = null; curItem = c.id; armFadeIn(c); }
+    curId = c.videoId; curItem = c.id; hideErr();
+    // เริ่มที่ตำแหน่งของห้อง (โหมด Custom = จุดเริ่ม / รีโหลดจอกลางเพลง = เล่นต่อ) ไม่ใช่ต้นคลิปเสมอ
+    const at = resumeAt(st);
+    player.loadVideoById(at ? {videoId: c.videoId, startSeconds: at} : c.videoId);
+  }
   if(lastRestart === null){ lastRestart = st.restartToken; }
-  else if(st.restartToken !== lastRestart){ lastRestart = st.restartToken; player.seekTo(0); player.playVideo(); }
+  else if(st.restartToken !== lastRestart){
+    lastRestart = st.restartToken; endSentFor = null; if(fadedOutFor === curItem) fadeIn(0.5);
+    player.seekTo(0); player.playVideo();
+  }
   if(st.playing) player.playVideo(); else player.pauseVideo();
 }
 
 let errTimer=null;
 function showErr(msg){
+  resetFade();
   const el=$('#err');
   el.classList.remove('hide');
   let n=4;

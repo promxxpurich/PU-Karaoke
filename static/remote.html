@@ -264,8 +264,35 @@
  .ovwarn{font-size:12.5px;color:#ffd08a;margin-top:10px;padding:9px 12px;border-radius:12px;
    background:rgba(255,182,72,.1);line-height:1.55;white-space:pre-line}
 
+ /* ---------- ⏩ ข้ามอินโทร: ลอยกลางเหนือแถบล่าง (ใต้ scrim/แผ่น) ---------- */
+ #skipintro{position:fixed;left:50%;bottom:calc(var(--barh) + 14px);z-index:22;transform:translate(-50%,18px);
+   opacity:0;pointer-events:none;display:flex;align-items:center;gap:9px;padding:13px 24px;border-radius:999px;
+   overflow:hidden;border:none;white-space:nowrap;color:#fff;font-size:15px;font-weight:700;
+   background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 10px 28px rgba(255,77,141,.45);
+   transition:transform .25s cubic-bezier(.2,.8,.2,1),opacity .25s}
+ #skipintro.show{transform:translate(-50%,0);opacity:1;pointer-events:auto}
+ #skipintro small{font-size:13px;font-weight:500;opacity:.85;font-variant-numeric:tabular-nums}
+ #skipintro i{position:absolute;left:0;bottom:0;height:3px;width:var(--w,100%);background:rgba(255,255,255,.8);
+   transition:width .25s linear}
+
+ /* ---------- 🎬 คอมโบ (การ์ดข้าง PU Match + แผ่นรายการ) ---------- */
+ .entries{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
+ .entries.two{grid-template-columns:1fr 1fr}
+ .entries.two .swtx b,.entries.two .swtx small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .entries.two #swipebtn{gap:9px;position:relative}
+ .entries.two .swlk{position:absolute;top:-9px;right:10px;padding:1px 8px;font-size:10.5px;background:#3a1328}   /* ❤️ เป็นป้ายมุม ให้ชื่อมีที่ */
+ #combobtn{display:flex;align-items:center;gap:12px;padding:10px 12px;text-align:left;border-radius:18px;
+   border-color:rgba(255,182,72,.4);background:linear-gradient(135deg,rgba(255,182,72,.18),rgba(255,77,141,.12)),var(--panel)}
+ #combobtn .swic{background:linear-gradient(135deg,#ffb648,var(--accent));box-shadow:0 6px 16px rgba(255,182,72,.3)}
+ .cmb{padding:12px;border:1px solid var(--line);border-radius:16px;margin-bottom:10px;background:var(--panel)}
+ .cmb .hd{display:flex;align-items:center;gap:10px}
+ .cmb .hd b{flex:1;min-width:0;font-size:15px}
+ .cmb .meta{font-size:12px;color:var(--dim);margin-top:2px}
+ .cmb .songs{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.5}
+ .cmb .primary{padding:8px 14px;border-radius:12px}
+
  /* ---------- 🃏 PU Match: ปัดหาเพลง ---------- */
- #swipebtn{width:100%;margin-top:10px;display:flex;align-items:center;gap:12px;padding:10px 12px;text-align:left;
+ #swipebtn{width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;text-align:left;
    border-radius:18px;border-color:rgba(124,92,255,.4);
    background:linear-gradient(135deg,rgba(124,92,255,.2),rgba(255,77,141,.12)),var(--panel)}
  .swic{width:40px;height:40px;flex:none;border-radius:12px;display:grid;place-items:center;font-size:20px;
@@ -391,11 +418,17 @@
 <main>
   <div id="nowbox"></div>
 
+  <div class="entries" id="entries">
   <button id="swipebtn" data-act="swopen">
     <span class="swic">🃏</span>
     <span class="swtx"><b>PU Match</b><small>ปัดหาเพลงที่ใช่</small></span>
     <span class="swlk">❤️ <span id="swlkn">0</span></span>
   </button>
+  <button id="combobtn" class="hide" data-act="sheet" data-v="combo">
+    <span class="swic">🎬</span>
+    <span class="swtx"><b>คอมโบ</b><small id="combosub">ชุดเพลงต่อกัน</small></span>
+  </button>
+  </div>
 
   <div class="search">
     <div class="sbox">
@@ -413,11 +446,17 @@
 </main>
 
 <div id="toast"></div>
+<button id="skipintro" data-act="skipintro" aria-label="ข้ามอินโทร">⏩ ข้ามอินโทร <small id="skipleft"></small><i></i></button>
 <div id="scrim"></div>
 
 <section class="sheet" id="sh-queue" aria-label="คิวเพลง">
   <div class="shd"><b>📋 คิวเพลง</b> <span class="n" id="cnt2">0</span><button class="shx" data-act="shclose">✕</button></div>
   <div class="sbody"><div id="queue"></div></div>
+</section>
+
+<section class="sheet" id="sh-combo" aria-label="คอมโบ">
+  <div class="shd"><b>🎬 คอมโบ</b><button class="shx" data-act="shclose">✕</button></div>
+  <div class="sbody"><div class="hint" id="combohint" style="margin:0 0 10px"></div><div id="combos"></div></div>
 </section>
 
 <section class="sheet" id="sh-hist" aria-label="ล่าสุด">
@@ -722,6 +761,7 @@ const bestInfo = i => i.source==='yt' && ['queued','working'].includes(i.lyrBest
 function statusChips(i){
   const dl = dlInfo(i), ly = lyrInfo(i), ck = chkInfo(i) || bestInfo(i);
   return (i.singer ? chip('sg','🎤 '+i.singer) : '')
+       + (i.combo ? chip('hot','🎬 '+i.combo) : '')
        + (dl.tone!=='ok' || i.source!=='yt' ? chip(dl.tone, dl.short) : '')
        + chip(sepInfo(i).tone, sepInfo(i).short)
        + (ck ? chip(ck.tone, ck.short) : chip(ly.tone, ly.short));
@@ -835,6 +875,7 @@ function renderAll(st){
   if(!st) return;
   setHTML($('#toggle'), st.playing ? '<i>⏸</i><span>หยุด</span>' : '<i>▶</i><span>เล่น</span>');
   renderNow(st); renderQueue(st); renderMix(st); renderHist(); renderOv();
+  renderEntries(st); renderSkip();
   lsSync(st);
 }
 
@@ -973,6 +1014,7 @@ function renderOv(){
 // ยืนยันจากเซิร์ฟเวอร์ว่าเพลงที่ "เครื่องนี้" เพิ่มเข้าคิวแล้ว -> บอกลำดับคิวจริง
 function onAdded(m){
   if(!m.cid || !String(m.cid).startsWith(TAB_ID + '-')) return;
+  if(m.combo){ toast(`🎬 เพิ่มคอมโบ "${m.combo}" ${m.n} เพลงแล้ว`); return; }
   const f = findItem(m.id); if(!f) return;
   toast(f.pos === 0 ? '▶ เริ่มเล่นเลย' : `✓ เพิ่มเข้าคิวแล้ว · คิวที่ ${f.pos}`);
 }
@@ -982,7 +1024,8 @@ $('#addov').addEventListener('touchmove', e=>{ if(e.target.id === 'addov') e.pre
 // ===== 7. sheets =====================================================
 function setSheet(name){
   S.sheet = name || null;
-  for(const k of ['queue','hist','set','report']) setCls($('#sh-'+k),'open', S.sheet===k);
+  for(const k of ['queue','hist','set','report','combo']) setCls($('#sh-'+k),'open', S.sheet===k);
+  setCls($('#combobtn'),'on', S.sheet==='combo');
   setCls($('#qbtn'),'on', S.sheet==='queue');
   setCls($('#histbtn'),'on', S.sheet==='hist');
   setCls($('#setbtn'),'on', S.sheet==='set');
@@ -990,7 +1033,52 @@ function setSheet(name){
   if(S.sheet!=='set' && document.activeElement === $('#singer')) $('#singer').blur();
   if(S.sheet!=='report' && document.activeElement === $('#repnote')) $('#repnote').blur();
   if(S.sheet==='hist'){ send({action:'history'}); renderHist(); }
+  if(S.sheet==='combo') loadCombos();
 }
+
+// ===== 7d. 🎬 คอมโบ + ⏩ ข้ามอินโทร ===================================
+// คอมโบ = ชุดเพลงที่ตัดจุดเริ่ม/จบไว้ใน Studio ✂️ — กด ＋ แล้วทั้งชุดเข้าคิว (ชื่อคนร้องจาก ⚙️)
+let combos = [];
+async function loadCombos(){
+  try{ combos = (await (await fetch('/api/combos', {cache:'no-store'})).json()).combos || []; }
+  catch(e){ combos = []; }
+  renderCombos();
+}
+function renderCombos(){
+  setText($('#combohint'), `🎤 ร้องโดย ${singerName() || DEFAULT_SINGER} · เปลี่ยนชื่อได้ที่ ⚙️`);
+  const box = $('#combos');
+  if(!combos.length){ setHTML(box, '<div class="empty">ยังไม่มีคอมโบ — สร้างได้ที่ Studio แท็บ ✂️ ตัดต่อ</div>'); return; }
+  setHTML(box, combos.map(c => `<div class="cmb" data-k="${esc(c.id)}">
+      <div class="hd"><b>${esc(c.name)}</b><button class="primary" data-act="comboadd">＋ เพิ่มเข้าคิว</button></div>
+      <div class="meta">${c.n} เพลง · ${fmt(c.total) || '0:00'}</div>
+      <div class="songs">${c.items.map((x, j) => `${j + 1}. ${esc(x.title)}`).join('<br>')}</div></div>`).join(''));
+}
+function addCombo(id){
+  const c = combos.find(x => x.id === id); if(!c) return;
+  const cid = TAB_ID + '-' + (++addSeq);
+  if(!send({action:'addcombo', id, singer:singerName(), cid})){ toast('⚠️ ยังไม่ต่อกับจอ กำลังเชื่อมต่อใหม่…'); return; }
+  setSheet(null);
+  toast(`🎬 กำลังเพิ่ม "${c.name}" ${c.n} เพลง…`);
+}
+function renderEntries(st){
+  const n = (st && st.combos) || 0;
+  setCls($('#combobtn'), 'hide', !n);
+  setCls($('#entries'), 'two', !!n);
+  setText($('#combosub'), n ? `${n} ชุดพร้อมเล่น` : '');
+}
+// ⏩ โผล่เฉพาะตอนเพลงที่เล่นอยู่ยังอยู่ในอินโทรยาว (เซิร์ฟเวอร์ส่ง introEnd มาเมื่อเข้าเงื่อนไข) พ้นแล้วหายเอง
+let skipDone = null;
+function renderSkip(){
+  const st = S.st, c = st && st.current, b = $('#skipintro');
+  const ie = c && c.introEnd, left = ie ? ie - livePos() : 0;
+  const show = !!(ie && st.playing && !st.fading && left > 1 && skipDone !== c.id);
+  setCls(b, 'show', show);
+  if(show){
+    setText($('#skipleft'), fmtPos(Math.ceil(left)));
+    b.style.setProperty('--w', Math.max(0, Math.min(100, left / ie * 100)).toFixed(1) + '%');
+  }
+}
+setInterval(renderSkip, 250);
 $('#scrim').addEventListener('click', ()=>setSheet(null));
 $('#scrim').addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
 document.addEventListener('keydown', e=>{
@@ -1354,6 +1442,9 @@ const ACTIONS = {
   ovadd:   () => { if(S.ov.mode === 'preview' && addItem(S.ov.req)){ swOnAdded(S.ov.req.videoId); closeOv(); } },
   ovplay:  k => { send({action:'playnow', id:k}); closeOv(); toast('▶ เล่นเพลงนี้เลย'); },
   ovremove:k => { send({action:'remove',  id:k}); closeOv(); toast('🗑 ลบออกจากคิวแล้ว'); },
+  comboadd:k => addCombo(k),
+  skipintro:() => { const c = S.st && S.st.current; if(!c) return;
+                    send({action:'skipintro', id:c.id}); skipDone = c.id; renderSkip(); toast('⏩ ข้ามอินโทรแล้ว'); },
   swopen:  () => swOpen(),
   swclose: () => swClose(),
   swgo:    (_k,b) => swFling(b.dataset.v),
