@@ -436,10 +436,12 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! _preempt_heavy ห้ามมี await เพราะถูกเรียกตอนถือ room.lock และห้ามแคช _prio_map
 
 ### ดาวน์โหลดจาก YouTube ด้วย yt-dlp (download)
-คำค้น: ดาวน์โหลด, โหลดเพลง, download, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment
+คำค้น: ดาวน์โหลด, โหลดเพลง, download, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment, โหลดไม่ได้, บอท, not a bot, ล็อกอิน, คุกกี้, cookies, Chrome, Keychain, KARA_YT_COOKIES, node, js runtime
 - `server.py` `async def _download_worker(` `async def _ensure_downloader(` `def _download_audio(` `def _download_video(` — โหลดทีละเพลงตามลำดับคิว: เสียง + metadata ก่อน (สั่งแยกเสียงทันที + ดึงคำบรรยายอัตโนมัติ + เริ่มหาเนื้อทันที) แล้วโหลดภาพมา mux กับ audio.m4a, ลองซ้ำ 2 รอบ
 - `server.py` `def _since_add(` `_added_at: dict` — log ทุกขั้น (dl/lyr/sep/best) บอก "หลังกดเพิ่ม X วิ"
 ! YouTube ตอบ "Sign in to confirm you're not a bot" ได้ (เจอ 2026-10-05) = โหลดเพลงใหม่ไม่ได้เลย — ทดสอบอย่ายิงโหลดซ้ำรัว ๆ ใช้ไฟล์ที่มีในคลังจำลองแทน
+- `server.py` `YT_COOKIES = os.environ` `def _yt_ck_load(` `def _yt_cookies(` `def _yt_ck_reset(` `def _yt_auth(` `_BOT_RE = ` — แก้บล็อกบอท: โหลด/ดึงซับด้วยล็อกอิน YouTube จาก Chrome (KARA_YT_COOKIES, "none" = แบบเดิม) อ่านในเธรดแยก เก็บเฉพาะคุกกี้ YouTube/Google ในหน่วยความจำ อ่านใหม่ทุก 10 นาที, ล็อกอินแล้วใช้ node + สคริปต์ ejs:github แก้โจทย์ JS, โดนบอทอีก = ล้างคุกกี้ + _BOT_HINT ขึ้นการ์ดผ่าน fixWhy (_fix_target), เปิดเซิร์ฟเวอร์แล้วอ่านทันที (Keychain ถามตอนนั้น)
+! ทดสอบ/เซิร์ฟเวอร์ทดสอบต้องตั้ง KARA_YT_COOKIES=none — ไม่งั้นอ่านคุกกี้ Chrome จริง (Keychain เด้ง) · _search ไม่ใช้คุกกี้ (ค้นหาไม่โดนบล็อก)
 - `server.py` `def _fetch_auto_caption(` `def _fetch_subs(` `_DL_COMMON = {` `def _dl_scrub(` `_DL_AUTO_MAX = 3` — auto-caption เป็น auto.th.vtt, ซับจริงตามภาษา, ตัวเลือก yt-dlp (โหลด 8 fragment พร้อมกัน), ล้างเศษไฟล์, ลองอัตโนมัติไม่เกิน 3 รอบแล้วรอคนกดซ่อม
 - `server.py` `def _dl_fields(` — เติม dlStatus/localUrl/ชื่อจริงลงการ์ดตอน broadcast (อ่านจากดิสก์)
 

@@ -362,6 +362,9 @@ async def _lifespan(_app: FastAPI):
             except Exception as exc:
                 print(f"[watchdog] {type(exc).__name__}: {exc}")
 
+    # อ่านล็อกอิน YouTube ไว้ตั้งแต่เปิดเซิร์ฟเวอร์ (ไม่รอ) — macOS ถามสิทธิ์ Keychain ตอนคนเพิ่งกดเปิดยังอยู่หน้าเครื่อง
+    # ไม่ใช่ตอนแขกกดเพิ่มเพลงใหม่เพลงแรก
+    _yt_cookies(wait=0)
     tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog())]
     yield
     for t in tasks:
@@ -800,6 +803,90 @@ _DL_COMMON = {
     "concurrent_fragment_downloads": 8,
 }
 
+# YouTube บล็อกการโหลดจาก IP บ้านได้ ("Sign in to confirm you're not a bot" — 2026-10-05 โหลดเพลงใหม่ไม่ได้เลย)
+# -> โหลดด้วยล็อกอิน YouTube ที่มีอยู่แล้วในเบราว์เซอร์เครื่องนี้ (ค้นหาเพลงไม่โดนบล็อก _search จึงไม่ใช้)
+# KARA_YT_COOKIES = "chrome" (ค่าเริ่ม) / "chrome:Profile 1" / "safari" / "none" = ไม่ใช้คุกกี้ (แบบเดิม)
+YT_COOKIES = os.environ.get("KARA_YT_COOKIES", "chrome").strip()
+_YT_CK_TTL = 600.0                 # Chrome หมุนคุกกี้ล็อกอินเรื่อย ๆ ของที่อ่านไว้นานใช้ไม่ได้ -> อ่านใหม่ทุก 10 นาที
+_YT_CK_DOMAINS = ("youtube.com", "youtube-nocookie.com", "google.com")
+_YT_LOGIN = ("SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID")   # yt-dlp นับว่าล็อกอินเมื่อมีตัวใดตัวหนึ่ง
+_yt_ck: dict = {"t": 0.0, "txt": None, "job": None, "t0": 0.0}  # คุกกี้อยู่ในหน่วยความจำเท่านั้น ไม่เขียนลงดิสก์
+_yt_ck_lock = threading.Lock()
+_BOT_RE = re.compile(r"not a bot|Sign in to confirm", re.I)
+_BOT_HINT = ("YouTube ขอให้ล็อกอินก่อนโหลด — ล็อกอิน YouTube ใน Chrome ของเครื่องเซิร์ฟเวอร์"
+             " (Mac ถามสิทธิ์ Keychain ให้กด Always Allow) แล้วกด 🔧 ลองใหม่")   # ขึ้นการ์ดรีโมท/Studio แทน error ดิบ
+# ล็อกอินแล้ว yt-dlp ใช้ client เว็บ/ทีวี ที่ต้องแก้โจทย์ JavaScript ของ YouTube (visionos ที่ใช้ตอนไม่ล็อกอินรับคุกกี้ไม่ได้)
+# -> node ในเครื่อง (หรือ deno ถ้าติดตั้ง) + สคริปต์แก้โจทย์ของ yt-dlp (ejs: โหลดจาก GitHub ของ yt-dlp ครั้งแรก ตรวจ hash แล้วแคช)
+_NODE = shutil.which("node") or next((str(p) for p in (Path.home() / ".local/node/bin/node",) if p.is_file()), None)
+
+
+def _yt_ck_load() -> None:
+    """อ่านคุกกี้จากเบราว์เซอร์จริง (เธรดแยก) — yt-dlp ค้นโฟลเดอร์ Chrome + ขอกุญแจจาก Keychain + ถอดรหัสคุกกี้
+    ทุกเว็บ (หลายวิ) แล้วเก็บไว้เฉพาะของ YouTube/Google · ครั้งแรก macOS ถามสิทธิ์ "Chrome Safe Storage"
+    เธรดนี้ค้างจนกว่าจะมีคนกด (ต้องกด Always Allow ไม่งั้นถามใหม่ทุก 10 นาที)"""
+    browser, _, profile = YT_COOKIES.partition(":")
+    txt, keep = None, False
+    try:
+        from yt_dlp.cookies import YoutubeDLCookieJar
+        out, login = YoutubeDLCookieJar(io.StringIO()), False
+        with YoutubeDL({"quiet": True, "no_warnings": True,
+                        "cookiesfrombrowser": (browser.lower(), profile or None)}) as ydl:
+            for c in ydl.cookiejar:
+                dom = c.domain.lstrip(".")
+                if any(dom == x or dom.endswith("." + x) for x in _YT_CK_DOMAINS):
+                    out.set_cookie(c)
+                    login = login or (c.name in _YT_LOGIN and dom.endswith("youtube.com"))
+        if login:
+            out.save()
+            txt = out.filename.getvalue()
+            print(f"[dl] ใช้ล็อกอิน YouTube จาก {YT_COOKIES} (คุกกี้ {len(out)} ตัว)")
+        else:
+            print(f"[dl] ไม่เจอล็อกอิน YouTube ในคุกกี้ของ {YT_COOKIES} (ยังไม่ล็อกอิน youtube.com"
+                  f" หรือไม่ได้กดอนุญาต Keychain) — โหลดแบบไม่ล็อกอิน")
+    except Exception as exc:
+        keep = True                      # อ่านพลาดชั่วคราว (เช่น ไฟล์ถูกล็อก) -> คุกกี้รอบก่อนยังใช้ต่อได้
+        print(f"[dl] อ่านคุกกี้ {YT_COOKIES} ไม่ได้: {type(exc).__name__}: {exc}")
+    with _yt_ck_lock:
+        _yt_ck.update(t=time.monotonic(), txt=_yt_ck["txt"] if keep else txt, job=None)
+
+
+def _yt_cookies(wait: float = 60.0) -> str | None:
+    """คุกกี้ล็อกอิน YouTube แบบ Netscape (None = ไม่ใช้/อ่านไม่ได้/ไม่ได้ล็อกอิน -> โหลดแบบเดิม)
+    ครบ 10 นาทีแล้วใช้ของเดิมไปก่อนระหว่างเธรดอ่านของใหม่ · ยังไม่เคยได้ -> รอรวมกันไม่เกิน wait วิ
+    นับจากเริ่มอ่าน (ค้างนาน = รอคนกดอนุญาต Keychain) แล้วโหลดแบบไม่ล็อกอินไปก่อน การโหลดจะได้ไม่ค้างตาม"""
+    if not _HAS_YTDLP or YT_COOKIES.lower() in ("", "none", "off", "0"):
+        return None
+    with _yt_ck_lock:
+        now = time.monotonic()
+        if _yt_ck["t"] and now - _yt_ck["t"] < _YT_CK_TTL:
+            return _yt_ck["txt"]
+        if _yt_ck["job"] is None:
+            _yt_ck["job"] = threading.Thread(target=_yt_ck_load, name="yt-cookies", daemon=True)
+            _yt_ck["t0"] = now
+            _yt_ck["job"].start()
+        if _yt_ck["txt"] is not None:
+            return _yt_ck["txt"]
+        job, left = _yt_ck["job"], wait - (now - _yt_ck["t0"])
+    if left > 0:
+        job.join(left)
+    return _yt_ck["txt"]
+
+
+def _yt_ck_reset() -> None:
+    """YouTube ยังถามว่าเป็นบอท -> คุกกี้อาจหมดอายุ/ถูกหมุน/เพิ่งล็อกอิน: รอบหน้าอ่านจากเบราว์เซอร์ใหม่"""
+    with _yt_ck_lock:
+        _yt_ck.update(t=0.0, txt=None)
+
+
+def _yt_auth() -> dict:
+    """ตัวเลือก yt-dlp เพิ่มสำหรับโหลดแบบล็อกอิน ({} = แบบเดิม) — ใส่ทุกที่ที่ยิง player ของ YouTube"""
+    ck = _yt_cookies()
+    if not ck:
+        return {}
+    return {"cookiefile": io.StringIO(ck),     # สตรีมใหม่ทุกครั้ง: yt-dlp เขียนคุกกี้กลับลงไปตอนปิด
+            "js_runtimes": {"deno": {}, **({"node": {"path": _NODE}} if _NODE else {})},
+            "remote_components": ["ejs:github"]}
+
 
 def _pick_out(d: Path, vid: str, exts: tuple[str, ...]) -> Path | None:
     """ไฟล์ที่ yt-dlp เพิ่งเขียน — เอาชื่อตรงตาม outtmpl ก่อน
@@ -831,7 +918,7 @@ def _download_audio(vid: str) -> None:
     d.mkdir(parents=True, exist_ok=True)
     _dl_scrub(d)                         # เศษจากรอบที่พังกลางทางต้องไม่ปนมารอบนี้
     try:
-        with YoutubeDL({**_DL_COMMON,
+        with YoutubeDL({**_DL_COMMON, **_yt_auth(),
                         "outtmpl": str(d / "%(id)s.%(ext)s"),
                         "format": "ba[ext=m4a]/ba/b",
                         "writeinfojson": True,
@@ -893,7 +980,7 @@ def _download_video(vid: str) -> None:
         # มี audio.m4a แล้วก็ขอแค่ภาพ ไม่ต้องโหลดเสียงซ้ำ
         fmt = ("bv*[ext=mp4][height<=720]/bv*[height<=720]/b[ext=mp4]/b" if audio.is_file()
                else "bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/b")
-        with YoutubeDL({**_DL_COMMON,
+        with YoutubeDL({**_DL_COMMON, **_yt_auth(),
                         "outtmpl": str(d / "%(id)s.v.%(ext)s"),
                         "format": fmt,
                         "merge_output_format": "mp4"}) as ydl:
@@ -971,7 +1058,7 @@ def _fetch_auto_caption(d: Path, vid: str) -> None:
     if (d / f"auto.{alang}.vtt").is_file():
         return
     try:
-        with YoutubeDL({**_DL_COMMON, "skip_download": True,
+        with YoutubeDL({**_DL_COMMON, **_yt_auth(), "skip_download": True,
                         "writesubtitles": False,        # ห้ามปนซับจริง
                         "writeautomaticsub": True,
                         "subtitleslangs": [key], "subtitlesformat": "vtt",
@@ -992,7 +1079,7 @@ def _fetch_subs(d: Path, vid: str, lang: str) -> bool:
     if not lang or (d / f"sub.{lang}.vtt").is_file():
         return False
     try:
-        with YoutubeDL({**_DL_COMMON, "skip_download": True, "writesubtitles": True,
+        with YoutubeDL({**_DL_COMMON, **_yt_auth(), "skip_download": True, "writesubtitles": True,
                         "writeautomaticsub": False, "subtitleslangs": [f"{lang}(-.*)?"], "subtitlesformat": "vtt",
                         "outtmpl": str(d / "_sub")}) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={vid}"])
@@ -1068,12 +1155,16 @@ async def _download_worker() -> None:
                 _prefetch_best(vid)               # วิดีโอมาแล้ว (OCR ใช้) -> ดึงแหล่งให้งานเลือกเนื้อไว้ก่อน
                 break
             except Exception as exc:
+                bot = bool(_BOT_RE.search(str(exc)))
+                if bot:
+                    _yt_ck_reset()
                 if attempt < _DL_TRIES:
                     print(f"[dl] {vid} ลองใหม่ ({attempt}/{_DL_TRIES}): {exc}")
                     await asyncio.sleep(2)
                     continue
                 _dl_fails[vid] = _dl_fails.get(vid, 0) + 1
-                _dl_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+                _dl_state[vid] = {"status": "failed",
+                                  "error": _BOT_HINT if bot else f"{type(exc).__name__}: {exc}"}
                 print(f"[dl] {vid} FAILED ({_dl_fails[vid]}/{_DL_AUTO_MAX}): {exc}")
         await room.broadcast()
 
@@ -2221,7 +2312,8 @@ def _fix_target(vid: str) -> tuple[str, str]:
         if _dl_state.get(vid, {}).get("status") == "downloading":
             return "", ""
         if _dl_state.get(vid, {}).get("status") == "failed" or _dl_fails.get(vid):
-            return "dl", "โหลดวิดีโอไม่สำเร็จ"
+            # หน้าเว็บโชว์ fixWhy ก่อน dlError — โดนบล็อกบอทต้องบอกวิธีแก้ตรงนี้ ไม่งั้นเห็นแค่ "ไม่สำเร็จ"
+            return "dl", (_BOT_HINT if _dl_state.get(vid, {}).get("error") == _BOT_HINT else "โหลดวิดีโอไม่สำเร็จ")
         return "", ""
     if not (d / "audio.m4a").is_file():
         return "audio", "แยกไฟล์เสียงไม่สำเร็จ"
