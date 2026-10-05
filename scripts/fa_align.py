@@ -17,6 +17,9 @@
          + "anchors": [[t, d], ...]  -> เวลาบรรทัดที่เชื่อได้เป็นหมุด กันท่อนซ้ำไหลผิดรอบ
          words มีรอบที่ 2 ด้วยโมเดลอังกฤษ (MODEL_EN) ให้ตัวละตินในเนื้อได้ k ด้วย — มีเฉพาะเพลงที่มีคำอังกฤษ
          fa_align.py <videoId> --emit [--audio PATH]   คำนวณแคชอย่างเดียว
+         fa_align.py --serve   ตัวโหลดโมเดลค้าง (server เปิดไว้ใช้ซ้ำ): stdin/stdout ทีละบรรทัด JSON
+                               {"id","vid","audio","req"} -> {"id","ok","out"|"error"} · {"id","op":"load"} = โหลดโมเดลไว้ก่อน
+                               ผลเหมือนเรียกทีละครั้งทุกอย่าง แค่ไม่ต้องโหลดโมเดลใหม่ (~8-10 วิ/โมเดล) ทุกเพลง
          server ส่ง --audio มาเสมอ (โฟลเดอร์จริงของเพลงอยู่ที่ server รู้ดีที่สุด)
          + "opt": {...} (ไม่ส่ง = พฤติกรรมเดิมทุกอย่าง)
              "paren": true      ส่วนในวงเล็บ (คอรัส/แอดลิบ) "ข้ามได้" — ได้ยินก็จับ ไม่ได้ยินก็ข้าม ไม่ดันบรรทัดถัดไปให้ช้า
@@ -117,6 +120,17 @@ def _cache_ok(cf: Path, audio: Path | None, z=None) -> bool:
 _MODELS: dict = {}
 
 
+def _load_model(model_name: str):
+    """โหลดครั้งเดียวต่อโปรเซส (~1.2 GB, วัดแล้ว 8-10 วิ) — โหมด --serve จึงจ่ายครั้งเดียวต่อการเปิดตัว"""
+    if model_name not in _MODELS:
+        import torch
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+        dev = "mps" if torch.backends.mps.is_available() else "cpu"
+        _MODELS[model_name] = (Wav2Vec2Processor.from_pretrained(model_name),
+                               Wav2Vec2ForCTC.from_pretrained(model_name).eval().to(dev), dev)
+    return _MODELS[model_name]
+
+
 def model_ready(model: str) -> bool:
     """โมเดลอยู่ในเครื่องแล้วไหม — ไม่มีก็ข้ามไป ไม่โหลดจากเน็ตกลางงาน (1.2 GB)"""
     hub = Path(os.environ.get("HF_HUB_CACHE") or BASE / ".cache" / "hf" / "hub")
@@ -143,15 +157,10 @@ def emissions(vid: str, audio_path: Path | None = None,
     if os.environ.get("KARA_FA_NO_COMPUTE"):          # ชุดวัดผล: ห้ามแย่ง GPU/เขียนแคชใหม่ระหว่างที่คนใช้เครื่องอยู่
         raise RuntimeError(f"ไม่มีแคช FA ({cf.name}) และห้ามคำนวณใหม่")
     import torch
-    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
     if not audio_path or not audio_path.is_file():
         raise FileNotFoundError("ไม่มีไฟล์เสียงร้อง")
     wav = load_audio(audio_path, side=(stem == "side"))
-    if model_name not in _MODELS:                   # โหลดครั้งเดียวต่อโปรเซส (~1.2 GB)
-        dev = "mps" if torch.backends.mps.is_available() else "cpu"
-        _MODELS[model_name] = (Wav2Vec2Processor.from_pretrained(model_name),
-                               Wav2Vec2ForCTC.from_pretrained(model_name).eval().to(dev), dev)
-    proc, model, dev = _MODELS[model_name]
+    proc, model, dev = _load_model(model_name)
     vocab_map = proc.tokenizer.get_vocab()
     vocab = [""] * len(vocab_map)
     for ch, i in vocab_map.items():
@@ -620,8 +629,63 @@ def _skip_ranges(skipped: list[int], pos: list[int]) -> list[list[int]]:
     return out
 
 
+def handle(vid: str, audio: Path | None, req: dict) -> dict:
+    """คำขอหนึ่งครั้ง (stdin ของโหมดปกติ / หนึ่งบรรทัดของ --serve) -> ผลที่พิมพ์ออก stdout"""
+    dur = float(req.get("duration") or 0)
+    opt = req.get("opt") if isinstance(req.get("opt"), dict) else None
+    if "sets" in req:                               # หลายชุดในครั้งเดียว (ให้คะแนนผู้สมัครในห้องหาเนื้อ)
+        return {"results": [time_lines(vid, t, dur, audio, opt=opt) if t else None for t in req["sets"]]}
+    return time_lines(vid, req.get("texts") or [], dur, audio, words=bool(req.get("words")),
+                      anchors=req.get("anchors"), opt=opt)
+
+
+def serve() -> None:
+    """ตัวโหลดโมเดลค้าง: server เปิดไว้หนึ่งตัว ส่งคำขอทีละบรรทัด — ใช้ emissions()/time_lines() ตัวเดียวกับทางปกติ
+    ว่างเกิน KARA_FA_IDLE วิ หรือ stdin ปิด (server ปิด/ตาย) = ออกเอง คืนหน่วยความจำ"""
+    import select
+    idle = float(os.environ.get("KARA_FA_IDLE") or 900)
+    out = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
+    os.dup2(2, 1)                                   # print หลง (ไลบรารี) ไปทาง stderr — stdout จริงเหลือแต่คำตอบ
+    sys.stdout = sys.stderr
+    while True:
+        r, _, _ = select.select([sys.stdin], [], [], idle)
+        if not r:
+            return                                  # ว่างนาน -> ออก คำขอถัดไป server เปิดตัวใหม่เอง
+        line = sys.stdin.readline()
+        if not line:
+            return                                  # server ปิด/ตาย
+        if not line.strip():
+            continue
+        rid = None
+        try:
+            msg = json.loads(line)
+            rid = msg.get("id")
+            if msg.get("op") == "load":
+                for m in (MODEL, MODEL_EN):
+                    if model_ready(m):
+                        _load_model(m)
+                res = {"id": rid, "ok": True, "out": {}}
+            else:
+                audio = Path(msg["audio"]) if msg.get("audio") else None
+                res = {"id": rid, "ok": True, "out": handle(str(msg["vid"]), audio, msg.get("req") or {})}
+        except Exception as exc:
+            res = {"id": rid, "ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
+        if "torch" in sys.modules:
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()             # คืนหน่วยความจำชั่วคราวของการคำนวณ (โมเดลยังอยู่)
+            except Exception:
+                pass
+        res["loaded"] = sorted(_MODELS)                 # server โชว์ใน /api/health
+        out.write(json.dumps(res, ensure_ascii=False) + "\n")
+
+
 def main() -> None:
     argv = sys.argv[1:]
+    if "--serve" in argv:
+        serve()
+        return
     audio = None
     if "--audio" in argv:
         k = argv.index("--audio")
@@ -638,14 +702,7 @@ def main() -> None:
         print(json.dumps({"frames": lp.shape[0], "fsec": fsec, "sec": round(time.time() - t0, 1)}))
         return
     req = json.loads(sys.stdin.read() or "{}")
-    dur = float(req.get("duration") or 0)
-    opt = req.get("opt") if isinstance(req.get("opt"), dict) else None
-    if "sets" in req:                               # หลายชุดในครั้งเดียว (ให้คะแนนผู้สมัครในห้องหาเนื้อ)
-        out = [time_lines(vid, t, dur, audio, opt=opt) if t else None for t in req["sets"]]
-        print(json.dumps({"results": out}, ensure_ascii=False))
-        return
-    print(json.dumps(time_lines(vid, req.get("texts") or [], dur, audio, words=bool(req.get("words")),
-                                anchors=req.get("anchors"), opt=opt), ensure_ascii=False))
+    print(json.dumps(handle(vid, audio, req), ensure_ascii=False))
 
 
 if __name__ == "__main__":

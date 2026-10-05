@@ -542,7 +542,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `def _best_needed(` `def _best_decide(` `def _best_apply(` `def _best_record(` `async def _refine_dec(` `def _check_now(` — เช็คว่าต้องทำไหม, ตัดสิน keep|shift|retime|newtext|found|none, เขียน lyrics.json (สำรองลง 🕘 ก่อน), บันทึกผลลง lyrics.best.json
 - `server.py` `BEST_MANUAL = frozenset(` `BEST_VERSION = 2` — แหล่งที่ห้ามแตะ (manual-edit/manual-lrc/manual-txt) และรุ่นของงาน
 - `server.py` `def _prefetch_best(` `async def _best_sources(` `BEST_PRE_TTL = ` — เพลงใหม่: ดึงแหล่งออนไลน์ + OCR ไว้ก่อนระหว่างรอแยกเสียง (ไม่ใช้ GPU) แล้ว _run_best ใช้ชุดนั้นเมื่อ hash เนื้อ + ภาษายังเหมือนตอนดึง (ผู้สมัครชุดเดียวกัน = ผลตัดสินเดิม) ไม่งั้นดึงใหม่ · เพลงที่ต้องรอถอดเสียงไม่ดึงล่วงหน้า (OCR ซ้อน demucs/ถอดเสียงแล้วงานพวกนั้นช้าลง — ให้ไปซ้อนกับการคำนวณเสียง FA ในงานเลือกเนื้อแทน)
-- `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบันมีคำอังกฤษ (เพลงไทยล้วน = โมเดลไทยอย่างเดียว) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
+- `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบัน/ผู้สมัครที่ดึงล่วงหน้า (_best_pre) มีคำอังกฤษ (ตัดสินก่อนสร้าง task เพราะ _best_sources หยิบ _best_pre ออกไป) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
 ! บรรทัด [best] ใน log แตกเวลาเป็นขั้น (รอคิว / แหล่ง / รอGPU / FA / ซ่อม / ตรวจ) + "เนื้อใหม่ขึ้นจอหลังกดเพิ่ม" — ดูตรงนี้ก่อนถ้าเนื้อเพลงใหม่ช้า
 ! งานอัตโนมัติห้ามเขียนทับเนื้อที่คนแก้หรือวางไฟล์เอง (BEST_MANUAL) เด็ดขาด แม้มีคนกดสั่ง (เช็คทั้งตอนเข้าคิวและตอนรัน) ถ้าเนื้อเปลี่ยนระหว่างทำ (hash ไม่ตรง) ต้องทิ้งผล และเพิ่ม BEST_VERSION แล้วจะทำซ้ำทั้งคลัง
 
@@ -582,8 +582,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! trim.json ไม่อยู่ในรายการลบของ _clear_lyrics / เลือกเนื้อใหม่ (เวลาในเสียง ใช้ต่อได้) · คอมโบไม่ใช้ trim.json/ค่าอัตโนมัติเลย
 
 ### FA จับเวลาละเอียด / แผนที่ความคลาด 🗺 / ซ่อมเวลา 🩺
-คำค้น: FA, forced alignment, จับเวลาละเอียด, wav2vec2, fa_align, แผนที่ความคลาด, drift, 🗺, ซ่อมเวลา, refine, 🩺, lyrics_refine, เวลาเพี้ยน, KARA_REFINE
+คำค้น: FA, forced alignment, จับเวลาละเอียด, wav2vec2, fa_align, แผนที่ความคลาด, drift, 🗺, ซ่อมเวลา, refine, 🩺, lyrics_refine, เวลาเพี้ยน, KARA_REFINE, โหลดโมเดลค้าง, fa worker, --serve, KARA_FA_WORKER, KARA_FA_IDLE, เลือกเนื้อช้า, ไล่สีช้า
 - `server.py` `# ===== Studio: แผนที่ความคลาด` `def _fa_call(` `async def _fa(` `def _fa_ready(` `def _fa_cached_for(` `def _audio_for(` — เรียก scripts/fa_align.py เป็น subprocess (ส่ง JSON ทาง stdin, อ่านผลจากบรรทัดสุดท้ายของ stdout), ครั้งแรกของแต่ละเพลงจองคิว GPU ครั้งต่อไปมีแคชเป็นงาน CPU, ใช้ vocals.m4a ก่อน audio.m4a
+- `server.py` `class _FaWorker:` `_fa_worker = _FaWorker()` `FA_WORKER = ` `def preload_bg(` — ตัวโหลดโมเดลค้าง (fa_align.py --serve): งานที่ต้องคำนวณเสียง (ยกเว้น verify) ส่งไปตัวนี้ ไม่ต้อง import+โหลดโมเดลใหม่ทุกเพลง (วัดแล้ว ไทย 16→5 วิ, ไทย+อังกฤษ 25→9.6 วิ, ทั้งสาย 45→30 วิ ผลเท่ากันทุกตัว), โหลดล่วงหน้าตอน demucs เริ่ม, ตาย/เปิดไม่ขึ้น = ถอยไปทางเดิม, /api/health → faWorker
+! verify ต้องใช้ทางเดิม (subprocess ต่อครั้ง) เพื่อให้ _preempt_heavy ฆ่าแย่งคิวได้ · งานที่มีแคชแล้วก็ใช้ทางเดิม (CPU ล้วน ไม่ต้องต่อคิวหลังงาน GPU) · KARA_FA_WORKER=off = กลับแบบเดิมทั้งหมด, KARA_FA_IDLE (900 วิ) ว่างนานแล้วปิดเองคืน RAM ~2.6 GB
 - `server.py` `@app.post("/api/studio/song/{vid}/drift")` `def _measure_whisper(` `FA_MIN_CONF = 0.12` — เวลาที่วัดได้ของทุกบรรทัด (ใช้ FA หรือ whisper สำรอง) ให้ Studio วาดแผนที่ความคลาดเอง
 - `server.py` `@app.post("/api/studio/song/{vid}/refine")` `def _refine_call(` — 🩺 ซ่อมช่วงที่เวลาเพี้ยนผ่าน scripts/lyrics_refine.py คืนเป็นข้อเสนอเท่านั้น ไม่บันทึก
 ! 🩺 refine เป็นทางเดียวที่เนื้อ manual-edit ได้ใช้ตัวซ่อม (งานอัตโนมัติไม่แตะ) และ _refine_call ใช้เฉพาะแคช FA ที่มีอยู่แล้ว ไม่แย่ง GPU นอกคิว
@@ -670,7 +672,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### จับเวลาด้วย FA (forced alignment) + เวลารายตัวอักษรคาราโอเกะ
 คำค้น: FA, forced alignment, wav2vec2, จับเวลา, AI จับเวลา, ไล่สี, คาราโอเกะ, karaoke, เวลารายคำ, word timing, lyrics.words.json, หมุด, anchors, คำอังกฤษ, วงเล็บ, คอรัส, ร้องซ้อน, voices, แคช FA, KARA_FA_MODEL
-- `scripts/fa_align.py` `def time_lines(` `def main() -> None:` — จับเวลาต่อบรรทัด (t, d, conf; words=true ได้ k); CLI <vid> --audio PATH + stdin {"texts"} / {"sets"} (ให้คะแนนหลายผู้สมัคร) / --emit (คำนวณแคชอย่างเดียว)
+- `scripts/fa_align.py` `def time_lines(` `def main() -> None:` `def handle(` — จับเวลาต่อบรรทัด (t, d, conf; words=true ได้ k); CLI <vid> --audio PATH + stdin {"texts"} / {"sets"} (ให้คะแนนหลายผู้สมัคร) / --emit (คำนวณแคชอย่างเดียว)
+- `scripts/fa_align.py` `def serve() -> None:` `def _load_model(` — --serve: บรรทัด JSON ทาง stdin/stdout ({"id","vid","audio","req"} / {"op":"load"}), โมเดลอยู่ใน _MODELS ตลอด, stdout จริงเหลือแต่คำตอบ (print อื่นไป stderr), ว่างเกิน KARA_FA_IDLE หรือ stdin ปิด = ออก
 - `scripts/fa_align.py` `def emissions(` `def _cache_file(` `def _cache_ok(` `if os.environ.get("KARA_FA_NO_COMPUTE")` — log-prob จาก wav2vec2 แคช _fa/<vid>.<โมเดล>[.side].npz ผูกลายเซ็นไฟล์เสียง; NO_COMPUTE + ไม่มีแคช = raise
 - `scripts/fa_align.py` `def align(` `STAR_PEN = ` `ANCHOR_TOL = ` `def paren_spans(` — CTC Viterbi + สถานะ "ข้ามได้" กลืนแอดลิบ, โทษเมื่อหลุดหมุดเวลา, ข้ามวงเล็บทั้งก้อน (opt paren)
 - `scripts/fa_align.py` `MODEL = os.environ.get("KARA_FA_MODEL"` `MODEL_EN = ` `def tokenize_joint(` `def _k_from(` — โมเดลไทย + โมเดลอังกฤษ (คำละตินได้ k ด้วย); k = [[ตำแหน่งตัวอักษร, วินาที]] สำหรับไล่สี

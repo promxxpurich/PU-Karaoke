@@ -4,7 +4,7 @@ Remote:  http://<host>:8080/r   (scan QR on the player screen)
 """
 from contextlib import asynccontextmanager
 import asyncio, json, math, random, re, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
-import hashlib, hmac, secrets, threading
+import hashlib, hmac, secrets, threading, queue
 from pathlib import Path
 from typing import Any
 
@@ -1889,16 +1889,22 @@ def _separate_one(vid: str) -> None:
 
         # demucs ตั้งชื่อโฟลเดอร์ตามชื่อไฟล์ input -> .sep/htdemucs/audio/*.wav
         # ใช้ glob กันเหนียว เผื่อ layout ต่างกันตามเวอร์ชัน
+        jobs = []
         for stem, final in (("vocals", d / "vocals.m4a"), ("no_vocals", d / "no_vocals.m4a")):
             wav = next(iter(sorted(tmp.rglob(f"{stem}.wav"))), None)
             if wav is None:
                 raise RuntimeError(f"ไม่พบไฟล์ {stem}.wav ที่ demucs ควรสร้าง")
-            part = final.with_suffix(".m4a.part")
-            # ทั้งสองสเต็มเข้ารหัสด้วยค่าเดียวกัน -> priming delay เท่ากัน -> ยังตรงกันระดับ sample
-            # -f ipod: ffmpeg เดาคอนเทนเนอร์จากนามสกุล .part ไม่ได้ ต้องบอกตรงๆ
-            _ffmpeg(["-i", str(wav), "-c:a", "aac", "-b:a", "192k",
-                     "-movflags", "+faststart", "-f", "ipod", str(part)])
-            part.rename(final)   # atomic: ถือว่า ready ต่อเมื่อครบทั้งสองไฟล์
+            jobs.append((wav, final.with_suffix(".m4a.part"), final))
+        # ทั้งสองสเต็มเข้ารหัสด้วยค่าเดียวกัน -> priming delay เท่ากัน -> ยังตรงกันระดับ sample
+        # -f ipod: ffmpeg เดาคอนเทนเนอร์จากนามสกุล .part ไม่ได้ ต้องบอกตรงๆ
+        # สองไฟล์ไม่เกี่ยวกัน -> เข้ารหัสพร้อมกัน (ไฟล์ที่ได้เหมือนทำทีละไฟล์ทุกไบต์ แค่เสร็จเร็วขึ้น)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(2) as ex:
+            for f in [ex.submit(_ffmpeg, ["-i", str(w), "-c:a", "aac", "-b:a", "192k",
+                                          "-movflags", "+faststart", "-f", "ipod", str(pt)]) for w, pt, _ in jobs]:
+                f.result()
+        for _w, pt, final in jobs:
+            pt.rename(final)     # atomic: ถือว่า ready ต่อเมื่อครบทั้งสองไฟล์ (เข้ารหัสเสร็จทั้งคู่ก่อนค่อยย้าย)
         _purge_audio_caches(vid)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -1930,6 +1936,7 @@ async def _sep_worker() -> None:
             _sep_gone.discard(vid)           # เพลงที่ลบแล้วเพิ่มกลับมาใหม่
             await room.broadcast()
             _t0 = time.monotonic()
+            _fa_worker.preload_bg(vid)       # โหลดโมเดล FA ซ้อนกับ demucs — vocals เสร็จแล้วงานเลือกเนื้อคำนวณได้ทันที
             try:
                 _drop_key_files(vid)
                 await asyncio.to_thread(_separate_one, vid)
@@ -2929,6 +2936,7 @@ def health(search: int = 0):
         "lyr": _lyr_health(),
         "dl": {"queued": len(_dl_pending), "order": _dl_pending.order(), "state": _dl_state},
         "heavyJob": list(_heavy_job) if _heavy_job else None,
+        "faWorker": _fa_worker.status(),           # FA แบบโหลดโมเดลค้าง
         "queueOrder": [q.get("videoId") for q in room.queue],
     }
     if search:
@@ -4033,11 +4041,158 @@ def _audio_for(vid: str) -> Path | None:
     return None
 
 
+# --- FA แบบโหลดโมเดลค้าง (fa_align.py --serve) ------------------------------
+# วัดแล้ว (เพลง 3.5 นาที): เปิดโปรเซสใหม่ = import + โหลดโมเดล 8-10 วิ/โมเดล + คำนวณ ~5 วิ/โมเดล
+# -> ไทย 16 วิ, ไทย+อังกฤษ 25 วิ · โหลดค้างไว้ = 5 / 9.6 วิ (ผลตัวเลขเท่ากันทุกตัว — โค้ดคำนวณชุดเดียวกัน)
+# ใช้เฉพาะงานที่ต้องคำนวณเสียง (ในช่อง GPU) — งานที่มีแคชแล้วยังเป็น subprocess เดิม (CPU ล้วน ไม่ต้องต่อคิว)
+# verify ยังใช้ทางเดิม ให้ _preempt_heavy ฆ่าแย่งคิวได้ · ใช้ไม่ได้ (เปิดไม่ขึ้น/ตาย) = ถอยไปทางเดิมเอง
+FA_WORKER = os.environ.get("KARA_FA_WORKER", "on") != "off"
+_FA_LOGWORTHY = ("Error", "Traceback", 'File "', "Killed")   # stderr ของตัวโหลดค้าง: พิมพ์เฉพาะที่เป็นปัญหาจริง
+
+
+class _FaWorkerDown(Exception):
+    """ตัวโหลดค้างตาย/ปิดไป (ไม่ใช่ FA คำนวณพลาด) -> เปิดใหม่หรือถอยไปทางเดิม"""
+
+
+class _FaWorker:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()                # ทีละคำขอ (ถูกเรียกจาก thread ของ asyncio.to_thread)
+        self.proc: subprocess.Popen | None = None
+        self.q: queue.Queue | None = None
+        self.n = 0
+        self.loaded: list[str] = []
+        self.last = 0.0
+
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _forget(self) -> None:
+        p, self.proc, self.loaded = self.proc, None, []
+        if p is not None:
+            with _children_lock:
+                _children.pop(p.pid, None)
+
+    def _kill(self) -> None:
+        p = self.proc
+        self._forget()
+        if p is not None:
+            try:
+                p.kill()
+            except Exception:
+                pass
+
+    def _start(self) -> None:
+        self._forget()
+        proc = subprocess.Popen([sys.executable, str(BASE / "scripts" / "fa_align.py"), "--serve"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", bufsize=1, cwd=str(BASE))
+        q: queue.Queue = queue.Queue()
+
+        def read_out() -> None:
+            for line in proc.stdout:
+                q.put(line)
+            q.put(None)                             # EOF = ตัวโหลดค้างจบแล้ว
+
+        def read_err() -> None:
+            for line in proc.stderr:
+                line = line.rstrip()
+                if any(w in line for w in _FA_LOGWORTHY):   # แถบโหลด/คำเตือนของ transformers ไม่ต้องลง log
+                    print(f"[fa] {line[:300]}")
+        threading.Thread(target=read_out, daemon=True).start()
+        threading.Thread(target=read_err, daemon=True).start()
+        with _children_lock:
+            _children[proc.pid] = ("faworker", "", proc)   # vid ว่าง: ลบเพลง/แย่งคิวไม่ฆ่าตัวนี้ ปิดเซิร์ฟเวอร์ฆ่า
+        self.proc, self.q = proc, q
+
+    def _ask(self, msg: dict, timeout: float) -> dict:
+        """ถือ self.lock อยู่แล้ว — ส่งหนึ่งบรรทัด รอคำตอบ id เดียวกัน"""
+        if not self.alive():
+            self._start()
+        self.n += 1
+        msg = {**msg, "id": self.n}
+        try:
+            self.proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            self._kill()
+            raise _FaWorkerDown(f"ส่งคำขอไม่ได้: {exc}")
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                self._kill()
+                raise RuntimeError(f"fa หมดเวลา ({timeout / 60:.0f} นาที)")
+            try:
+                line = self.q.get(timeout=min(left, 5.0))
+            except queue.Empty:
+                continue
+            if line is None:
+                self._kill()
+                raise _FaWorkerDown("ตัวโหลดค้างปิดไประหว่างทำงาน")
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("id") == msg["id"]:
+                self.last = time.monotonic()
+                self.loaded = list(r.get("loaded") or self.loaded)
+                return r
+
+    def request(self, vid: str, audio: Path, payload: dict, timeout: float = 900) -> dict:
+        with self.lock:
+            for attempt in (0, 1):                  # ปิดเองเพราะว่างนานพอดีจังหวะ -> เปิดใหม่ลองอีกครั้ง
+                try:
+                    r = self._ask({"vid": vid, "audio": str(audio), "req": payload}, timeout)
+                except _FaWorkerDown:
+                    if attempt:
+                        raise
+                    continue
+                if not r.get("ok"):
+                    raise RuntimeError(str(r.get("error") or "fa ผิดพลาด")[:200])
+                return r["out"]
+        raise _FaWorkerDown("ไม่ได้คำตอบ")
+
+    def preload_bg(self, vid: str | None = None) -> None:
+        """โหลดโมเดลไว้ก่อนระหว่าง demucs แยกเสียง (งานดิสก์/หน่วยความจำ) — vocals เสร็จแล้วคำนวณได้ทันที"""
+        if not FA_WORKER or not _fa_ok_cached() or (vid and _song_lang(vid)[0] not in LS.FA_LANGS):
+            return
+        if self.alive() and self.loaded:
+            return
+
+        def run() -> None:
+            if not self.lock.acquire(blocking=False):
+                return                              # กำลังทำงานอยู่ = โมเดลโหลดอยู่แล้ว
+            try:
+                t0 = time.monotonic()
+                self._ask({"op": "load"}, 300)
+                print(f"[fa] โหลดโมเดลค้างไว้ {len(self.loaded)} ตัว | {time.monotonic() - t0:.0f}s")
+            except Exception as exc:
+                print(f"[fa] โหลดโมเดลล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
+            finally:
+                self.lock.release()
+        threading.Thread(target=run, daemon=True).start()
+
+    def status(self) -> dict:
+        return {"on": FA_WORKER, "alive": self.alive(), "pid": self.proc.pid if self.alive() else None,
+                "loaded": [m.rsplit("/", 1)[-1] for m in self.loaded],
+                "idleSec": round(time.monotonic() - self.last) if self.last else None}
+
+
+_fa_worker = _FaWorker()
+
+
 def _fa_call(vid: str, payload: dict, kind: str = "fa") -> dict:
     """kind = ชื่องานที่ลงทะเบียนโปรเซส (verify ถูกแย่งคิวได้ — ฆ่าแล้วกลายเป็น _Preempted ไม่ใช่ failed)"""
     audio = _audio_for(vid)
     if not audio:
         raise RuntimeError("ไม่มีไฟล์เสียง")
+    if FA_WORKER and kind != "verify":
+        texts = list(payload.get("texts") or [x for st in (payload.get("sets") or []) for x in (st or [])])
+        if not _fa_cached_for(vid, texts):          # ต้องคำนวณเสียง -> ตัวโหลดค้าง (ผลเท่ากับทางเดิม)
+            try:
+                return _fa_worker.request(vid, audio, payload)
+            except _FaWorkerDown as exc:
+                print(f"[fa] ตัวโหลดค้างใช้ไม่ได้ ({exc}) -> เปิดโปรเซสแบบเดิม")
     try:
         rc, out, err = _run_child(kind, vid, [sys.executable, str(BASE / "scripts" / "fa_align.py"), vid,
                                               "--audio", str(audio)],
@@ -4855,20 +5010,26 @@ def _fa_warm_text(vid: str) -> list[str]:
     เพลงไทยล้วนอุ่นแค่โมเดลไทย ("ก") — โมเดลอังกฤษ ~1.2 GB เคยโหลดทุกเพลงใหม่
     ผู้สมัครจาก OCR/ออนไลน์มีคำอังกฤษทีหลัง ขั้นให้คะแนนคำนวณรอบอังกฤษเองในช่อง GPU (ผลไม่เปลี่ยน)"""
     try:
-        if _song_lang(vid)[0] == "en" or _fa_mod().has_latin(_lyr_texts(vid)):
-            return ["ก ab"]
+        texts = list(_lyr_texts(vid))
+        pre = _best_pre.get(vid)                    # ผู้สมัครที่ดึงไว้ระหว่างแยกเสียง (ชุดเดียวกับที่ขั้นให้คะแนนจะใช้)
+        if pre:
+            texts += [x for c in pre[3] for x in (c.get("texts") or [] if not c.get("synced")
+                                                  else [l.get("x") or "" for l in c.get("lines") or []])]
+        if _song_lang(vid)[0] == "en" or _fa_mod().has_latin(texts):
+            return ["ก ab"]   # อุ่นสองโมเดลรอบเดียว — ไม่งั้นขั้นให้คะแนนต้องเปิดรอบอังกฤษแยกอีกรอบ
     except Exception:
         return ["ก ab"]   # ตัดสินไม่ได้ = ทำแบบเดิม
     return ["ก"]
 
 
-async def _best_fa_warm(vid: str) -> None:
+async def _best_fa_warm(vid: str, warm_text: list[str] | None = None) -> None:
     """วิเคราะห์เสียงร้องของ FA ไว้ก่อน ระหว่างที่งานเลือกเนื้อยังรอ OCR/แหล่งออนไลน์ (ไม่ต้องรู้ผู้สมัคร)
     ได้แคชชุดเดียวกับที่ขั้นให้คะแนนจะคำนวณเอง (เสียงเดียวกัน โมเดลเดียวกัน) ผลให้คะแนนจึงไม่เปลี่ยน
-    วัดแล้วการคำนวณนี้กิน 29-40 วิ — เดิมเริ่มหลังได้ผู้สมัครครบ ต่อกันเป็นทอด ๆ"""
+    วัดแล้ว (เพลง 3.5 นาที): เปิดโปรเซสใหม่ ไทย 16 / ไทย+อังกฤษ 25 วิ · ผ่านตัวโหลดค้าง (_FaWorker) 5 / 9.6 วิ
+    — เดิมเริ่มหลังได้ผู้สมัครครบ ต่อกันเป็นทอด ๆ"""
     global _heavy_job
     async with _heavy.slot(f"bestwarm:{vid}", lambda: _prio(vid) + 0.4):
-        warm_text = _fa_warm_text(vid)
+        warm_text = warm_text or _fa_warm_text(vid)
         if _fa_cached_for(vid, warm_text):
             return
         _heavy_job = ("best", vid)
@@ -5222,7 +5383,8 @@ async def _run_best(vid: str) -> None:
         # OCR + แหล่งออนไลน์ (ดึงล่วงหน้าไว้แล้วถ้าทัน) ไปพร้อมกับวิเคราะห์เสียงร้องของ FA
         warm = None
         if not _fa_cached(vid):
-            warm = asyncio.create_task(_best_fa_warm(vid))
+            # ตัดสินว่าต้องอุ่นโมเดลอังกฤษไหมตอนนี้ — _best_sources ข้างล่างจะหยิบผู้สมัครล่วงหน้าออกจาก _best_pre ไป
+            warm = asyncio.create_task(_best_fa_warm(vid, _fa_warm_text(vid)))
             _bg_tasks.add(warm)                    # อาจยังคำนวณรอบอังกฤษต่อหลังงานนี้จบ — ถือ reference ไว้
             warm.add_done_callback(_bg_tasks.discard)
         cands, used, pre = await _best_sources(vid, base)
