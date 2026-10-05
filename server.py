@@ -720,6 +720,12 @@ FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
 _dl_task: asyncio.Task | None = None
 _dl_state: dict[str, dict] = {}    # videoId -> {"status","error"} เหมือน _sep_state/_lyr_state
+_added_at: dict[str, float] = {}   # videoId -> เวลาที่มีคนกดเพิ่มเพลงใหม่ (monotonic) ไว้ให้ log บอกว่าแต่ละขั้นเสร็จหลังกดกี่วิ
+
+
+def _since_add(vid: str | None) -> str:
+    t = _added_at.get(vid or "")
+    return f" · หลังกดเพิ่ม {time.monotonic() - t:.0f}s" if t else ""
 
 
 def _dl_fields(item: dict) -> None:
@@ -913,7 +919,7 @@ def _download_video(vid: str) -> None:
         part.rename(video)               # atomic: ถือว่าเล่นได้ต่อเมื่อครบจริง
         src.unlink(missing_ok=True)
         _tidy_sidecars(d)
-        _fetch_auto_caption(d, vid)      # ต้องหลัง tidy — tidy rename ทุก *.vtt
+        _fetch_auto_caption(d, vid)      # ต้องหลัง tidy — tidy rename ทุก *.vtt (ปกติดึงไปแล้วหลังโหลดเสียง = รอบสำรอง)
     finally:
         for f in d.glob("*.mp4.part"):
             f.unlink(missing_ok=True)
@@ -1038,9 +1044,18 @@ async def _download_worker() -> None:
                 await asyncio.to_thread(_download_audio, vid)
                 _invalidate_dirs()
                 await _enqueue_sep(vid)
+                # ได้ info.json + ซับจริงแล้ว -> ดึงคำบรรยายอัตโนมัติแล้วเริ่มหาเนื้อเลย ไม่ต้องรอวิดีโอ
+                # (เดิมหาเนื้อได้หลังวิดีโอเสร็จ + รอ watchdog อีกรอบ สูงสุด 10 วิ และถ้า watchdog มาก่อน
+                # คำบรรยายอัตโนมัติ เพลงที่มีแค่แหล่งนั้นจะถูกส่งไปทางถอดเสียงที่ต้องรอ GPU)
+                try:
+                    await asyncio.to_thread(_fetch_auto_caption, _song_dir(vid), vid)
+                except Exception as exc:
+                    print(f"[dl] {vid} auto-caption: {type(exc).__name__}: {exc}")
+                _lyr_nosrc.discard(vid)
+                await _enqueue_lyr(vid)
                 await room.broadcast()
                 await asyncio.to_thread(_download_video, vid)
-                print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s")
+                print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s{_since_add(vid)}")
                 # ซับ/metadata เพิ่งมาถึง — ถ้าเคยค้นเนื้อไปแล้วตอนโฟลเดอร์ยังว่าง
                 # ผลนั้นใช้ไม่ได้ ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนจะไปถอดเสียง
                 _lyr_nosrc.discard(vid)
@@ -1050,6 +1065,7 @@ async def _download_worker() -> None:
                 _dl_fails.pop(vid, None)
                 if _fix_history_titles(vid):      # ประวัติที่เคยเก็บ "YouTube: <id>" -> ชื่อจริง
                     await asyncio.to_thread(_save_history)
+                _prefetch_best(vid)               # วิดีโอมาแล้ว (OCR ใช้) -> ดึงแหล่งให้งานเลือกเนื้อไว้ก่อน
                 break
             except Exception as exc:
                 if attempt < _DL_TRIES:
@@ -1629,7 +1645,7 @@ async def _sep_worker() -> None:
                 _sep_state[vid] = {"status": "ready", "error": ""}
                 _preempt_n.pop(vid, None)
                 room.archive_rev += 1
-                print(f"[sep] {vid} OK {time.monotonic() - _t0:.0f}s (device={_sep_device})")
+                print(f"[sep] {vid} OK {time.monotonic() - _t0:.0f}s (device={_sep_device}){_since_add(vid)}")
                 await _enqueue_lyr(vid)          # มี vocals แล้ว ไปหาเนื้อเพลงต่อ
                 if not await _enqueue_best(vid):  # เนื้อมีอยู่แล้ว -> รอแค่ vocals ก็เทียบทุกแหล่ง/ทำเวลารายคำได้
                     await _enqueue_words(vid)
@@ -1722,17 +1738,17 @@ async def _lyrfind_worker() -> None:
             need_asr, line = await asyncio.to_thread(_find_lyrics, vid)
             if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
                 _lyr_state[vid] = {"status": "nolyr", "error": ""}
-                print(f"[lyr] {vid} ไม่มีเนื้อจากทุกแหล่ง ({time.monotonic() - t0:.0f}s)")
+                print(f"[lyr] {vid} ไม่มีเนื้อจากทุกแหล่ง ({time.monotonic() - t0:.0f}s){_since_add(vid)}")
             elif not need_asr:
                 _lyr_state[vid] = {"status": "ready", "error": ""}
                 room.archive_rev += 1
-                print(f"[lyr] {line or vid + ' OK'} | {time.monotonic() - t0:.0f}s (ไม่ใช้ GPU)")
+                print(f"[lyr] {line or vid + ' OK'} | {time.monotonic() - t0:.0f}s (ไม่ใช้ GPU){_since_add(vid)}")
                 if not await _enqueue_best(vid):
                     await _enqueue_words(vid)
             else:
                 _lyr_nosrc.add(vid)
                 _lyr_state.pop(vid, None)
-                print(f"[lyr] {vid} ต้องถอดเสียง ({time.monotonic() - t0:.0f}s)")
+                print(f"[lyr] {vid} ต้องถอดเสียง ({time.monotonic() - t0:.0f}s){_since_add(vid)}")
                 await _enqueue_lyr(vid)      # ไม่มี vocals? _enqueue_lyr จะสั่งแยกเสียงให้เอง
         except Exception as exc:
             _lyr_nosrc.add(vid)              # ค้นไม่ได้ก็ยังเหลือทางถอดเสียง
@@ -1740,6 +1756,7 @@ async def _lyrfind_worker() -> None:
             print(f"[lyr] {vid} ค้นเนื้อไม่สำเร็จ: {exc}")
             await _enqueue_lyr(vid)
         await room.broadcast()
+        _prefetch_best(vid)              # เนื้อรอบแรกนิ่งแล้ว -> ดึงแหล่งให้งานเลือกเนื้อไว้ก่อน (ถ้าวิดีโอมาแล้ว)
 
 
 async def _ensure_lyricfinder() -> None:
@@ -1800,7 +1817,7 @@ async def _lyr_worker() -> None:
                 _preempt_n.pop(vid, None)
                 room.archive_rev += 1
                 print(f"[lyr] {line or vid + (' ไม่มีเนื้อจากทุกแหล่ง' if nolyr else ' OK')}"
-                      f" | {time.monotonic() - _t0:.0f}s")
+                      f" | {time.monotonic() - _t0:.0f}s{_since_add(vid)}")
                 # ไม่มีเนื้อจากทางปกติ ก็ยังมีลุ้นจาก JOOX/YouTube Music/NetEase ในงานเลือกเนื้อ
                 if not await _enqueue_best(vid) and not nolyr:
                     await _enqueue_words(vid)
@@ -3887,9 +3904,10 @@ def _library_twins(vid: str, texts: list[str]) -> list[tuple[float, str, Path, d
     return sorted(out, key=lambda x: -x[0])[:2]
 
 
-def _ocr_ensure(vid: str) -> dict | None:
+def _ocr_ensure(vid: str, nice: bool = False) -> dict | None:
     """อ่านตัวหนังสือในคลิป (scripts/ocr_lyrics.py — Apple Vision) ถ้ายังไม่เคยอ่าน — คลิปไม่มีเนื้อในภาพรู้ใน ~1 วิ
-    Lyric Video ใช้ ~20-30 วิ ผลแคชไว้ (lyrics-preview/_ocr) ผูกกับไฟล์วิดีโอ"""
+    Lyric Video ใช้ ~20-30 วิ ผลแคชไว้ (lyrics-preview/_ocr) ผูกกับไฟล์วิดีโอ
+    nice: ลำดับความสำคัญ CPU ต่ำ — ตอนอ่านล่วงหน้าพร้อม demucs ไม่ให้แย่งจนแยกเสียงช้าลง"""
     d = _song_dir(vid)
     video = d / "video.mp4"
     if not video.is_file() or sys.platform != "darwin":
@@ -3899,8 +3917,10 @@ def _ocr_ensure(vid: str) -> dict | None:
         hit = O.cached(vid, video)
         if hit is not None:
             return hit
-        rc, out, err = _run_child("ocr", vid, [sys.executable, str(BASE / "scripts" / "ocr_lyrics.py"), vid,
-                                               "--video", str(video)], timeout=900, cwd=str(BASE))
+        cmd = [sys.executable, str(BASE / "scripts" / "ocr_lyrics.py"), vid, "--video", str(video)]
+        if nice and shutil.which("nice"):
+            cmd = ["nice", "-n", "10"] + cmd      # ffmpeg/kara_ocr ที่มันเรียกต่อได้ nice ไปด้วย
+        rc, out, err = _run_child("ocr", vid, cmd, timeout=900, cwd=str(BASE))
         if rc != 0:
             tail = [l for l in err.strip().splitlines() if l.strip()]
             print(f"[ocr] {vid} ล้มเหลว: {tail[-1][:200] if tail else rc}")
@@ -4195,6 +4215,92 @@ _best_pending = _Pending("best")
 _best_task: asyncio.Task | None = None
 _best_state: dict[str, dict] = {}                  # videoId -> {"status": queued|working|failed, "error"}
 _best_retried: set[str] = set()                    # ผลไม่ครบ (แหล่งออนไลน์เงียบ) ลองใหม่ได้ครั้งเดียวต่อรอบเปิดเซิร์ฟเวอร์
+# ผู้สมัครที่ดึงไว้ล่วงหน้าระหว่างรอแยกเสียง: videoId -> (เวลา, hash เนื้อตอนดึง, ภาษา, ผู้สมัคร, คำค้น)
+_best_pre: dict[str, tuple[float, str, str, list, dict]] = {}
+_best_pre_task: dict[str, asyncio.Task] = {}
+BEST_PRE_TTL = 900.0
+
+
+def _prefetch_best(vid: str | None) -> None:
+    """เพลงใหม่: ดึงแหล่งออนไลน์ + อ่านตัวหนังสือในคลิปไว้ก่อน ระหว่างที่ demucs ยังแยกเสียงอยู่ (ไม่ใช้ GPU)
+    งานเลือกเนื้อเริ่มได้หลังมี vocals เท่านั้น — เดิมเริ่มแล้วค่อยนั่งรอเน็ต/OCR ต่ออีก ทั้งที่ทำล่วงหน้าได้
+    เรียกจากท้ายงานหาเนื้อรอบแรกและท้ายงานโหลดวิดีโอ ตัวที่เสร็จทีหลังเป็นคนเริ่ม (ต้องมีทั้งสองอย่าง)"""
+    if not vid or vid in _best_pre_task:
+        return
+    d = _song_dir(vid)
+    if not (d / "video.mp4").is_file() or not (d / "info.json").is_file():
+        return
+    if _lyrfind_pending.has(vid) or _lyr_state.get(vid, {}).get("status") == "searching":
+        return
+    if _best_state.get(vid, {}).get("status") in ("queued", "working"):
+        return                                    # งานเลือกเนื้อเริ่มเองแล้ว (แยกเสียงเสร็จก่อน)
+    if not _fa_ok_cached() or _song_lang(vid)[0] not in LS.FA_LANGS:
+        return
+    # ยังไม่มีเนื้อรอบแรก (รอถอดเสียง) = คำค้นจากเนื้อจะเปลี่ยนหลังถอดเสียง -> ดึงแหล่งล่วงหน้าไม่ได้
+    # และอย่าอ่าน OCR ล่วงหน้าด้วย: วัดแล้ว OCR (~50 วิ) ซ้อนกับ demucs/ถอดเสียงทำให้งานพวกนั้นช้าลง 10-30 วิ
+    # (งานเลือกเนื้อของเพลงแบบนี้เริ่มหลังถอดเสียง แล้ว OCR ไปซ้อนกับการคำนวณเสียง FA ในงานนั้นแทน)
+    gather = _best_needed(vid)
+    if not gather:
+        return
+    for k in [k for k, v in _best_pre.items() if time.time() - v[0] > BEST_PRE_TTL]:
+        del _best_pre[k]                          # เพลงที่ถูกลบจากคิวก่อนได้เทียบ — ไม่ต้องเก็บไว้
+    h, lang = _lyr_hash(_read_lyr(vid)), _song_lang(vid)[0]
+    hit = _best_pre.get(vid)
+    if hit and hit[1:3] == (h, lang) and time.time() - hit[0] < BEST_PRE_TTL:
+        return
+
+    async def run() -> None:
+        t0 = time.monotonic()
+        try:
+            await asyncio.to_thread(_ocr_ensure, vid, True)       # ซ้อนกับ demucs -> CPU ลำดับต่ำ (nice)
+            cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
+            _best_pre[vid] = (time.time(), h, lang, cands, used)
+            print(f"[best] {vid} ดึงแหล่งล่วงหน้า {len(cands)} ผู้สมัคร | {time.monotonic() - t0:.0f}s{_since_add(vid)}")
+        except Exception as exc:
+            print(f"[best] {vid} ดึงแหล่งล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
+        finally:
+            _best_pre_task.pop(vid, None)
+    t = asyncio.create_task(run())
+    _best_pre_task[vid] = t                       # ถือ reference ไว้ด้วย (กัน GC) และให้ _run_best รอได้
+
+
+async def _best_sources(vid: str, base: str) -> tuple[list, dict, bool]:
+    """ผู้สมัครของงานเลือกเนื้อ — ใช้ชุดที่ดึงล่วงหน้าถ้าเนื้อ (hash) และภาษายังเหมือนตอนดึง
+    = ผู้สมัครชุดเดียวกับที่จะดึงเองตอนนี้ ผลตัดสินจึงไม่เปลี่ยน ไม่งั้นดึงใหม่แบบเดิม
+    คืน (ผู้สมัคร, คำค้น, ใช้ชุดล่วงหน้าไหม)"""
+    task = _best_pre_task.get(vid)
+    if task is not None:
+        try:
+            await asyncio.wait_for(asyncio.shield(task), 120)    # กำลังดึงอยู่ -> รอให้เสร็จ ดีกว่าดึงซ้ำ
+        except Exception:
+            pass
+    pre = _best_pre.pop(vid, None)
+    if pre and pre[1:3] == (base, _song_lang(vid)[0]) and time.time() - pre[0] < BEST_PRE_TTL:
+        return pre[3], pre[4], True               # ดึงล่วงหน้าทำ OCR ก่อนดึงแหล่ง ลำดับเดียวกับข้างล่าง
+    await asyncio.to_thread(_ocr_ensure, vid)          # 📷 Lyric Video: เวลาที่ตัวหนังสือขึ้นในคลิปนี้
+    # ดึงเนื้อออนไลน์ก่อน (นอกช่อง GPU — รอเน็ตไม่ควรกันงานอื่น)
+    cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
+    return cands, used, False
+
+
+_FA_WARM_TEXT = ["ก ab"]                           # ไทย + ละติน ≥ 2 ตัว (fa_align.has_latin) = คำนวณแคชของทั้งสองโมเดล
+
+
+async def _best_fa_warm(vid: str) -> None:
+    """วิเคราะห์เสียงร้องของ FA ไว้ก่อน ระหว่างที่งานเลือกเนื้อยังรอ OCR/แหล่งออนไลน์ (ไม่ต้องรู้ผู้สมัคร)
+    ได้แคชชุดเดียวกับที่ขั้นให้คะแนนจะคำนวณเอง (เสียงเดียวกัน โมเดลเดียวกัน) ผลให้คะแนนจึงไม่เปลี่ยน
+    วัดแล้วการคำนวณนี้กิน 29-40 วิ — เดิมเริ่มหลังได้ผู้สมัครครบ ต่อกันเป็นทอด ๆ"""
+    global _heavy_job
+    async with _heavy.slot(f"bestwarm:{vid}", lambda: _prio(vid) + 0.4):
+        if _fa_cached_for(vid, _FA_WARM_TEXT):
+            return
+        _heavy_job = ("best", vid)
+        try:
+            await asyncio.to_thread(_fa_call, vid, {"texts": _FA_WARM_TEXT, "duration": 0}, "best")
+        except Exception as exc:
+            print(f"[best] {vid} เตรียมเสียง FA ไม่ได้: {type(exc).__name__}: {exc}")   # ขั้นให้คะแนนคำนวณเองอีกที
+        finally:
+            _heavy_job = None
 
 
 def _lyr_hash(j: dict | None) -> str:
@@ -4423,7 +4529,7 @@ async def _enqueue_best(vid: str | None, force: bool = False) -> bool:
     if not _audio_for(vid):
         return False
     await _ensure_bester()
-    _best_state[vid] = {"status": "queued", "error": ""}
+    _best_state[vid] = {"status": "queued", "error": "", "q": time.monotonic()}   # q = เวลาเข้าคิว (log)
     _best_pending.push(vid)
     return True
 
@@ -4513,9 +4619,18 @@ async def _refine_only(vid: str, cur: dict, rec0: dict, base: str, t0: float) ->
 async def _run_best(vid: str) -> None:
     global _heavy_job
     retimed = False                                # เวลาบรรทัดเปลี่ยน (เปลี่ยนเนื้อ/เลื่อน/จับใหม่/ซ่อม) -> ทำไล่สีใหม่
+    q_at = _best_state.get(vid, {}).get("q")
     _best_state[vid] = {"status": "working", "error": ""}
     await room.broadcast()
     t0 = time.monotonic()
+    # เวลาแต่ละขั้น (log) — ไว้ดูว่าเนื้อของเพลงใหม่ช้าตรงไหน
+    ph: dict[str, float] = {"รอคิว": t0 - q_at} if q_at else {}
+    shown = ""                                     # เนื้อใหม่ขึ้นจอเมื่อไร (นับจากกดเพิ่ม)
+
+    def lap(k: str, t: float) -> float:
+        now = time.monotonic()
+        ph[k] = ph.get(k, 0.0) + now - t
+        return now
     try:
         cur = _read_lyr(vid)
         if cur and (cur.get("src") or "") in BEST_MANUAL:
@@ -4526,27 +4641,40 @@ async def _run_best(vid: str) -> None:
         if cur and rec0 and base in (rec0.get("base"), rec0.get("out")) and int(rec0.get("v") or 1) < BEST_VERSION:
             await _refine_only(vid, cur, rec0, base, t0)      # ตัดสินไว้แล้วก่อนมีขั้นซ่อมเวลา: ซ่อมอย่างเดียว
             return
-        await asyncio.to_thread(_ocr_ensure, vid)          # 📷 Lyric Video: เวลาที่ตัวหนังสือขึ้นในคลิปนี้
-        # ดึงเนื้อออนไลน์ก่อน (นอกช่อง GPU — รอเน็ตไม่ควรกันงานอื่น)
-        cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
+        t = time.monotonic()
+        # OCR + แหล่งออนไลน์ (ดึงล่วงหน้าไว้แล้วถ้าทัน) ไปพร้อมกับวิเคราะห์เสียงร้องของ FA
+        warm = None
+        if not _fa_cached(vid):
+            warm = asyncio.create_task(_best_fa_warm(vid))
+            _bg_tasks.add(warm)                    # อาจยังคำนวณรอบอังกฤษต่อหลังงานนี้จบ — ถือ reference ไว้
+            warm.add_done_callback(_bg_tasks.discard)
+        cands, used, pre = await _best_sources(vid, base)
+        t = lap("แหล่ง(ดึงไว้ก่อน)" if pre else "ocr+แหล่ง", t)
         online = sum(1 for c in cands if c["provider"] in ONLINE_PROVIDERS)
         sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
         payload = {"sets": sets, "duration": _song_meta(vid)["duration"] or 0}
+        texts_all = [x for st in sets for x in st]
+        if warm is not None and cands and not _fa_cached_for(vid, texts_all):
+            await warm                             # กำลังคำนวณแคชที่ต้องใช้อยู่ -> รอ ดีกว่าต่อคิวคำนวณซ้ำ
+            t = lap("รอเสียงFA", t)
         if not cands:
             r = {"results": []}
-        elif _fa_cached_for(vid, [x for st in sets for x in st]):
+        elif _fa_cached_for(vid, texts_all):
             r = await asyncio.to_thread(_fa_call, vid, payload, "best")
         else:
             async with _heavy.slot("best", lambda: _prio(vid) + 0.4):
+                t = lap("รอGPU", t)
                 _heavy_job = ("best", vid)
                 try:
                     r = await asyncio.to_thread(_fa_call, vid, payload, "best")
                 finally:
                     _heavy_job = None
+        t = lap("FA", t)
         _score_fa(cands, r.get("results") or [])
         _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
         dec = _best_decide(cands, cur)
         ref = await _refine_dec(vid, dec, cur, cands)
+        t = lap("ซ่อม", t)
         if _lyr_hash(_read_lyr(vid)) != base:
             _best_state.pop(vid, None)             # เนื้อถูกเปลี่ยนระหว่างทำ (Studio/หาเนื้อใหม่) -> ทิ้งผลนี้
             print(f"[best] {vid} เนื้อเปลี่ยนระหว่างเทียบ ข้ามรอบนี้")
@@ -4556,16 +4684,21 @@ async def _run_best(vid: str) -> None:
             out = await asyncio.to_thread(_best_apply, vid, dec, cur)
             room.archive_rev += 1
             retimed = True
+            ta = _added_at.get(vid)
+            shown = f" · เนื้อใหม่ขึ้นจอหลังกดเพิ่ม {time.monotonic() - ta:.0f}s" if ta else ""
         # ผลตรวจ v2 ของเนื้อที่ได้จริง (แคชเสียงพร้อมแล้ว = CPU ไม่กี่วิ) — เดิมใช้ค่าจากตอนให้คะแนนแบบไม่มีหมุด
+        t = time.monotonic()
         if dec["action"] != "none":
             await asyncio.to_thread(_check_now, vid, "best")
+        lap("ตรวจ", t)
         partial = online == 0
         if partial:
             _best_retried.add(vid)
         await asyncio.to_thread(_best_record, vid, base, out, dec, cands, partial, _refine_rec(ref))
         _best_state.pop(vid, None)
+        steps = " · ".join(f"{k} {v:.0f}" for k, v in ph.items() if v >= 0.5)
         print(f"[best] {vid} {dec['action']}: {dec['reason']} | ผู้สมัคร {len(cands)} (ออนไลน์ {online})"
-              f" | {time.monotonic() - t0:.0f}s")
+              f" | {time.monotonic() - t0:.0f}s ({steps}){shown or _since_add(vid)}")
     except Exception as exc:
         _best_state[vid] = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
         print(f"[best] {vid} FAILED: {exc}")
@@ -4944,6 +5077,10 @@ async def ws_endpoint(ws: WebSocket):
                                 "dlError": "",
                             })
                             it = room.queue[-1] if room.queue else room.current
+                            now = time.monotonic()
+                            for k in [k for k, t in _added_at.items() if now - t > 3600]:
+                                del _added_at[k]
+                            _added_at[it["videoId"]] = now
                             if not _mark_ready_if_archived(it):
                                 await _ensure_downloader()
                                 _dl_pending.push(it["videoId"])

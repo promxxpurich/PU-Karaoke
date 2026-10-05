@@ -437,7 +437,9 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### ดาวน์โหลดจาก YouTube ด้วย yt-dlp (download)
 คำค้น: ดาวน์โหลด, โหลดเพลง, download, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment
-- `server.py` `async def _download_worker(` `async def _ensure_downloader(` `def _download_audio(` `def _download_video(` — โหลดทีละเพลงตามลำดับคิว: เสียง + metadata ก่อน (สั่งแยกเสียงทันที) แล้วโหลดภาพมา mux กับ audio.m4a, ลองซ้ำ 2 รอบ
+- `server.py` `async def _download_worker(` `async def _ensure_downloader(` `def _download_audio(` `def _download_video(` — โหลดทีละเพลงตามลำดับคิว: เสียง + metadata ก่อน (สั่งแยกเสียงทันที + ดึงคำบรรยายอัตโนมัติ + เริ่มหาเนื้อทันที) แล้วโหลดภาพมา mux กับ audio.m4a, ลองซ้ำ 2 รอบ
+- `server.py` `def _since_add(` `_added_at: dict` — log ทุกขั้น (dl/lyr/sep/best) บอก "หลังกดเพิ่ม X วิ"
+! YouTube ตอบ "Sign in to confirm you're not a bot" ได้ (เจอ 2026-10-05) = โหลดเพลงใหม่ไม่ได้เลย — ทดสอบอย่ายิงโหลดซ้ำรัว ๆ ใช้ไฟล์ที่มีในคลังจำลองแทน
 - `server.py` `def _fetch_auto_caption(` `def _fetch_subs(` `_DL_COMMON = {` `def _dl_scrub(` `_DL_AUTO_MAX = 3` — auto-caption เป็น auto.th.vtt, ซับจริงตามภาษา, ตัวเลือก yt-dlp (โหลด 8 fragment พร้อมกัน), ล้างเศษไฟล์, ลองอัตโนมัติไม่เกิน 3 รอบแล้วรอคนกดซ่อม
 - `server.py` `def _dl_fields(` — เติม dlStatus/localUrl/ชื่อจริงลงการ์ดตอน broadcast (อ่านจากดิสก์)
 
@@ -477,6 +479,9 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `# ===== เลือกเนื้อดีที่สุด` `async def _enqueue_best(` `async def _best_worker(` `async def _run_best(` — งานเบื้องหลังหลังได้เนื้อรอบแรก: รวมทุกแหล่ง + OCR, ให้ FA ให้คะแนน, ตัดสิน, ซ่อมเวลา, ตรวจ v2 แล้วสั่ง words ต่อ
 - `server.py` `def _best_needed(` `def _best_decide(` `def _best_apply(` `def _best_record(` `async def _refine_dec(` `def _check_now(` — เช็คว่าต้องทำไหม, ตัดสิน keep|shift|retime|newtext|found|none, เขียน lyrics.json (สำรองลง 🕘 ก่อน), บันทึกผลลง lyrics.best.json
 - `server.py` `BEST_MANUAL = frozenset(` `BEST_VERSION = 2` — แหล่งที่ห้ามแตะ (manual-edit/manual-lrc/manual-txt) และรุ่นของงาน
+- `server.py` `def _prefetch_best(` `async def _best_sources(` `BEST_PRE_TTL = ` — เพลงใหม่: ดึงแหล่งออนไลน์ + OCR ไว้ก่อนระหว่างรอแยกเสียง (ไม่ใช้ GPU) แล้ว _run_best ใช้ชุดนั้นเมื่อ hash เนื้อ + ภาษายังเหมือนตอนดึง (ผู้สมัครชุดเดียวกัน = ผลตัดสินเดิม) ไม่งั้นดึงใหม่ · เพลงที่ต้องรอถอดเสียงไม่ดึงล่วงหน้า (OCR ซ้อน demucs/ถอดเสียงแล้วงานพวกนั้นช้าลง — ให้ไปซ้อนกับการคำนวณเสียง FA ในงานเลือกเนื้อแทน)
+- `server.py` `async def _best_fa_warm(` `_FA_WARM_TEXT = ` — คำนวณแคชเสียงร้องของ FA (ไทย + อังกฤษ) ระหว่างรอผู้สมัคร แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
+! บรรทัด [best] ใน log แตกเวลาเป็นขั้น (รอคิว / แหล่ง / รอGPU / FA / ซ่อม / ตรวจ) + "เนื้อใหม่ขึ้นจอหลังกดเพิ่ม" — ดูตรงนี้ก่อนถ้าเนื้อเพลงใหม่ช้า
 ! งานอัตโนมัติห้ามเขียนทับเนื้อที่คนแก้หรือวางไฟล์เอง (BEST_MANUAL) เด็ดขาด แม้มีคนกดสั่ง (เช็คทั้งตอนเข้าคิวและตอนรัน) ถ้าเนื้อเปลี่ยนระหว่างทำ (hash ไม่ตรง) ต้องทิ้งผล และเพิ่ม BEST_VERSION แล้วจะทำซ้ำทั้งคลัง
 
 ## server.py — Studio (หน้าแอดมิน)
