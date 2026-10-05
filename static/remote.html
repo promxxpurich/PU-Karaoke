@@ -14,6 +14,7 @@
    --accent:#ff4d8d; --accent2:#7c5cff; --line:rgba(255,255,255,.09);
    --ok:#38d39f; --wait:#ffb648; --bad:#ff6b8f; --off:#5d5d74; --info:#9c86ff;
    --barh:130px;                     /* ความสูงแถบล่าง วัดจริงด้วย ResizeObserver */
+   --hdrh:53px;                      /* ความสูง header วัดจริงด้วย ResizeObserver (ช่องค้นหาเกาะใต้มัน) */
  }
  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
  html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
@@ -62,14 +63,24 @@
  input::placeholder{color:#5f5f78}
  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,77,141,.16)}
 
- .search{display:flex;gap:8px;margin-top:16px}
+ /* ช่องค้นหาเกาะใต้ header ตอนเลื่อนลงไปหาเพลง — margin+padding บน = 16px เท่าเดิม ตอนอยู่ที่เดิมหน้าตาไม่เปลี่ยน
+    เต็มขอบจอเหมือน header · top ลบ 1px ให้ซ้อนใต้เส้นขอบ header ไม่มีร่องให้การ์ดลอด
+    เส้นล่างใช้ box-shadow ไม่ใช่ border (border กินที่ 1px ทุกอย่างข้างล่างจะเลื่อน) */
+ .search{display:flex;gap:8px;margin:8px -14px 0;padding:8px 14px;
+   position:sticky;top:calc(var(--hdrh) - 1px);z-index:19;transition:background-color .2s,box-shadow .2s}
+ .search.stuck{background:rgba(6,6,11,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+   box-shadow:0 1px 0 var(--line)}
+ .search.stuck #go{box-shadow:0 3px 10px rgba(255,77,141,.22)}   /* เงาเต็มฟุ้งชมพูทับการ์ดข้างใต้ */
+ /* มือถือแนวนอน: header + ช่องค้นหา + แถบล่าง เหลือที่ดูเพลงแค่ ~1 การ์ด -> ไม่เกาะ
+    (ดูความกว้างคู่ด้วย จอแนวตั้งตอนคีย์บอร์ดขึ้นจะได้ไม่สลับไปมา) */
+ @media (max-height:500px) and (min-width:600px){ .search{position:static} }
  .sbox{position:relative;flex:1;min-width:0}
  .sbox .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.6;pointer-events:none}
  .sbox input{padding-left:40px;padding-right:40px}
  #qx{position:absolute;right:5px;top:50%;transform:translateY(-50%);background:none;border:none;
    color:var(--dim);padding:8px 10px;font-size:15px}
  #qx:active{transform:translateY(-50%) scale(.9)}
- .tip{font-size:12px;color:var(--dim);margin-top:9px;line-height:1.6;
+ .tip{font-size:12px;color:var(--dim);margin-top:1px;line-height:1.6;   /* + padding ล่างของ .search 8px = 9px เท่าเดิม */
    padding:10px 13px;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
  .empty{color:var(--dim);font-size:13px;padding:16px 4px;text-align:center;line-height:1.7}
 
@@ -1012,9 +1023,21 @@ function renderMix(st){
 
 }
 
+// ช่องค้นหาเกาะใต้ header ตอนเลื่อนลง (CSS sticky) — ติดแล้วค่อยใส่พื้นหลัง (.stuck) ตอนอยู่ที่เดิมใสเหมือนเดิม
+// ไม่ต้องกั้นด้วย rAF: เบราว์เซอร์ยิง scroll ไม่เกินเฟรมละครั้งอยู่แล้ว · แนวนอนจอเตี้ย CSS ปิด sticky ก็ไม่ใส่
+const SBAR = $('.search'), HDR = $('header');
+const markStuck = ()=>setCls(SBAR, 'stuck', getComputedStyle(SBAR).position === 'sticky'
+  && SBAR.getBoundingClientRect().top <= HDR.getBoundingClientRect().bottom + .5);
+addEventListener('scroll', markStuck, {passive:true});
+
 // แถบล่างสูงไม่คงที่ (safe-area / ฟอนต์) -> วัดจริงแล้วยิงเข้า --barh ให้ sheet กับ toast เกาะขอบบนพอดี
-const measureBars = ()=>document.documentElement.style.setProperty('--barh', ($('#dock').offsetHeight||0)+'px');
-new ResizeObserver(measureBars).observe($('#dock'));
+// header ก็เหมือนกัน -> --hdrh ให้ช่องค้นหาเกาะใต้ header พอดี
+const measureBars = ()=>{ const r = document.documentElement.style;
+  r.setProperty('--barh', ($('#dock').offsetHeight||0)+'px');
+  r.setProperty('--hdrh', (HDR.offsetHeight||0)+'px');
+  markStuck(); };
+const barsRO = new ResizeObserver(measureBars);
+barsRO.observe($('#dock')); barsRO.observe(HDR);
 measureBars();
 
 // ===== 10. search / net ==============================================
@@ -1039,24 +1062,33 @@ async function loadRecs(){
     if(!$('#q').value.trim()) renderRecs();
   }catch(e){}
 }
+// ช่องค้นหาเกาะอยู่บนจอ: พิมพ์/ค้นหาตอนเลื่อนลงไปลึก ๆ แล้วรายการสั้นลง หัวรายการจะไปซ่อนอยู่ใต้ช่องค้นหา
+// -> เลื่อนกลับให้หัวรายการโผล่ใต้ช่องค้นหาพอดี (อยู่บนสุดของหน้าอยู่แล้ว / แนวนอนที่ไม่เกาะ = ไม่ขยับ)
+// ต้องเรียกซ้ำหลังรายการยาวกลับด้วย: Chrome (Android) มี scroll anchoring พอหน้าสั้นชั่วคราว (skeleton)
+// แล้วยาวกลับ มันดึงจอกลับไปตำแหน่งลึกเดิมเอง (ทดสอบแล้ว) — Safari ไม่มีกลไกนี้ เรียกซ้ำก็ไม่ขยับ
+// ไม่เรียกตอนคลังเปลี่ยน (loadRecs) — แขกคนอื่นเพิ่มเพลงแล้วจอเราเด้งหนีจะงง
+function toResTop(){
+  const d = $('#reshd').getBoundingClientRect().top - SBAR.getBoundingClientRect().bottom - 6;
+  if(d < 0) window.scrollBy(0, d);
+}
 let searchTok = 0;
 async function search(){
   $('#q').blur();                                   // เก็บคีย์บอร์ดลง จะได้เห็นผล
   const my = ++searchTok;
   const raw = $('#q').value.trim();
-  if(!raw){ renderRecs(); return; }
+  if(!raw){ renderRecs(); toResTop(); return; }
   const id = ytId(raw);
   if(id){
-    emptyMsg($('#results'), 'กำลังตรวจสอบคลิป…');
+    emptyMsg($('#results'), 'กำลังตรวจสอบคลิป…'); toResTop();
     let ok = true, info = {};
     try{ info = await (await fetch('/api/embeddable?videoId='+id)).json(); ok = info.embeddable; }catch(e){}
     if(my !== searchTok) return;
-    $('#q').value=''; setCls($('#qx'),'hide',true); renderRecs();
+    $('#q').value=''; setCls($('#qx'),'hide',true); renderRecs(); toResTop();
     // ชื่อจริงจากเซิร์ฟเวอร์ (คลัง/oEmbed) — ได้ไม่ทันค่อยใช้ "YouTube: <id>" แล้ว songinfo/ตอน add จะแก้ให้
     openPreview({videoId:id, title: info.title || ('YouTube: '+id), channel: info.channel || ''}, ok ? '' : EMBED_WARN);
     return;
   }
-  $('#results').innerHTML = skeleton(4);
+  $('#results').innerHTML = skeleton(4); toResTop();
   try{
     const r = await (await fetch('/api/search?q='+encodeURIComponent(raw))).json();
     if(my !== searchTok) return;
@@ -1065,23 +1097,24 @@ async function search(){
         + `วิธีแก้: รัน <code>./update.sh</code> เพื่ออัปเดต yt-dlp<br>หรือ copy ลิงก์จากแอป YouTube มาวางได้เลย`);
       return;
     }
-    S.results = r.results; renderResults();
+    S.results = r.results; renderResults(); toResTop();
   }catch(e){ if(my === searchTok) emptyMsg($('#results'), 'ต่อเซิร์ฟเวอร์ไม่ได้: '+esc(String(e))); }
 }
 // พิมพ์ในช่องค้นหา = กรองเพลงในเครื่องแบบออฟไลน์ ไม่ยิงเน็ต
 $('#q').addEventListener('input', ()=>{
   setCls($('#qx'),'hide', !$('#q').value);
   const q = $('#q').value.trim().toLowerCase();
-  if(!q){ renderRecs(); return; }
+  if(!q){ renderRecs(); toResTop(); return; }
   const hit = S.recs.filter(v => (v.title||'').toLowerCase().includes(q)
                               || (v.channel||'').toLowerCase().includes(q));
   const keep = S.recs; S.recs = hit; renderRecs(); S.recs = keep;
   setText($('#ressub'), 'กด ค้นหา เพื่อหาใน YouTube');
+  toResTop();
 });
 $('#qx').onclick = ()=>{
   searchTok++;                                      // ผลค้นหาที่ยังไม่มา ไม่ต้องแสดงแล้ว
   $('#q').value = ''; setCls($('#qx'),'hide',true);
-  renderRecs();
+  renderRecs(); toResTop();
   $('#q').focus();
 };
 
