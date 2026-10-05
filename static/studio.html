@@ -266,7 +266,7 @@
  .tabs button.on{color:#fff}
  .tabs .cnt{font-size:11px;margin-left:4px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.14)}
  body:not([data-view=songs]) .main, body:not([data-view=songs]) #back{display:none!important}
- body:not([data-view=queue]) #vqueue, body:not([data-view=tv]) #vtv{display:none}
+ body:not([data-view=queue]) #vqueue, body:not([data-view=tv]) #vtv, body:not([data-view=genres]) #vgenres{display:none}
  .view{min-height:0;overflow:auto}
  .vwrap{max-width:980px;margin:0 auto;padding:18px 18px 60px}
  .vhd h2{margin:0 0 4px;font-size:19px}
@@ -336,6 +336,67 @@
  .tvpv.logo .tadd{top:calc(1.7cqw + 8cqw * var(--logoscale,1) + 1cqw)}
  .tvpv .tadd b{color:var(--accent);font-size:.95cqw;letter-spacing:.06em}
 
+ /* ---------- 🗂 แนวเพลง: บอร์ดลากวาง (ซ้าย = ช่องแนว / ขวา = เพลงทั้งหมด) ---------- */
+ .gnwrap{display:grid;grid-template-columns:minmax(0,1fr) 330px;height:100%;min-height:0}
+ .gnboard{overflow:auto;padding:16px 18px 60px;min-height:0}
+ .gngrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;align-items:start}
+ .gcol{background:var(--panel);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;
+   max-height:440px;min-height:150px;transition:border-color .12s,background .12s}
+ .gcol.over{border:1px dashed var(--accent);background:rgba(255,77,141,.08);box-shadow:0 0 0 2px rgba(255,77,141,.25)}
+ .gcol.pick{cursor:copy;border-color:rgba(255,77,141,.45)}
+ .gcol.moving{opacity:.4}
+ .gch{display:flex;align-items:center;gap:7px;padding:9px 8px 8px 12px;border-bottom:1px solid var(--line);
+   cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+ .gch .ic{font-size:17px}
+ .gch b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .gch .n{font-size:11px;color:var(--dim);padding:1px 8px;border-radius:999px;background:rgba(255,255,255,.06)}
+ .gch button{padding:2px 8px;background:none;border-color:transparent;color:var(--dim)}
+ .gch button:hover{background:var(--panel3);color:var(--fg)}
+ .gcol.lock .gch{cursor:default}
+ .gnote{font-size:11px;color:var(--dim);padding:6px 12px 0}
+ .gsongs{overflow-y:auto;padding:6px;display:flex;flex-direction:column;gap:4px;min-height:60px}
+ .gs{display:flex;align-items:center;gap:7px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;
+   background:var(--panel2);cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+ .gs img{width:42px;aspect-ratio:16/9;object-fit:cover;border-radius:4px;flex:none;background:var(--panel3)}
+ .gs .tt{flex:1;min-width:0;font-size:12.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .gs .tt small{display:block;color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis}
+ .gs.guess{border-style:dashed;background:rgba(255,255,255,.02)}
+ .gs .gtag{font-size:10px;color:#ffd08a;flex:none}
+ .gs .x{padding:0 6px;background:none;border:none;color:var(--dim);font-size:15px}
+ .gs .x:hover{color:var(--bad)}
+ .gs.sel{border-color:var(--accent);background:rgba(255,77,141,.12)}
+ .gs.dragging{opacity:.35}
+ .gs .chips{display:flex;gap:3px;flex-wrap:wrap;margin-top:2px}
+ .gempty{color:var(--dim);font-size:12px;text-align:center;padding:14px 6px;border:1px dashed var(--line);border-radius:8px}
+ .gadd{border:1.5px dashed rgba(255,255,255,.18);border-radius:14px;min-height:150px;display:flex;flex-direction:column;
+   align-items:center;justify-content:center;gap:8px;color:var(--dim);background:none;font-size:14px;width:100%}
+ .gadd:hover{color:var(--fg);border-color:var(--accent);background:rgba(255,77,141,.05)}
+ .gadd input{width:80%;text-align:center}
+ .gside{position:relative;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;
+   background:rgba(255,255,255,.015)}
+ .gstop{padding:12px 12px 8px}
+ .gstop input{width:100%}
+ .gfl{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+ .gfl button{padding:4px 10px;font-size:12px;border-radius:999px}
+ .gselbar{display:flex;align-items:center;gap:8px;margin:0 12px 8px;padding:7px 10px;border-radius:10px;font-size:12.5px;
+   background:rgba(255,77,141,.12);border:1px solid rgba(255,77,141,.35)}
+ .gselbar span{flex:1}
+ .gselbar button{padding:3px 9px;font-size:12px}
+ .glist{flex:1;overflow-y:auto;padding:0 12px 14px;display:flex;flex-direction:column;gap:4px;min-height:0}
+ .gdrop{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:20px;font-size:14px;
+   color:#ffb0c4;background:rgba(20,10,18,.86);border:2px dashed rgba(255,107,143,.5);border-radius:6px;pointer-events:none}
+ body.gdragcol .gdrop{display:grid}
+ .gside.over .gdrop{background:rgba(60,14,30,.92);border-color:var(--bad)}
+ .gghost{position:fixed;z-index:200;pointer-events:none;max-width:260px;padding:6px 11px;border-radius:9px;font-size:12.5px;
+   background:var(--panel3);border:1px solid var(--accent);box-shadow:0 10px 30px rgba(0,0,0,.5);
+   transform:rotate(-2deg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .gghost em{font-style:normal;margin-left:6px;padding:0 7px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px}
+ #gotogn{color:inherit;text-decoration:underline dotted rgba(255,255,255,.35);text-underline-offset:3px}
+ .gdlg label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px}
+ .gdlg input{width:100%}
+ .gdlg .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+ .gdlg .btns .sp{flex:1}
+
  /* ---------- จอแคบ: รายการ -> หน้าแก้ ---------- */
  @media (max-width:999px){
    .main{grid-template-columns:minmax(0,1fr)}
@@ -358,6 +419,9 @@
    input,select,textarea{font-size:16px}           /* iOS ซูมเข้าเองตอนแตะช่องที่ตัวเล็กกว่า 16px */
    .tvgrid{grid-template-columns:1fr}.tvside{position:static}
    .qhead{grid-template-columns:84px minmax(0,1fr)}.qhead img{width:84px}.qbtns{grid-column:1/-1;flex-direction:row}
+   .gnwrap{grid-template-columns:1fr;height:auto}.gnboard{overflow:visible;padding:12px}
+   .gside{order:-1;border-left:none;border-bottom:1px solid var(--line)}.glist{max-height:40vh}   /* เลือกเพลงข้างบน แตะช่องข้างล่าง */
+   .gngrid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
    body{overflow:auto}
    .app{height:auto;min-height:100vh}
  }
@@ -370,6 +434,7 @@
       <button data-view="songs" class="on">🎵 เพลงทั้งหมด</button>
       <button data-view="queue">▶ กำลังเล่น &amp; คิว<span class="cnt hide" id="qcnt"></span></button>
       <button data-view="tv">📺 หน้าจอหลัก</button>
+      <button data-view="genres">🗂 แนวเพลง</button>
     </nav>
     <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
     <button class="ghost" id="helpbtn" title="คีย์ลัด">⌨️</button>
@@ -481,6 +546,30 @@
     <div class="vhd"><h2>▶ เพลงที่กำลังเล่น &amp; คิว</h2>
       <p>ดูว่าเนื้อที่ขึ้นจอมาจากแหล่งไหน ถ้าไม่ตรงกด ✨ เลือกเนื้อดีที่สุด — ระบบเทียบทุกแหล่งกับเสียงร้องจริงแล้วเปลี่ยนให้เอง จอหลักเปลี่ยนตามทันที</p></div>
     <div id="qlist"><div class="empty">กำลังโหลด…</div></div>
+  </div></section>
+
+  <section class="view" id="vgenres"><div class="gnwrap">
+    <div class="gnboard" id="gnboard">
+      <div class="vhd"><h2>🗂 แนวเพลง</h2>
+        <p>ลากเพลงจากรายการขวามาวางในช่อง · ลากข้ามช่อง = ย้ายแนว (กด <kbd>Alt</kbd> ค้าง = อยู่ทั้งสองแนว) ·
+          ลากกลับไปทางขวาหรือกด × = เอาออก · กรอบเส้นประ = ระบบเดาไว้ ลากหรือกด ⋯ → ✓ ยืนยัน · <kbd>⌘Z</kbd> ย้อน ·
+          แนวที่ตั้งไว้ขึ้นให้เลือกใน 🃏 PU Match บนรีโมท</p></div>
+      <div class="gngrid" id="gngrid"><div class="empty">กำลังโหลด…</div></div>
+    </div>
+    <aside class="gside" id="gside">
+      <div class="gstop">
+        <input type="search" id="gq" placeholder="ค้นเพลง / ศิลปิน" autocomplete="off">
+        <div class="gfl" id="gfl">
+          <button data-f="all" class="on">ทั้งหมด</button>
+          <button data-f="none">ยังไม่มีแนว</button>
+          <button data-f="guess">ระบบเดา</button>
+          <button data-f="set">จัดแล้ว</button>
+        </div>
+      </div>
+      <div class="gselbar hide" id="gselbar"><span id="gseltx"></span><button id="gselx">ล้าง</button></div>
+      <div class="glist" id="glist"></div>
+      <div class="gdrop">วางตรงนี้ = เอาออกจากแนว</div>
+    </aside>
   </div></section>
 
   <section class="view" id="vtv"><div class="tvgrid">
@@ -865,7 +954,9 @@ function renderInfo(){
     + ` · 🌐 <select id="langsel" title="ภาษาของเพลง (ที่มา: ${esc(i.langBy || '-')}) — เปลี่ยนแล้วระบบจะหาเนื้อใหม่ด้วยภาษานั้น">`
     + Object.entries(LANG_LB).map(([k, v]) => `<option value="${k}" ${k === (i.lang || 'th') ? 'selected' : ''}>${v}</option>`).join('')
     + (LANG_LB[i.lang] ? '' : `<option value="${esc(i.lang)}" selected>${esc(i.lang)}</option>`) + `</select>`
-    + (i.langBy === 'manual' ? ' <small>(ตั้งเอง)</small>' : i.langBy === 'unknown' ? ` <button class="mini" data-act="detect-lang" title="ให้ whisper ฟังแล้วบอกภาษา">🎧 ตรวจภาษา</button>` : '');
+    + (i.langBy === 'manual' ? ' <small>(ตั้งเอง)</small>' : i.langBy === 'unknown' ? ` <button class="mini" data-act="detect-lang" title="ให้ whisper ฟังแล้วบอกภาษา">🎧 ตรวจภาษา</button>` : '')
+    // 🗂 แนวเพลง (? = ระบบเดา) — แก้ได้ในแท็บแนวเพลง
+    + ` · <a href="#" id="gotogn" title="จัดแนวในแท็บ 🗂 แนวเพลง">🗂 ${esc((i.genreNames || []).join(', ') || 'ยังไม่มีแนว')}</a>`;
   $('#stchips').innerHTML = songChips(i, true);
   $('#pv').style.backgroundImage = `url('${i.thumb}')`;
   const err = i.fixWhy || (i.dlStatus === 'failed' && i.dlError) || (i.sepStatus === 'failed' && i.sepError)
@@ -2110,8 +2201,8 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ===== 16b. แท็บ: เพลงทั้งหมด / กำลังเล่น & คิว / หน้าจอหลัก =================
-const VIEWS = ['songs', 'queue', 'tv'];
+// ===== 16b. แท็บ: เพลงทั้งหมด / กำลังเล่น & คิว / หน้าจอหลัก / แนวเพลง ========
+const VIEWS = ['songs', 'queue', 'tv', 'genres'];
 function setView(v){
   if(!VIEWS.includes(v)) v = 'songs';
   document.body.dataset.view = v;
@@ -2120,8 +2211,10 @@ function setView(v){
   if(v !== 'songs' && typeof media !== 'undefined' && !media.paused) media.pause();   // ไม่ให้พรีวิวเล่นค้างหลังแท็บ
   if(v === 'queue') renderQueue();
   if(v === 'tv') loadTv();
+  if(v === 'genres') loadGenres();
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
+$('#meta').addEventListener('click', e => { if(e.target.id === 'gotogn'){ e.preventDefault(); setView('genres'); } });
 
 // ===== 16c. ▶ กำลังเล่น & คิว: เนื้อมาจากไหน + ✨ เลือกเนื้อดีที่สุด =============
 // ข้อมูลสดจาก ws state (current/queue มีฟิลด์เนื้อครบ) + ผลเทียบล่าสุดจากรายการเพลงของ Studio
@@ -2370,6 +2463,266 @@ function renderTvPreview(){
   pv.style.backgroundImage = c && (c.localThumb || c.thumb) ? `url('${c.localThumb || c.thumb}')` : '';
   pv.querySelector('.bg').classList.toggle('hide', !!(c && (c.localThumb || c.thumb)));
 }
+
+// ===== 16e. 🗂 แนวเพลง: บอร์ดลากวาง ======================================
+// ข้อมูลจาก /api/studio/genres (genres.json + ผลเดาของเพลงที่ยังไม่ได้จัด) — แนวพวกนี้คือที่ 🃏 PU Match บนรีโมทใช้
+// ลาก: ขวา → ช่อง = เพิ่ม · ช่อง → ช่อง = ย้าย (Alt = ก๊อป) · ช่อง → ขวา = เอาออก · หัวช่อง → ช่อง = เรียงลำดับ
+// แตะเพลงในรายการขวา = เลือก (หลายเพลงได้) แล้วแตะช่องแนว = ใส่ทั้งหมด — ใช้แทนการลากบนจอสัมผัส
+// แก้บนจอก่อนแล้วค่อยส่ง (ไม่ต้องรอเน็ต) ส่งไม่ผ่าน = โหลดบอร์ดใหม่จากเซิร์ฟเวอร์
+const GN = {cats:[], songs:[], by:new Map(), f:'all', q:'', sel:new Set(), undo:[], loaded:false, newDays:365, adding:false};
+async function loadGenres(){
+  try{
+    const j = await api('/api/studio/genres');
+    GN.cats = j.cats || []; GN.songs = j.songs || []; GN.newDays = j.newDays || 365;
+    GN.by = new Map(GN.songs.map(x => [x.videoId, x]));
+    for(const v of [...GN.sel]) if(!GN.by.has(v)) GN.sel.delete(v);
+    GN.loaded = true;
+  }catch(e){ if(!GN.loaded) $('#gngrid').innerHTML = `<div class="empty">โหลดไม่ได้: ${esc(e.message)}</div>`; return; }
+  renderGenres();
+}
+const gnCat = id => GN.cats.find(c => c.id === id);
+function gnRow(x, from, opts = {}){
+  const guess = from && x.by === 'guess';
+  const chips = opts.chips ? `<div class="chips">${x.genres.map(id => { const c = gnCat(id);
+      return c ? chip(x.by === 'guess' ? '' : 'info', `${c.icon} ${c.name}${x.by === 'guess' ? ' ?' : ''}`) : ''; }).join('')
+      || chip('warn', 'ยังไม่มีแนว')}</div>` : '';
+  return `<div class="gs${guess ? ' guess' : ''}${!from && GN.sel.has(x.videoId) ? ' sel' : ''}" data-v="${esc(x.videoId)}" data-from="${esc(from)}"`
+    + ` title="${esc(x.title)}"><img src="${esc(x.thumb)}" alt="" loading="lazy" draggable="false">`
+    + `<div class="tt">${esc(x.title)}${opts.sub ? `<small>${esc(opts.sub)}</small>` : ''}${chips}</div>`
+    + (guess ? '<span class="gtag">เดา</span>' : '')
+    + (from && !opts.lock ? `<button class="x" data-x="${esc(from)}" title="เอาออกจากแนวนี้">×</button>` : '') + '</div>';
+}
+function renderGenres(){
+  if(!GN.loaded) return;
+  const grid = $('#gngrid');
+  // วาดใหม่ทั้งบอร์ด -> จำตำแหน่งเลื่อนของแต่ละช่องไว้ ไม่ให้เด้งกลับบนสุดทุกครั้งที่ลาก
+  const keep = {}; grid.querySelectorAll('.gcol').forEach(c => keep[c.dataset.g] = c.querySelector('.gsongs').scrollTop);
+  const pick = GN.sel.size ? ' pick' : '';
+  let h = GN.cats.map(c => {
+    const list = GN.songs.filter(x => x.genres.includes(c.id));
+    const nGuess = list.filter(x => x.by === 'guess').length;
+    return `<div class="gcol${pick}" data-g="${esc(c.id)}"><div class="gch" data-g="${esc(c.id)}" title="ลากหัวช่องเพื่อเรียงลำดับ">`
+      + `<span class="ic">${esc(c.icon)}</span><b>${esc(c.name)}</b><span class="n">${list.length}${nGuess ? ` · เดา ${nGuess}` : ''}</span>`
+      + `<button data-gmenu="${esc(c.id)}" title="ตั้งค่าแนวนี้">⋯</button></div>`
+      + `<div class="gsongs">${list.map(x => gnRow(x, c.id)).join('') || '<div class="gempty">ลากเพลงมาวางตรงนี้</div>'}</div></div>`;
+  }).join('');
+  const nw = GN.songs.filter(x => x.isNew);
+  h += `<div class="gcol lock" data-g="new"><div class="gch"><span class="ic">✨</span><b>เพลงใหม่ 🔒</b><span class="n">${nw.length}</span></div>`
+    + `<div class="gnote">อัตโนมัติ · อัปโหลดภายใน ${Math.round(GN.newDays / 30)} เดือน</div>`
+    + `<div class="gsongs">${nw.map(x => gnRow(x, '', {lock:true, sub: x.year ? String(x.year) : ''})).join('') || '<div class="gempty">ยังไม่มี</div>'}</div></div>`;
+  h += GN.adding ? `<div class="gadd" id="gaddbox"><input id="gaddin" placeholder="ชื่อแนว เช่น เพลงเศร้า" maxlength="24">`
+                   + `<div><button class="primary" id="gaddok">เพิ่ม</button> <button id="gaddno">ยกเลิก</button></div></div>`
+                 : `<button class="gadd" id="gaddbtn"><span style="font-size:26px">＋</span>เพิ่มแนวเพลง</button>`;
+  grid.innerHTML = h;
+  grid.querySelectorAll('.gcol').forEach(c => { if(keep[c.dataset.g]) c.querySelector('.gsongs').scrollTop = keep[c.dataset.g]; });
+  if(GN.adding){ const i = $('#gaddin'); i.focus();
+    i.onkeydown = e => { if(e.key === 'Enter') gnAddCat(); if(e.key === 'Escape'){ GN.adding = false; renderGenres(); } };
+    $('#gaddok').onclick = gnAddCat; $('#gaddno').onclick = () => { GN.adding = false; renderGenres(); }; }
+  else $('#gaddbtn').onclick = () => { GN.adding = true; renderGenres(); };
+  renderGenreList();
+}
+function renderGenreList(){
+  const q = GN.q.trim().toLowerCase();
+  const list = GN.songs.filter(x =>
+    (GN.f === 'all' || (GN.f === 'none' && !x.genres.length) || (GN.f === 'guess' && x.by === 'guess' && x.genres.length)
+     || (GN.f === 'set' && x.by === 'studio' && x.genres.length))
+    && (!q || x.title.toLowerCase().includes(q) || (x.channel || '').toLowerCase().includes(q)));
+  $('#glist').innerHTML = list.map(x => gnRow(x, '', {chips:true})).join('') || '<div class="gempty">ไม่มีเพลงที่ตรง</div>';
+  $('#gfl').querySelectorAll('button').forEach(b => {
+    const f = b.dataset.f, n = f === 'all' ? GN.songs.length
+      : GN.songs.filter(x => f === 'none' ? !x.genres.length : f === 'guess' ? x.by === 'guess' && x.genres.length : x.by === 'studio' && x.genres.length).length;
+    b.textContent = `${{all:'ทั้งหมด', none:'ยังไม่มีแนว', guess:'ระบบเดา', set:'จัดแล้ว'}[f]} ${n}`;
+    b.classList.toggle('on', f === GN.f);
+  });
+  const n = GN.sel.size;
+  $('#gselbar').classList.toggle('hide', !n);
+  $('#gseltx').textContent = `เลือกไว้ ${n} เพลง · ลาก หรือแตะช่องแนวเพื่อใส่`;
+}
+$('#gq').addEventListener('input', e => { GN.q = e.target.value; renderGenreList(); });
+$('#gfl').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if(b){ GN.f = b.dataset.f; renderGenreList(); } });
+$('#gselx').onclick = () => { GN.sel.clear(); renderGenres(); };
+
+// ---- เปลี่ยนแนวของเพลง (บนจอก่อน แล้วส่ง) ----
+async function gnAssign(vids, add, remove){
+  vids = vids.filter(v => { const x = GN.by.get(v); return x && (add && !x.genres.includes(add) || remove && x.genres.includes(remove)); });
+  if(!vids.length) return;
+  const before = {};
+  for(const v of vids){ const x = GN.by.get(v); before[v] = {genres:[...x.genres], by:x.by};
+    x.genres = x.genres.filter(g => g !== remove); if(add && !x.genres.includes(add)) x.genres.push(add); x.by = 'studio'; }
+  GN.undo.push(before); if(GN.undo.length > 50) GN.undo.shift();
+  renderGenres();
+  try{ await api('/api/studio/genres/assign', {method:'POST', body:JSON.stringify({vids, add, remove})}); }
+  catch(e){ toast('⚠️ บันทึกแนวไม่ได้: ' + e.message); GN.undo.pop(); loadGenres(); }
+}
+async function gnUndo(){
+  const before = GN.undo.pop();
+  if(!before){ toast('ไม่มีอะไรให้ย้อน'); return; }
+  for(const [v, b] of Object.entries(before)){ const x = GN.by.get(v); if(x){ x.genres = [...b.genres]; x.by = b.by; } }
+  renderGenres(); toast('↩ ย้อนแล้ว');
+  try{
+    await Promise.all(Object.entries(before).map(([v, b]) => api('/api/studio/genres/set',
+      {method:'POST', body:JSON.stringify({vid:v, genres: b.by === 'guess' ? null : b.genres})})));
+  }catch(e){ toast('⚠️ ย้อนไม่สำเร็จ: ' + e.message); }
+  loadGenres();                                    // เพลงที่กลับไปให้ระบบเดา -> ขอผลเดาล่าสุดจากเซิร์ฟเวอร์
+}
+async function gnCatOp(body){
+  try{ const j = await api('/api/studio/genres/cat', {method:'POST', body:JSON.stringify(body)}); GN.cats = j.cats || GN.cats; return j; }
+  catch(e){ toast('⚠️ ' + e.message); return null; }
+}
+async function gnAddCat(){
+  const name = $('#gaddin').value.trim();
+  if(!name){ $('#gaddin').focus(); return; }
+  const j = await gnCatOp({op:'add', name});
+  if(!j) return;
+  GN.adding = false; renderGenres(); toast(`＋ เพิ่มแนว "${name}" แล้ว — ลากเพลงมาใส่ได้เลย`);
+  const col = $('#gngrid').querySelector(`.gcol[data-g="${CSS.escape(j.id)}"]`); if(col) col.scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+// ⋯ ของแต่ละช่อง: ชื่อ / ไอคอน / คำค้น YouTube / ยืนยันที่ระบบเดา / ลบแนว
+function gnMenu(id){
+  const c = gnCat(id); if(!c) return;
+  const nGuess = GN.songs.filter(x => x.by === 'guess' && x.genres.includes(id)).length;
+  openDlg(`<h2>${esc(c.icon)} ${esc(c.name)}</h2><div class="gdlg">
+    <label>ชื่อแนว</label><input id="gmname" maxlength="24" value="${esc(c.name)}">
+    <label>ไอคอน (อีโมจิ 1 ตัว)</label><input id="gmicon" maxlength="4" value="${esc(c.icon)}">
+    <label>คำค้น YouTube — PU Match ใช้ดึงเพลงมาเติมเมื่อแนวนี้ในเครื่องมีไม่พอ</label><input id="gmq" maxlength="80" value="${esc(c.q)}">
+    <div class="btns">
+      <button class="primary" id="gmsave">บันทึก</button>
+      ${nGuess ? `<button id="gmok">✓ ยืนยันที่ระบบเดา ${nGuess} เพลง</button>` : ''}
+      <span class="sp"></span>
+      <button class="danger" id="gmdel">🗑 ลบแนวนี้</button>
+      <button id="gmcancel">ปิด</button>
+    </div></div>`);
+  $('#gmcancel').onclick = closeDlg;
+  $('#gmsave').onclick = async () => {
+    const j = await gnCatOp({op:'edit', id, name:$('#gmname').value.trim() || c.name, icon:$('#gmicon').value.trim() || c.icon, q:$('#gmq').value.trim()});
+    if(j){ closeDlg(); renderGenres(); toast('บันทึกแล้ว'); }
+  };
+  if(nGuess) $('#gmok').onclick = async () => {
+    try{ await api('/api/studio/genres/confirm', {method:'POST', body:JSON.stringify({id})}); closeDlg(); toast(`✓ ยืนยัน ${nGuess} เพลงแล้ว`); loadGenres(); }
+    catch(e){ toast('⚠️ ' + e.message); }
+  };
+  $('#gmdel').onclick = async e => {
+    const b = e.currentTarget;
+    if(!b.dataset.sure){ b.dataset.sure = '1'; b.textContent = `กดอีกครั้งเพื่อลบ "${c.name}"`; return; }
+    const j = await gnCatOp({op:'delete', id});
+    if(j){ closeDlg(); toast(`🗑 ลบแนว "${c.name}" แล้ว (เพลงไม่ถูกลบ)`); GN.undo = []; loadGenres(); }
+  };
+}
+
+// ---- ลากวาง (pointer events: เมาส์ลากได้ทันที / นิ้วต้องแตะค้างครู่หนึ่ง ไม่งั้นเลื่อนรายการไม่ได้) ----
+let gnDrag = null;
+const GN_HOLD = 280;
+function gnTarget(x, y){
+  const el = document.elementFromPoint(x, y);
+  if(!el) return null;
+  const col = el.closest('.gcol:not(.lock)');
+  if(col) return {col, g:col.dataset.g};
+  if(el.closest('#gside')) return {side:true};
+  return null;
+}
+function gnStart(d){
+  d.on = true;
+  const g = document.createElement('div'); g.className = 'gghost';
+  if(d.kind === 'col'){ const c = gnCat(d.g); g.textContent = `${c.icon} ${c.name}`; d.el.closest('.gcol').classList.add('moving'); }
+  else{
+    const x = GN.by.get(d.v);
+    d.vids = !d.from && GN.sel.has(d.v) ? [...GN.sel] : [d.v];
+    g.innerHTML = esc(x ? x.title : d.v) + (d.vids.length > 1 ? `<em>${d.vids.length} เพลง</em>` : '');
+    d.el.classList.add('dragging');
+    if(d.from) document.body.classList.add('gdragcol');
+  }
+  document.body.appendChild(g); d.ghost = g;
+  gnMove(d.x, d.y);
+  gnScrollLoop();
+}
+function gnMove(x, y){
+  const d = gnDrag; if(!d || !d.on) return;
+  d.cx = x; d.cy = y;
+  d.ghost.style.left = (x + 12) + 'px'; d.ghost.style.top = (y + 10) + 'px';
+  const t = gnTarget(x, y);
+  document.querySelectorAll('.gcol.over, .gside.over').forEach(n => n.classList.remove('over'));
+  if(t && t.col && t.g !== d.from && !(d.kind === 'col' && t.g === d.g)) t.col.classList.add('over');
+  if(t && t.side && d.from && d.kind !== 'col') $('#gside').classList.add('over');
+}
+// ลากไปใกล้ขอบบน/ล่างของบอร์ด (หรือของจอ ตอนจอแคบ) = เลื่อนตาม
+function gnScrollLoop(){
+  const d = gnDrag; if(!d || !d.on) return;
+  const sc = $('#gnboard'), r = sc.getBoundingClientRect(), y = d.cy, E = 48;
+  const box = sc.scrollHeight > sc.clientHeight + 2 ? sc : document.scrollingElement;
+  const top = box === sc ? r.top : 0, bot = box === sc ? r.bottom : innerHeight;
+  if(y < top + E) box.scrollTop -= Math.ceil((top + E - y) / 4);
+  else if(y > bot - E && y < bot + 40) box.scrollTop += Math.ceil((y - bot + E) / 4);
+  requestAnimationFrame(gnScrollLoop);
+}
+function gnEnd(e, cancel){
+  const d = gnDrag; if(!d) return;
+  gnDrag = null; clearTimeout(d.hold);
+  if(!d.on){
+    if(cancel || d.moved) return;
+    // แตะเฉย ๆ: เพลงในรายการขวา = เลือก/เลิกเลือก
+    if(d.kind === 'song' && !d.from && !d.lock){ GN.sel.has(d.v) ? GN.sel.delete(d.v) : GN.sel.add(d.v); renderGenres(); }
+    return;
+  }
+  d.ghost.remove();
+  document.body.classList.remove('gdragcol');
+  document.querySelectorAll('.gcol.over, .gside.over, .gcol.moving, .gs.dragging').forEach(n => n.classList.remove('over', 'moving', 'dragging'));
+  if(cancel) return;
+  const t = gnTarget(e.clientX, e.clientY);
+  if(!t) return;
+  if(d.kind === 'col'){
+    if(!t.col || t.g === d.g) return;
+    const ids = GN.cats.map(c => c.id).filter(id => id !== d.g);
+    const r = t.col.getBoundingClientRect();
+    ids.splice(ids.indexOf(t.g) + (e.clientX > r.left + r.width / 2 ? 1 : 0), 0, d.g);
+    GN.cats.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    renderGenres();
+    gnCatOp({op:'order', order:ids});
+    return;
+  }
+  if(t.col && t.g !== d.from){
+    const copy = e.altKey || !d.from;
+    gnAssign(d.vids, t.g, copy ? '' : d.from);
+    if(!d.from && d.vids.length > 1){ GN.sel.clear(); renderGenres(); }
+  }else if(t.side && d.from) gnAssign(d.vids, '', d.from);
+}
+document.addEventListener('pointerdown', e => {
+  if(document.body.dataset.view !== 'genres' || e.button > 0) return;
+  if(e.target.closest('button, input')) return;
+  const s = e.target.closest('#vgenres .gs[data-v]'), h = !s && e.target.closest('#vgenres .gch[data-g]');
+  if(!s && !h) return;
+  const lock = !!(s && s.closest('.gcol.lock'));
+  gnDrag = {kind: s ? 'song' : 'col', el: s || h, v: s && s.dataset.v, from: s ? s.dataset.from : '', g: h && h.dataset.g,
+            lock, x:e.clientX, y:e.clientY, cx:e.clientX, cy:e.clientY, on:false, moved:false, touch: e.pointerType === 'touch'};
+  if(gnDrag.touch) gnDrag.hold = setTimeout(() => { if(gnDrag && !gnDrag.moved){ gnStart(gnDrag); navigator.vibrate && navigator.vibrate(15); } }, GN_HOLD);
+  else e.preventDefault();                         // เมาส์: ไม่ให้ลากแล้วกลายเป็นคลุมข้อความ
+});
+document.addEventListener('pointermove', e => {
+  const d = gnDrag; if(!d) return;
+  if(!d.on){
+    if(Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 6) return;
+    if(d.touch){ d.moved = true; clearTimeout(d.hold); return; }   // นิ้วขยับก่อนครบเวลา = ตั้งใจเลื่อนรายการ
+    gnStart(d);
+  }
+  gnMove(e.clientX, e.clientY);
+});
+document.addEventListener('pointerup', e => gnEnd(e, false));
+document.addEventListener('pointercancel', e => gnEnd(e, true));
+// ลากด้วยนิ้วอยู่ = ห้ามจอเลื่อน (ต้องเป็น non-passive ถึงกันได้)
+document.addEventListener('touchmove', e => { if(gnDrag && gnDrag.on) e.preventDefault(); }, {passive:false});
+document.addEventListener('contextmenu', e => { if(gnDrag) e.preventDefault(); });
+$('#gngrid').addEventListener('click', e => {
+  const m = e.target.closest('[data-gmenu]'); if(m){ gnMenu(m.dataset.gmenu); return; }
+  const x = e.target.closest('.gs .x');
+  if(x){ gnAssign([x.closest('.gs').dataset.v], '', x.dataset.x); return; }
+  // เลือกเพลงไว้แล้วแตะช่องแนว = ใส่ทั้งหมด
+  const col = e.target.closest('.gcol:not(.lock)');
+  if(col && GN.sel.size && !e.target.closest('.gs')){ gnAssign([...GN.sel], col.dataset.g, ''); GN.sel.clear(); renderGenres(); }
+});
+document.addEventListener('keydown', ev => {        // ⌘Z / Esc ของบอร์ดแนว (คีย์ลัดหลักทำงานเฉพาะแท็บเพลง)
+  if(document.body.dataset.view !== 'genres' || isTyping() || !$('#dlg').classList.contains('hide')) return;
+  if((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && ev.key.toLowerCase() === 'z'){ ev.preventDefault(); gnUndo(); }
+  if(ev.key === 'Escape' && GN.sel.size){ GN.sel.clear(); renderGenres(); }
+});
 
 // ===== 17. websocket: สัญญาณว่ามีอะไรเปลี่ยน -> ดึงรายการใหม่ ===========
 let ws = null, retry = 1500, refT = 0, lastRef = 0;

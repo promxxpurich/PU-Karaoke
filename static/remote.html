@@ -264,6 +264,103 @@
  .ovwarn{font-size:12.5px;color:#ffd08a;margin-top:10px;padding:9px 12px;border-radius:12px;
    background:rgba(255,182,72,.1);line-height:1.55;white-space:pre-line}
 
+ /* ---------- 🃏 PU Match: ปัดหาเพลง ---------- */
+ #swipebtn{width:100%;margin-top:10px;display:flex;align-items:center;gap:12px;padding:10px 12px;text-align:left;
+   border-radius:18px;border-color:rgba(124,92,255,.4);
+   background:linear-gradient(135deg,rgba(124,92,255,.2),rgba(255,77,141,.12)),var(--panel)}
+ .swic{width:40px;height:40px;flex:none;border-radius:12px;display:grid;place-items:center;font-size:20px;
+   background:linear-gradient(135deg,var(--accent2),var(--accent));box-shadow:0 6px 16px rgba(124,92,255,.35)}
+ .swtx{flex:1;min-width:0}
+ .swtx b{display:block;font-size:15px;letter-spacing:.02em}
+ .swtx small{display:block;font-size:12px;color:var(--dim)}
+ .swlk{flex:none;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;color:#ffc2d8;
+   background:rgba(255,77,141,.16);border:1px solid rgba(255,77,141,.3)}
+ #swipe{position:fixed;inset:0;z-index:35;display:flex;flex-direction:column;overflow:hidden;
+   padding:calc(8px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+   background:radial-gradient(600px 300px at 15% -10%,rgba(124,92,255,.3),transparent 70%),
+              radial-gradient(500px 300px at 95% 0,rgba(255,77,141,.22),transparent 70%),var(--bg);
+   opacity:0;transition:opacity .2s;user-select:none;-webkit-user-select:none}
+ #swipe.show{opacity:1}
+ body.swiping{overflow:hidden}
+ body.swiping #toast{top:calc(64px + env(safe-area-inset-top));bottom:auto}
+ .swhd{display:flex;align-items:center;gap:10px;min-height:44px}
+ .swhd b{font-size:17px;letter-spacing:.03em}
+ .swhd .swx{background:none;border:none;color:var(--dim);font-size:20px;padding:6px 8px}
+ .swhd .swlk{margin-left:auto;padding:7px 13px;font-size:13px}
+ .swdeck{position:relative;z-index:0;flex:1;min-height:0;margin:8px 0 16px}   /* z-index = การ์ดไม่ลอยทับแผงอื่น */
+ .swcard{position:absolute;inset:0;display:flex;flex-direction:column;border-radius:26px;overflow:hidden;background:var(--panel);
+   border:1px solid rgba(255,255,255,.12);box-shadow:0 20px 50px rgba(0,0,0,.5);
+   touch-action:none;will-change:transform;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+ .swcard.drag{transition:none}
+ .swcard.top{cursor:grab}
+ .swbg{position:absolute;inset:-30px;width:calc(100% + 60px);height:calc(100% + 60px);object-fit:cover;
+   filter:blur(24px) brightness(.6) saturate(1.2)}
+ /* ปกคลิป 16:9 วางกลางที่ว่างเหนือชื่อเพลง (จอสูงแค่ไหนก็ไม่มีช่องโหว่ใต้รูป) */
+ .swart{position:relative;flex:1;min-height:0;display:grid;place-items:center;padding:14px 12px 0}
+ .swart .pic{position:relative;width:100%;max-height:100%;aspect-ratio:16/9;border-radius:18px;overflow:hidden;
+   background:var(--panel2);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+ .swart img{width:100%;height:100%;object-fit:cover;display:block}
+ .swart .ph{font-size:48px}
+ .swcard.noart img{display:none}
+ .swcard.noart .ph{display:grid}
+ .swinfo{position:relative;flex:none;padding:14px 18px 18px}
+ .swt{font-size:20px;font-weight:700;line-height:1.35;word-break:break-word;
+   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+ .swm{font-size:13px;color:#c9c9dc;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .swinfo .chips{margin-top:9px}
+ .swinfo .chip{font-size:12px;padding:2px 10px}
+ .stamp{position:absolute;top:30px;z-index:2;padding:4px 14px;border:3px solid;border-radius:12px;
+   font-size:24px;font-weight:700;letter-spacing:.04em;opacity:0;pointer-events:none;background:rgba(6,6,11,.35)}
+ .stamp.like{left:24px;color:var(--ok);transform:rotate(-14deg)}
+ .stamp.nope{right:24px;color:var(--bad);transform:rotate(14deg)}
+ .stamp.queue{left:50%;top:auto;bottom:42%;color:#8fd0ff;transform:translateX(-50%) rotate(-6deg)}
+ .swempty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+   gap:12px;text-align:center;padding:24px;border:1px dashed rgba(255,255,255,.14);border-radius:26px;
+   color:var(--dim);font-size:14px;line-height:1.6}
+ .swempty b{color:var(--fg);font-size:17px}
+ .swempty.skel{border:none}
+ .swbtns{display:flex;justify-content:center;align-items:center;gap:18px}
+ .swb{width:64px;height:64px;padding:0;border-radius:50%;display:grid;place-items:center;font-size:28px;line-height:1;
+   background:var(--panel);border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 22px rgba(0,0,0,.4);
+   font-variant-emoji:text}
+ .swb.sm{width:46px;height:46px;font-size:19px;color:var(--dim)}
+ .swb.no{color:var(--bad)}
+ .swb.up{width:54px;height:54px;font-size:24px;color:#8fd0ff}
+ .swb.yes{color:var(--ok)}
+ .swgen{width:100%;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:6px;
+   font-size:14px;padding:12px 14px}
+ .swgen span{color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+ /* รายการถูกใจ: เลื่อนเข้ามาทับจากขวา */
+ #swliked{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:var(--bg);
+   padding:calc(8px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+   transform:translateX(100%);visibility:hidden;
+   transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s linear .28s}
+ #swliked.open{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
+ .swscroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:8px -4px 0;padding:0 4px}
+ .swfoot{display:flex;gap:8px;margin-top:10px}
+ .swfoot button{flex:1;padding:12px 8px;font-size:14px}
+ .swfoot .primary{flex:1.6}
+ /* แผ่นเลือกแนว: เลื่อนขึ้นจากล่าง */
+ #swscrim{position:absolute;inset:0;z-index:6;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .25s}
+ #swscrim.show{opacity:1;pointer-events:auto}
+ #swgenre{position:absolute;left:0;right:0;bottom:0;z-index:7;display:flex;flex-direction:column;max-height:86%;
+   background:rgba(14,14,24,.99);border:1px solid var(--line);border-bottom:none;border-radius:22px 22px 0 0;
+   box-shadow:0 -20px 50px rgba(0,0,0,.5);padding:0 14px calc(14px + env(safe-area-inset-bottom));
+   transform:translateY(100%);visibility:hidden;
+   transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s linear .28s}
+ #swgenre.open{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
+ #swgenre .shd{position:relative;padding:14px 2px 10px}
+ .swglist{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
+ .swg{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;border-radius:16px}
+ .swg i{font-style:normal;font-size:20px;width:26px;text-align:center}
+ .swg span{flex:1;min-width:0}
+ .swg small{display:block;font-size:11.5px;color:var(--dim)}
+ .swg:after{content:"";width:22px;height:22px;flex:none;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
+ .swg.on{border-color:rgba(255,77,141,.55);background:linear-gradient(135deg,rgba(255,77,141,.18),rgba(124,92,255,.16)),var(--panel)}
+ .swg.on:after{content:"✓";display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;border:none;
+   background:linear-gradient(135deg,var(--accent),var(--accent2))}
+ #swgenre > .primary{padding:14px}
+
  #toast{position:fixed;left:50%;transform:translate(-50%,10px);
    bottom:calc(var(--barh) + 14px);
    max-width:86%;padding:11px 18px;border-radius:999px;font-size:14px;z-index:40;
@@ -293,6 +390,12 @@
 
 <main>
   <div id="nowbox"></div>
+
+  <button id="swipebtn" data-act="swopen">
+    <span class="swic">🃏</span>
+    <span class="swtx"><b>PU Match</b><small>ปัดหาเพลงที่ใช่</small></span>
+    <span class="swlk">❤️ <span id="swlkn">0</span></span>
+  </button>
 
   <div class="search">
     <div class="sbox">
@@ -436,6 +539,42 @@
   </div>
 </div>
 
+<div id="swipe" class="hide" role="dialog" aria-modal="true" aria-label="PU Match">
+  <div class="swhd">
+    <button class="swx" data-act="swclose" aria-label="ปิด">✕</button>
+    <b>PU Match</b>
+    <button class="swlk" data-act="swliked" aria-label="เพลงที่ถูกใจ">❤️ <span id="swlkc">0</span></button>
+  </div>
+  <div class="swdeck" id="swdeck"></div>
+  <div class="swbtns">
+    <button class="swb sm" data-act="swundo" aria-label="ย้อนใบล่าสุด">↩&#xFE0E;</button>
+    <button class="swb no" data-act="swgo" data-v="left" aria-label="ข้าม">✕</button>
+    <button class="swb up" data-act="swgo" data-v="up" aria-label="เข้าคิวเลย">★</button>
+    <button class="swb yes" data-act="swgo" data-v="right" aria-label="ถูกใจ">♥&#xFE0E;</button>
+  </div>
+  <button class="swgen" data-act="swgenre">🎚 ตั้งค่าแนวเพลง <span id="swgsel"></span></button>
+
+  <section id="swliked" aria-label="เพลงที่ถูกใจ">
+    <div class="swhd">
+      <button class="swx" data-act="swback" aria-label="กลับ">←</button>
+      <b>เพลงที่ถูกใจ</b> <span class="n" id="swlkn2">0</span>
+    </div>
+    <div class="hint" style="margin-top:2px">เก็บไว้ในมือถือเครื่องนี้ · กด ＋ เพื่อดูสถานะแล้วเข้าคิว</div>
+    <div class="swscroll" id="swlist"></div>
+    <div class="swfoot">
+      <button data-act="swclear">ล้างทั้งหมด</button>
+      <button class="primary" data-act="swaddall">＋ เพิ่มทั้งหมด</button>
+    </div>
+  </section>
+
+  <div id="swscrim"></div>
+  <section id="swgenre" aria-label="เลือกแนวเพลง">
+    <div class="shd"><b>อยากร้องแนวไหน</b><button class="shx" data-act="swgclose">✕</button></div>
+    <div class="swglist swscroll" id="swglist"></div>
+    <button class="primary" data-act="swstart">เริ่มปัด</button>
+  </section>
+</div>
+
 <nav class="dock" id="dock">
   <div class="vol">
     <button id="volbtn" aria-label="ปิด/เปิดเสียง"><span id="volic">🔊</span>เสียงรวม</button>
@@ -511,7 +650,7 @@ function emptyMsg(root, html){ setHTML(root, `<div class="empty">${html}</div>`)
 
 // รูปโหลดไม่ขึ้น -> สลับคลาส ไม่ทำลาย node (ของเดิมใช้ outerHTML ซึ่งจะพัง reconcile)
 document.addEventListener('error', e=>{
-  if(e.target.tagName === 'IMG'){ const c = e.target.closest('.card, .ovhero'); if(c) c.classList.add('noart'); }
+  if(e.target.tagName === 'IMG'){ const c = e.target.closest('.card, .ovhero, .swcard'); if(c) c.classList.add('noart'); }
 }, true);
 
 // ===== 4. สถานะเพลง ==================================================
@@ -856,7 +995,10 @@ $('#scrim').addEventListener('click', ()=>setSheet(null));
 $('#scrim').addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
 document.addEventListener('keydown', e=>{
   if(e.key !== 'Escape') return;
-  if(S.ov.open) closeOv(); else setSheet(null);
+  if(S.ov.open) closeOv();
+  else if(SW.open){ if($('#swgenre').classList.contains('open')) swGenreClose();
+                    else if($('#swliked').classList.contains('open')) swLiked(false); else swClose(); }
+  else setSheet(null);
 });
 
 // ===== 7b. แจ้งซับไม่ตรง ==============================================
@@ -887,6 +1029,282 @@ $('#repsend').onclick = () => {
   toast('✓ ส่งแล้ว คนดูแลจะไปแก้ใน Studio');
 };
 
+// ===== 7c. 🃏 PU Match: ปัดหาเพลง ======================================
+// ซ้าย = ข้าม · ขวา = ❤️ เก็บไว้ในเครื่องนี้ · ขึ้น = ★ เข้าคิวเลย · แตะ = ดูสถานะ (หน้าเดียวกับกด ＋)
+// การ์ดมาจาก /api/swipe: เพลงในเครื่องก่อน ไม่พอค่อยเติมจาก YouTube ตามแนวที่เลือก
+// เก็บใน localStorage (หายได้ ไม่เป็นไร): แนวที่เลือก / ❤️ / เพลงที่เห็นแล้ว (กันวนซ้ำ)
+const SW_KEYS = {g:'swipeGenres', liked:'swipeLiked', seen:'swipeSeen'};
+const swLoad = (k, d) => { try{ const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; }catch(e){ return d; } };
+const swSave = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+const SW = { open:false, genres:swLoad(SW_KEYS.g, null), liked:swLoad(SW_KEYS.liked, []), seen:swLoad(SW_KEYS.seen, []),
+             gl:null, gsel:[], deck:[], hist:[], loading:false, done:false, err:'', tok:0, busy:false };
+if(!Array.isArray(SW.liked)) SW.liked = [];
+if(!Array.isArray(SW.seen)) SW.seen = [];
+
+function swOpen(){
+  SW.open = true; setSheet(null);
+  const el = $('#swipe');
+  setCls(el,'hide',false); void el.offsetWidth; setCls(el,'show',true);
+  document.body.classList.add('swiping');
+  swLoadGenres();
+  if(!Array.isArray(SW.genres)) swGenreOpen();           // ครั้งแรก: ให้เลือกแนวก่อน
+  else { swRender(); swFill(); }
+}
+function swClose(){
+  SW.open = false;
+  setCls($('#swipe'),'show',false);
+  document.body.classList.remove('swiping');
+  setTimeout(()=>{ if(!SW.open) setCls($('#swipe'),'hide',true); }, 220);
+  swLiked(false); swGenreClose();
+}
+async function swLoadGenres(){
+  try{
+    SW.gl = (await (await fetch('/api/genres')).json()).genres || [];
+    if(Array.isArray(SW.genres)){                       // แนวที่ถูกลบใน Studio ไปแล้ว -> ตัดทิ้ง
+      const ids = new Set(SW.gl.map(g=>g.id)), keep = SW.genres.filter(g=>ids.has(g));
+      if(keep.length !== SW.genres.length){ SW.genres = keep; swSave(SW_KEYS.g, keep); }
+    }
+  }catch(e){ SW.gl = SW.gl || []; }
+  swGenreLabel(); if($('#swgenre').classList.contains('open')) swGenreRender();
+}
+function swGenreLabel(){
+  const sel = SW.genres || [], gl = SW.gl || [];
+  const names = sel.map(id => (gl.find(g=>g.id===id) || {}).name).filter(Boolean);
+  setText($('#swgsel'), '· ' + (names.length ? names.join(', ') : 'ทุกแนว'));
+}
+
+// ---- แผ่นเลือกแนว ----
+function swGenreOpen(){
+  SW.gsel = [...(SW.genres || [])];
+  swGenreRender();
+  setCls($('#swgenre'),'open',true); setCls($('#swscrim'),'show',true);
+}
+function swGenreClose(){ setCls($('#swgenre'),'open',false); setCls($('#swscrim'),'show',false); }
+function swGenreRender(){
+  const gl = SW.gl, box = $('#swglist');
+  if(!gl){ setHTML(box, '<div class="skel" style="height:58px"></div>'.repeat(4)); return; }
+  const row = (id, ic, name, sub, on) =>
+    `<button class="swg${on?' on':''}" data-act="swgpick" data-v="${esc(id)}"><i>${esc(ic)}</i>`
+    + `<span>${esc(name)}<small>${esc(sub)}</small></span></button>`;
+  setHTML(box, row('', '🔀', 'ทุกแนว', 'สุ่มจากทุกเพลง', !SW.gsel.length)
+    + gl.map(g => row(g.id, g.icon || '🎵', g.name,
+        g.auto ? `อัปโหลดภายใน 1 ปี · ในเครื่อง ${g.count} เพลง`
+               : g.count ? `ในเครื่อง ${g.count} เพลง · ไม่พอดึงจาก YouTube เพิ่ม` : 'ยังไม่มีในเครื่อง · ดึงจาก YouTube',
+        SW.gsel.includes(g.id))).join(''));
+}
+function swGenrePick(id){
+  if(!id) SW.gsel = [];
+  else SW.gsel = SW.gsel.includes(id) ? SW.gsel.filter(x=>x!==id) : [...SW.gsel, id];
+  swGenreRender();
+}
+function swGenreStart(){
+  const was = JSON.stringify(SW.genres), now = JSON.stringify(SW.gsel);
+  SW.genres = [...SW.gsel]; swSave(SW_KEYS.g, SW.genres);
+  swGenreClose(); swGenreLabel();
+  if(was !== now){ SW.deck = []; SW.hist = []; SW.done = false; SW.err = ''; SW.tok++; SW.loading = false; }
+  swRender(); swFill();
+}
+
+// ---- กองการ์ด ----
+async function swFill(){
+  if(SW.loading || SW.done || SW.deck.length > 3) return;
+  SW.loading = true; const my = SW.tok;
+  if(!SW.deck.length) swRender();
+  try{
+    const r = await fetch('/api/swipe', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({genres: SW.genres || [], n: 10,
+                            seen: SW.seen.slice(-260).concat(SW.deck.map(c=>c.videoId))})});
+    const d = await r.json();
+    if(my !== SW.tok) return;                       // เปลี่ยนแนวไปแล้ว ผลชุดนี้ทิ้ง
+    const have = new Set(SW.deck.map(c=>c.videoId));
+    const add = (d.cards || []).filter(c => !have.has(c.videoId));
+    SW.deck.push(...add);
+    if(!add.length){ SW.done = true; SW.err = d.ytError ? 'ดึงเพลงจาก YouTube ไม่ได้ตอนนี้' : ''; }
+  }catch(e){ if(my === SW.tok){ SW.done = true; SW.err = 'ต่อเซิร์ฟเวอร์ไม่ได้'; } }
+  finally{ if(my === SW.tok){ SW.loading = false; swRender(); } }
+}
+function swMeta(c){
+  return [c.channel, fmt(c.duration), c.year].filter(Boolean).map(x=>esc(String(x))).join(' · ');
+}
+function swChips(c){
+  const gl = SW.gl || [];
+  return (c.genres || []).map(id => { const g = gl.find(x=>x.id===id); return g ? chip('', `${g.icon||''} ${g.name}`.trim()) : ''; }).join('')
+    + (c.archived ? chip('ok','⚡ มีในเครื่อง') : chip('wait','⬇️ ต้องโหลดก่อน'))
+    + (c.archived && c.lyrLines ? chip('ok','📝 เนื้อ') : '');
+}
+function swCardNode(c){
+  const n = document.createElement('div');
+  n.className = 'swcard'; n.dataset.v = c.videoId;
+  const url = artUrl(c);
+  n.innerHTML = `<img class="swbg" alt="" src="${esc(url)}"><div class="swart"><div class="pic"><img alt="" src="${esc(url)}">`
+    + `<div class="ph">🎵</div></div></div>`
+    + `<span class="stamp like">ถูกใจ</span><span class="stamp nope">ข้าม</span><span class="stamp queue">เข้าคิว</span>`
+    + `<div class="swinfo"><div class="swt">${esc(c.title)}</div><div class="swm">${swMeta(c)}</div>`
+    + `<div class="chips">${swChips(c)}</div></div>`;
+  if(!url) n.classList.add('noart');
+  return n;
+}
+function swRender(){
+  const box = $('#swdeck'), show = SW.deck.slice(0, 3);
+  const nodes = new Map([...box.querySelectorAll('.swcard')].map(n=>[n.dataset.v, n]));
+  box.querySelectorAll('.swempty').forEach(n=>n.remove());
+  for(const [v, n] of nodes) if(!show.some(c=>c.videoId===v) && !n.dataset.out) n.remove();
+  // วางจากใบล่างสุดขึ้นมา ใบบนสุดอยู่ท้าย DOM — ย้ายเฉพาะโหนดที่อยู่ผิดที่
+  // (ถอดแล้วใส่ใหม่ = transition หาย ใบที่เลื่อนขึ้นมาเป็นใบบนจะกระตุกแทนที่จะไหล)
+  let prev = null;
+  show.slice().reverse().forEach((c, ri) => {
+    const i = show.length - 1 - ri;
+    let n = nodes.get(c.videoId);
+    if(!n || n.dataset.out) n = swCardNode(c);
+    const want = prev ? prev.nextSibling : box.firstChild;
+    if(n !== want) box.insertBefore(n, want);
+    prev = n;
+    setCls(n,'top', i === 0);
+    if(!n.classList.contains('drag') && !n.dataset.out) n.style.transform = i ? `translateY(${i*12}px) scale(${1 - i*.045})` : '';
+    n.style.zIndex = String(10 - i);
+  });
+  if(!show.length){
+    const e = document.createElement('div');
+    e.className = 'swempty';
+    if(SW.loading){ e.classList.add('skel'); e.innerHTML = '<b>🔎 กำลังหาเพลง…</b>'; }
+    else e.innerHTML = `<b>${SW.err ? '😵 ' + esc(SW.err) : '🎉 ปัดครบแล้ว'}</b>`
+      + (SW.err ? '' : 'ยังไม่มีเพลงใหม่ในแนวนี้')
+      + `<button data-act="swreset">↺ เริ่มใหม่ (ให้เพลงเดิมวนกลับมา)</button>`
+      + `<button data-act="swgenre">🎚 เปลี่ยนแนวเพลง</button>`;
+    box.appendChild(e);
+  }
+  setText($('#swlkc'), String(SW.liked.length)); setText($('#swlkn'), String(SW.liked.length));
+}
+// บันทึกผลการปัด: false = ทำไม่ได้ (ยังไม่ต่อกับจอ) -> การ์ดเด้งกลับ
+function swCommit(c, dir){
+  if(dir === 'up'){
+    if(!addItem({source:'yt', videoId:c.videoId, title:c.title, thumb:c.thumb})) return false;
+  }else if(dir === 'right'){
+    SW.liked = [c, ...SW.liked.filter(x=>x.videoId!==c.videoId)].slice(0, 100);
+    swSave(SW_KEYS.liked, SW.liked);
+    toast('❤️ เก็บไว้แล้ว · ดูได้ที่ปุ่มมุมขวาบน');
+  }
+  SW.seen = [...SW.seen.filter(v=>v!==c.videoId), c.videoId].slice(-300);
+  swSave(SW_KEYS.seen, SW.seen);
+  SW.hist.push({c, dir}); if(SW.hist.length > 30) SW.hist.shift();
+  SW.deck = SW.deck.filter(x=>x.videoId!==c.videoId);
+  return true;
+}
+// ปัดการ์ดใบบนสุดออกไปทางที่กำหนด (ใช้ทั้งตอนลากและตอนกดปุ่ม)
+function swFling(dir){
+  const c = SW.deck[0], n = c && $('#swdeck').querySelector(`.swcard.top[data-v="${CSS.escape(c.videoId)}"]`);
+  if(!c || !n || SW.busy) return;
+  if(!swCommit(c, dir)){ n.classList.remove('drag'); n.style.transform = ''; swStamps(n, 0, 0); return; }
+  const W = innerWidth, H = innerHeight;
+  n.dataset.out = '1'; n.classList.remove('drag', 'top');
+  n.style.transition = 'transform .32s ease-in';
+  swStamps(n, dir==='right' ? 200 : dir==='left' ? -200 : 0, dir==='up' ? -200 : 0);
+  n.style.transform = dir === 'up' ? `translate(0, ${-H*1.2}px)`
+    : `translate(${(dir==='right'?1:-1)*W*1.4}px, 40px) rotate(${dir==='right'?24:-24}deg)`;
+  setTimeout(()=>n.remove(), 340);
+  swRender(); swFill();
+}
+function swStamps(n, dx, dy){
+  const up = -dy > Math.abs(dx);
+  n.querySelector('.stamp.like').style.opacity  = String(up ? 0 : Math.max(0, Math.min(1, dx/90)));
+  n.querySelector('.stamp.nope').style.opacity  = String(up ? 0 : Math.max(0, Math.min(1, -dx/90)));
+  n.querySelector('.stamp.queue').style.opacity = String(up ? Math.max(0, Math.min(1, -dy/90)) : 0);
+}
+function swUndo(){
+  const h = SW.hist.pop();
+  if(!h){ toast('ยังไม่มีอะไรให้ย้อน'); return; }
+  if(h.dir === 'right'){ SW.liked = SW.liked.filter(x=>x.videoId!==h.c.videoId); swSave(SW_KEYS.liked, SW.liked); }
+  if(h.dir === 'up') toast('↩ เอาการ์ดกลับมาแล้ว (เพลงยังอยู่ในคิว)');
+  SW.seen = SW.seen.filter(v=>v!==h.c.videoId); swSave(SW_KEYS.seen, SW.seen);
+  SW.deck.unshift(h.c);
+  const old = $('#swdeck').querySelector(`.swcard[data-v="${CSS.escape(h.c.videoId)}"]`);
+  if(old) old.remove();
+  swRender();
+  // บินกลับเข้ามาจากทางที่ปัดออกไป
+  const n = $('#swdeck').querySelector('.swcard.top');
+  if(n){
+    n.classList.add('drag');
+    n.style.transform = h.dir === 'up' ? `translate(0, ${-innerHeight}px)`
+      : `translate(${(h.dir==='right'?1:-1)*innerWidth}px, 40px) rotate(${h.dir==='right'?24:-24}deg)`;
+    void n.offsetWidth; n.classList.remove('drag'); n.style.transform = '';
+  }
+}
+function swReset(){
+  SW.seen = []; swSave(SW_KEYS.seen, []);
+  SW.deck = []; SW.hist = []; SW.done = false; SW.err = ''; SW.tok++; SW.loading = false;
+  swRender(); swFill();
+}
+
+// ลากใบบนสุด: เกิน 28% ของความกว้าง (หรือสะบัดเร็ว) = ปัดออก, ขึ้นเกิน 18% ความสูง = เข้าคิว, แตะเฉย ๆ = ดูสถานะ
+let swDrag = null;
+$('#swdeck').addEventListener('pointerdown', e=>{
+  const n = e.target.closest('.swcard.top');
+  if(!n || e.button > 0 || $('#swgenre').classList.contains('open')) return;
+  swDrag = {n, id:e.pointerId, x:e.clientX, y:e.clientY, t:Date.now(), dx:0, dy:0, moved:false};
+  n.setPointerCapture(e.pointerId);
+  n.classList.add('drag');
+});
+$('#swdeck').addEventListener('pointermove', e=>{
+  const d = swDrag; if(!d || e.pointerId !== d.id) return;
+  d.dx = e.clientX - d.x; d.dy = e.clientY - d.y;
+  if(Math.abs(d.dx) + Math.abs(d.dy) > 6) d.moved = true;
+  d.n.style.transform = `translate(${d.dx}px, ${d.dy}px) rotate(${d.dx * 0.06}deg)`;
+  swStamps(d.n, d.dx, d.dy);
+});
+function swDragEnd(e){
+  const d = swDrag; if(!d || e.pointerId !== d.id) return;
+  swDrag = null;
+  const dt = Math.max(1, Date.now() - d.t), vx = d.dx / dt, vy = d.dy / dt;
+  const W = d.n.offsetWidth, H = d.n.offsetHeight;
+  const up = -d.dy > Math.abs(d.dx) && (-d.dy > H * 0.18 || (vy < -0.6 && -d.dy > 40));
+  const side = Math.abs(d.dx) > W * 0.28 || (Math.abs(vx) > 0.6 && Math.abs(d.dx) > 40);
+  if(e.type === 'pointerup' && (up || side)){ swFling(up ? 'up' : d.dx > 0 ? 'right' : 'left'); return; }
+  d.n.classList.remove('drag'); d.n.style.transform = ''; swStamps(d.n, 0, 0);
+  if(e.type === 'pointerup' && !d.moved){
+    const c = SW.deck[0];
+    if(c) openPreview({videoId:c.videoId, title:c.title, thumb:c.thumb}, c.embeddable === false ? EMBED_WARN : '');
+  }
+}
+$('#swdeck').addEventListener('pointerup', swDragEnd);
+$('#swdeck').addEventListener('pointercancel', swDragEnd);
+// เลื่อนได้เฉพาะในรายการ ไม่ให้หน้าข้างหลังไหล
+$('#swipe').addEventListener('touchmove', e=>{ if(!e.target.closest('.swscroll')) e.preventDefault(); }, {passive:false});
+$('#swscrim').addEventListener('click', swGenreClose);
+
+// ---- รายการถูกใจ ----
+function swLiked(on){
+  setCls($('#swliked'),'open', on);
+  if(on) swRenderLiked();
+}
+function swRenderLiked(){
+  const box = $('#swlist'), list = SW.liked;
+  setText($('#swlkn2'), String(list.length));
+  if(!list.length){ emptyMsg(box, 'ยังไม่มีเพลงที่ถูกใจ — ปัดขวาเพื่อเก็บไว้ตรงนี้'); return; }
+  reconcile(box, list, c=>'w'+c.videoId, (n,c)=>{
+    patchCard(n, c, { title: c.title, add: true, meta: swMeta(c),
+      chips: c.archived ? chip('ok','⚡ มีในเครื่อง') : chip('wait','⬇️ ต้องโหลดก่อน'),
+      rowbtns: `<button class="mini" data-act="swdel">🗑 เอาออก</button>` });
+  });
+}
+function swUnlike(vid){
+  SW.liked = SW.liked.filter(x=>x.videoId!==vid); swSave(SW_KEYS.liked, SW.liked);
+  swRenderLiked(); swRender();
+}
+function swAddAll(){
+  const list = SW.liked.slice().reverse();          // ถูกใจก่อน = เข้าคิวก่อน
+  if(!list.length) return;
+  if(list.length > 3 && !confirm(`เพิ่มทั้ง ${list.length} เพลงเข้าคิว?`)) return;
+  let ok = 0;
+  for(const c of list) if(addItem({source:'yt', videoId:c.videoId, title:c.title, thumb:c.thumb})) ok++; else break;
+  if(!ok) return;
+  SW.liked = SW.liked.slice(0, SW.liked.length - ok); swSave(SW_KEYS.liked, SW.liked);
+  swRenderLiked(); swRender();
+  toast(`✓ เพิ่มเข้าคิวแล้ว ${ok} เพลง`);
+}
+// ＋ จากหน้าสถานะสำเร็จ -> ถ้าเป็นเพลงในรายการถูกใจก็เอาออกให้เลย
+function swOnAdded(vid){ if(SW.liked.some(x=>x.videoId===vid)) swUnlike(vid); }
+setText($('#swlkn'), String(SW.liked.length));
+
 // ===== 8. actions (delegation) =======================================
 function addItem(o){
   const cid = TAB_ID + '-' + (++addSeq);
@@ -903,6 +1321,8 @@ function addByKey(k){
   if(k[0]==='r'){ const v=S.results.find(x=>'r'+x.videoId===k);
                   if(v) openPreview({videoId:v.videoId, title:v.title, thumb:v.thumb},
                                     v.embeddable===false ? EMBED_WARN : ''); return; }
+  if(k[0]==='w'){ const v=SW.liked.find(x=>'w'+x.videoId===k);
+                  if(v) openPreview({videoId:v.videoId, title:v.title, thumb:v.thumb}); return; }
   if(k[0]==='h'){ const h=S.hist.find(x=>('h'+(x.videoId||x.path||'')+'@'+x.at)===k);
                   if(h) openPreview({source:h.source, videoId:h.videoId, path:h.path, title:h.title, thumb:h.thumb}); }
 }
@@ -931,9 +1351,23 @@ const ACTIONS = {
   sheet:   (_k,b) => setSheet(S.sheet===b.dataset.v ? null : b.dataset.v),
   shclose: () => setSheet(null),
   ovclose: () => closeOv(),
-  ovadd:   () => { if(S.ov.mode === 'preview' && addItem(S.ov.req)) closeOv(); },
+  ovadd:   () => { if(S.ov.mode === 'preview' && addItem(S.ov.req)){ swOnAdded(S.ov.req.videoId); closeOv(); } },
   ovplay:  k => { send({action:'playnow', id:k}); closeOv(); toast('▶ เล่นเพลงนี้เลย'); },
   ovremove:k => { send({action:'remove',  id:k}); closeOv(); toast('🗑 ลบออกจากคิวแล้ว'); },
+  swopen:  () => swOpen(),
+  swclose: () => swClose(),
+  swgo:    (_k,b) => swFling(b.dataset.v),
+  swundo:  () => swUndo(),
+  swreset: () => swReset(),
+  swgenre: () => swGenreOpen(),
+  swgclose:() => swGenreClose(),
+  swgpick: (_k,b) => swGenrePick(b.dataset.v),
+  swstart: () => swGenreStart(),
+  swliked: () => swLiked(true),
+  swback:  () => swLiked(false),
+  swdel:   k => k && swUnlike(k.slice(1)),
+  swclear: () => { if(SW.liked.length && confirm('ล้างเพลงที่ถูกใจทั้งหมด?')){ SW.liked = []; swSave(SW_KEYS.liked, []); swRenderLiked(); swRender(); } },
+  swaddall:() => swAddAll(),
 };
 document.addEventListener('click', e=>{
   const b = e.target.closest('[data-act]');
