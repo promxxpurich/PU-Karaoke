@@ -312,6 +312,12 @@ async def _lifespan(_app: FastAPI):
             await asyncio.to_thread(_save_history)
         n = m = w = b = 0
         for vid, d in sorted(_dir_index().items()):
+            try:
+                if await asyncio.to_thread(_drop_tail_junk, vid):
+                    room.archive_rev += 1
+                    await _enqueue_words(vid, force=True)    # บรรทัดเปลี่ยน -> ทำไล่สีคาราโอเกะใหม่
+            except Exception as exc:
+                print(f"[lyr] {vid} ลบบรรทัดเลยท้ายคลิปไม่ได้: {type(exc).__name__}: {exc}")
             if (d / "audio.m4a").is_file() and not _has_stems(vid):
                 await _enqueue_sep(vid)
                 n += 1
@@ -5182,6 +5188,30 @@ async def _best_fa_warm(vid: str, warm_text: list[str] | None = None) -> None:
             print(f"[best] {vid} เตรียมเสียง FA ไม่ได้: {type(exc).__name__}: {exc}")   # ขั้นให้คะแนนคำนวณเองอีกที
         finally:
             _heavy_job = None
+
+
+LYR_TAIL_JUNK = 120.0         # วินาทีเลยท้ายคลิปที่ยังนับเป็นบรรทัดจริง (เวอร์ชันอัลบั้มยาวกว่าคลิปได้)
+
+
+def _drop_tail_junk(vid: str) -> bool:
+    """บรรทัดที่เวลาเลยท้ายคลิปไปไกล = เครดิต [999:00] ของ JOOX ที่ติดมากับเนื้อก่อน from_lrc กรอง (บรรทัดที่ 16 ชั่วโมง
+    จอทีวีโชว์จาง ๆ เป็น "บรรทัดถัดไป" ตลอดท่อนจบ) — ลบออกครั้งเดียวตอนเปิดเซิร์ฟเวอร์ สำรองของเดิมลง 🕘 ก่อน
+    ไม่แตะเนื้อที่คนใส่เอง (BEST_MANUAL) · เวลาบรรทัดอื่นไม่เปลี่ยน offset/ผลตรวจจึงยังใช้ได้ (ผู้ใช้เลือกให้ทำ 2026-10-06)"""
+    j = _read_lyr(vid)
+    if not j or (j.get("src") or "") in BEST_MANUAL:
+        return False
+    dur = float(j.get("duration") or 0) or float(_song_meta(vid)["duration"] or 0)
+    L = j.get("lines") or []
+    keep = [l for l in L if not (isinstance(l.get("t"), (int, float)) and l["t"] > dur + LYR_TAIL_JUNK)]
+    if not dur or not keep or len(keep) == len(L):
+        return False
+    d = _song_dir(vid)
+    _backup_lyrics(d, j)
+    _write_json_atomic(d / "lyrics.json", {**j, "lines": keep})
+    _lyr_cache.pop(vid, None)
+    _span_cache.pop(vid, None)
+    print(f"[lyr] {vid} ลบบรรทัดที่เลยท้ายคลิป {len(L) - len(keep)} บรรทัด (เครดิต [999:00] ของ JOOX) — ของเดิมอยู่ใน 🕘")
+    return True
 
 
 def _lyr_hash(j: dict | None) -> str:

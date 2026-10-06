@@ -426,7 +426,12 @@ def from_lrc(text: str, duration: float = 0.0) -> list[dict] | None:
         if not ts or not body:
             continue
         for mm, ss, fr in ts:
-            rows.append((int(mm) * 60 + int(ss) + (int(fr) / 10 ** len(fr) if fr else 0.0), body, 0.0))
+            t = int(mm) * 60 + int(ss) + (int(fr) / 10 ** len(fr) if fr else 0.0)
+            # [999:00.00] = บรรทัดเครดิต/ปิดท้ายของบางคลัง (JOOX) ไม่ใช่เวลาร้อง — เคยติดมาเป็นบรรทัดที่ 16 ชั่วโมง
+            # (เผื่อ 2 นาทีหลังจบคลิป: เวอร์ชันอัลบั้มยาวกว่าคลิปได้ งานเลือกเนื้อเลื่อนให้ทีหลัง)
+            if t >= 6000 or (duration and t > duration + 120):
+                continue
+            rows.append((t, body, 0.0))
     return _finish(rows, duration)
 
 

@@ -493,6 +493,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `class _Pending:` `def _prio_map(` `_BACKLOG = 1 << 20` `async def _reprioritize(` — คิวงานทุกชนิดเรียงตามลำดับคิวห้องปัจจุบัน (0 = เพลงที่เล่นอยู่, 1..N = ลำดับในคิว, เพลงนอกห้อง = backlog), ปลุกทุกไปป์ไลน์เมื่อคิวขยับ
 - `server.py` `class _HeavyGate:` `def _preempt_heavy(` `def _run_child(` `def _kill_children(` — ให้สิทธิ์ GPU ทีละงานกับเพลงอันดับดีที่สุด, ฆ่างาน sep/lyr/verify ของเพลงท้ายคิวเมื่อเพลงที่เล่นอยู่/เพลงถัดไปรอ (เว้น 20 วิ, ไม่เกิน 2 ครั้งต่อเพลง), ทะเบียนโปรเซสลูก
 - `server.py` `async def _lifespan(` `async def watchdog(` `WATCHDOG_EVERY = 10.0` — ตอนบูต: เปลี่ยนชื่อโฟลเดอร์ แล้ว backfill แยกเสียง/หาเนื้อ/best/words/verify ของเพลงเก่า แล้วตรวจภาษา, watchdog ทุก 10 วิเรียก reprioritize และ autoplay, ตอนปิดฆ่าโปรเซสลูกทั้งหมด
+- `server.py` `def _drop_tail_junk(` `LYR_TAIL_JUNK = ` — backfill: ลบบรรทัดที่เวลาเลยท้ายคลิป > 2 นาที (เครดิต [999:00] ของ JOOX) จากเนื้ออัตโนมัติ สำรองลง 🕘 แล้วทำไล่สีใหม่ (เนื้อที่คนใส่เองไม่แตะ)
 ! เซิร์ฟเวอร์จริงรันสคริปต์ใน scripts/ (gen_lyrics, fa_align, lyrics_refine, ocr_lyrics) และ demucs เป็น subprocess ทุกงาน แก้สคริปต์แล้วงานถัดไปได้ผลทันที จึงต้องรักษา CLI/exit code/JSON บรรทัดสุดท้ายให้เข้ากันได้ ส่วนโมดูลที่ import เข้าโปรเซสหลัก (LS, LC, lyrics_refine.check_timing, gen_lyrics ใน autotime/sources, lyrics_more, verify_lyrics) จะใช้โค้ดเก่าจนกว่าผู้ใช้รีสตาร์ทเอง
 ! _preempt_heavy ห้ามมี await เพราะถูกเรียกตอนถือ room.lock และห้ามแคช _prio_map
 
