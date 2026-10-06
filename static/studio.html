@@ -731,7 +731,8 @@ const DL = {ready:null, downloading:['wait','⬇️ กำลังโหลด'
 const SEP = {ready:['ok','🎤 ไกด์'], separating:['wait','🎛 กำลังแยกเสียง'], queued:['wait','⏳ รอแยกเสียง'],
              failed:['bad','⚠️ แยกเสียงไม่ได้'], idle:['off','🎤 ยังไม่แยกเสียง']};
 const CONF = {good:['ok','✅ ตรงจังหวะ'], check:['ok','📝 พอใช้'], bad:['bad','⚠️ ไม่ตรงจังหวะ'],
-              auto:['warn','🎧 เนื้ออัตโนมัติ'], unknown:['off','📝 ยังไม่ตรวจ'], none:['off','📝 ตรวจไม่ได้']};
+              auto:['warn','🎧 เนื้ออัตโนมัติ'], sparse:['bad','🕳 เนื้อไม่ครบ'],   // มีแค่บางช่วง (ซับบทพูดในเอ็มวี)
+              unknown:['off','📝 ยังไม่ตรวจ'], none:['off','📝 ตรวจไม่ได้']};
 const NOLYR = {nolyr:['bad','🚫 ไม่มีเนื้อ'], failed:['bad','⚠️ หาเนื้อไม่สำเร็จ'], queued:['wait','⏳ รอหาเนื้อ'],
                working:['wait','📝 กำลังหาเนื้อ'], searching:['wait','📝 กำลังค้นเนื้อ'],
                na:['off','📝 รอแยกเสียงก่อน'], idle:['off','📝 ยังไม่หาเนื้อ']};
@@ -748,6 +749,9 @@ const LANG_LB = {th:'ไทย', en:'อังกฤษ', ja:'ญี่ปุ่
 const TAGS = {late:'🐢 ซับขึ้นช้า', early:'🐇 ซับขึ้นเร็ว', typo:'✏️ เนื้อผิด/พิมพ์ผิด',
               missing:'🕳 ขาดบางท่อน', nolyr:'🚫 ไม่มีเนื้อ', wrong:'🎵 เนื้อผิดเพลง',
               fast:'⚡ ท่อนเร็วขึ้นไม่ทัน', overlap:'👥 ร้องซ้อนแล้วซับไม่ขึ้น'};
+// ป้ายความมั่นใจ — เนื้อไม่ครบต่อท้ายด้วย % ที่คลุม (จาก lyrConfWhy ของเซิร์ฟเวอร์)
+const confChip = i => { const cf = CONF[i.lyrConf] || CONF.check, m = i.lyrConf === 'sparse' && /\(([^)]*)\)/.exec(i.lyrConfWhy || '');
+  return m ? [cf[0], `${cf[1]} · ${m[1]}`] : cf; };
 function songChips(i, full){
   const c = [];
   if(i.reports) c.push(['bad',`🚩 มีคนแจ้ง ${i.reports}`]);
@@ -755,7 +759,7 @@ function songChips(i, full){
   const dl = DL[i.dlStatus]; if(dl) c.push(dl);
   const sp = SEP[i.sepStatus]; if(sp) c.push(sp);
   if(i.lyrLines){
-    c.push(CONF[i.lyrConf] || CONF.check);
+    c.push(confChip(i));
     if(full && i.lyrKind) c.push(['info','📝 ' + i.lyrKind + ` · ${i.lyrLines} บรรทัด`]);
     if(i.check && i.check.score != null && i.check.verdict !== 'unmeasurable')
       c.push([i.lyrConf === 'good' ? 'ok' : i.lyrConf === 'bad' ? 'bad' : 'off', `🔍 ${Math.round(i.check.score)}%`]);   // สีเดียวกับป้ายบนรีโมท
@@ -784,6 +788,7 @@ const FILTERS = [
   ['problem','🔧 มีปัญหา', isProblem],
   ['nolyr','🚫 ไม่มีเนื้อ', i => !i.lyrLines],
   ['bad','⚠️ ไม่ตรง', i => i.lyrLines && i.lyrConf === 'bad'],
+  ['sparse','🕳 เนื้อไม่ครบ', i => i.lyrLines && i.lyrConf === 'sparse'],
   ['unchecked','📝 ยังไม่ตรวจ', i => i.lyrLines && ['unknown','none'].includes(i.lyrConf)],
   ['hint','💡 มีคำแนะนำ', i => i.shiftOk],
   ['defects','🩺 เวลาอัด/เดา', i => i.lyrLines && i.check && (i.check.defects || []).length >= 2],
@@ -794,7 +799,7 @@ const FILTERS = [
   ['foreign','🌐 ไม่ใช่ไทย', i => i.lang && i.lang !== 'th'],
   ['queue','▶ ในคิว', i => i.queuePos != null],
 ];
-const rank = i => isProblem(i) ? 0 : i.reports ? 1 : !i.lyrLines ? 2 : i.lyrConf === 'bad' ? 3 : i.shiftOk ? 4 : 5;
+const rank = i => isProblem(i) ? 0 : i.reports ? 1 : !i.lyrLines ? 2 : ['bad','sparse'].includes(i.lyrConf) ? 3 : i.shiftOk ? 4 : 5;
 
 // ===== 4. store ======================================================
 const S = { songs:[], filter:'all', cur:null, detail:null,
@@ -1353,7 +1358,8 @@ async function openSources(opts = {}){
   const fa = (S.detail && S.detail.fa) || {};
   openDlg(`<h2>🔎 หาเนื้อจากทุกแหล่ง</h2>
     <p>เทียบเนื้อจากซับ YouTube · JOOX · NetEase · YouTube Music · LRCLIB · คำอธิบายคลิป กับเสียงร้องจริง${fa.ready ? ' ด้วย 🎯 FA' : ''}
-       เรียงตามว่าข้อความเข้ากับเพลงนี้แค่ไหน — กดใช้แล้วยังไม่บันทึกจนกว่าจะกด 💾 (↶ ย้อนได้)</p>
+       ⭐ = ตัวที่ระบบจะเลือก (ขึ้นก่อน) แล้วเรียงตามว่าข้อความเข้ากับเพลงนี้แค่ไหน ตัวที่มีแค่บางช่วงอยู่ท้าย
+       — กดใช้แล้วยังไม่บันทึกจนกว่าจะกด 💾 (↶ ย้อนได้)</p>
     <div class="srcq"><input id="sqt" placeholder="ชื่อเพลง (ค้นเองถ้าหาไม่เจอ)" value="${esc(opts.track || '')}">
       <input id="sqa" placeholder="ศิลปิน" value="${esc(opts.artist || '')}"><button id="sqgo">ค้นใหม่</button></div>
     <div class="srcused" id="srcused"></div>
@@ -1369,6 +1375,7 @@ async function openSources(opts = {}){
     if(my !== srcTok || $('#dlg').classList.contains('hide')) return;
     if(r.fa && S.detail) S.detail.fa = r.fa;
     S.srcCands = r.candidates || [];
+    S.srcPick = r.pick;                      // id ของตัวที่งานเลือกเนื้ออัตโนมัติจะใช้ (null = ไม่มีตัวที่ผ่าน)
     // บอกให้รู้ว่าระบบค้นด้วยอะไรไปบ้าง (ชื่อที่เดาจากชื่อคลิป + ท่อนเนื้อ) — ไม่เจอก็พิมพ์ชื่อเองด้านบน
     const u = r.queries || {};
     $('#srcused').innerHTML = 'ค้นด้วย: ' + (u.title || []).map(q => chip('', q)).join(' ')
@@ -1400,10 +1407,15 @@ function renderSources(){
     const texts = c.synced ? c.lines.map(l => l.x) : c.texts;
     const timing = c.synced && c.timing != null
       ? chip(tone(c.timingAfter, 70, 40), `เวลาตรง ${c.timing}%` + (c.shift ? ` → เลื่อน ${sgn(c.shift)} วิ = ${c.timingAfter}%` : '')) : '';
-    return `<div class="src ${k === 0 && (c.match || 0) >= 30 ? 'best' : ''}">
-      <div class="h"><b>${esc(c.label)}</b>${chip(c.synced ? 'info' : '', c.synced ? 'มีเวลา' : 'เนื้อเปล่า')}
+    // ⭐ = ตัวที่งานเลือกเนื้อจะใช้ (เซิร์ฟเวอร์รุ่นเก่าไม่ส่ง pick มา -> ใช้ตัวแรกแบบเดิม)
+    const pick = S.srcPick === undefined ? k === 0 && (c.match || 0) >= 30 : S.srcPick != null && c.id === S.srcPick;
+    // คลุมเสียงร้อง: match สูงแต่มีแค่บางช่วง (บทพูดในเอ็มวี) ใช้แล้วจอจะค้าง ♪ ทั้งท่อนที่ร้อง
+    const cover = c.cover == null ? '' : c.sparse ? chip('bad', `🕳 มีแค่บางช่วง · คลุมเสียงร้อง ${c.cover}%`)
+      : chip(tone(c.cover, 70, 40), `คลุมเสียงร้อง ${c.cover}%`);
+    return `<div class="src ${pick ? 'best' : ''}">
+      <div class="h">${pick ? chip('ok', '⭐ ระบบเลือก') : ''}<b>${esc(c.label)}</b>${chip(c.synced ? 'info' : '', c.synced ? 'มีเวลา' : 'เนื้อเปล่า')}
         ${c.via === 'lyric' ? chip('warn', '🎵 เจอจากท่อนเนื้อ') : ''}
-        ${c.match != null ? chip(tone(c.match, 45, 20), `เข้ากับเพลง ${c.match}%`) : ''}${timing}
+        ${c.match != null ? chip(tone(c.match, 45, 20), `เข้ากับเพลง ${c.match}%`) : ''}${cover}${timing}
         ${chip('', `${texts.length} บรรทัด`)}${c.meta && c.meta.duration ? chip('', `ยาว ${fmtD(c.meta.duration)}`) : ''}</div>
       <div class="p3">${esc(texts.slice(0, 3).join(' / '))}${texts.length > 3 ? ' …' : ''}</div>
       <div class="bt">
@@ -2222,7 +2234,7 @@ function bestLine(i){                              // ผลเทียบล�
 function qHead(i, pos){
   const art = i.localThumb || i.thumb || (i.videoId ? '/thumb/' + i.videoId : '');
   const c = [];
-  if(i.lyrLines){ c.push(CONF[i.lyrConf] || CONF.check); c.push(['info', `${i.lyrLines} บรรทัด`]); }
+  if(i.lyrLines){ c.push(confChip(i)); c.push(['info', `${i.lyrLines} บรรทัด`]); }
   if(i.wordsUrl) c.push(['ok', '🎤 ไล่สีได้']);
   const working = ['queued', 'working'].includes(i.lyrBest) || (QS.busy[i.videoId] && Date.now() - QS.busy[i.videoId] < 6000);
   if(working) c.push(['wait', '✨ กำลังเทียบเนื้อทุกแหล่ง']);

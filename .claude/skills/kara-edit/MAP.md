@@ -299,7 +299,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 คำค้น: หาเนื้อ, ค้นเนื้อ, แหล่งเนื้อ, sources, JOOX, NetEase, YouTube Music, LRCLIB, ซับ YouTube, คำอธิบายคลิป, Musixmatch, token, ค้นใหม่, ชื่อเพลง ศิลปิน, ใช้ข้อความนี้ + เวลา FA, ใช้เวลาของแหล่งนี้, เข้ากับเพลง %, เวลาตรง %
 - `static/studio.html` ` .srcq{display:flex` ` .src{border` — CSS
 - `static/studio.html` `id="srcbtn"` — ปุ่ม 🔎 หาเนื้อ (แถบเครื่องมือแถว 2)
-- `static/studio.html` `// ===== 7d.` `const PROV = {` `async function openSources(opts = {}){` `async function mxmRow(){` `function renderSources(){` — POST …/sources, ชื่อแหล่ง, การ์ดผล (% เข้ากับเพลง / เวลาตรง), ตั้ง/ลบ token ผ่าน /api/studio/settings
+- `static/studio.html` `// ===== 7d.` `const PROV = {` `async function openSources(opts = {}){` `async function mxmRow(){` `function renderSources(){` — POST …/sources, ชื่อแหล่ง, การ์ดผล (% เข้ากับเพลง / คลุมเสียงร้อง / เวลาตรง), ⭐ ระบบเลือก (pick จากเซิร์ฟเวอร์) ขึ้นก่อน, 🕳 มีแค่บางช่วงไว้ท้าย, ตั้ง/ลบ token ผ่าน /api/studio/settings
 - `static/studio.html` `const how = b.dataset.src;` — ใช้ผล: fa (ข้อความ+เวลา FA) / own (เวลาของแหล่ง) / text (แล้วกด ✨ AI จับเวลาต่อ)
 ! ใช้ผลแล้วยังไม่บันทึกจนกด 💾 (ผ่าน mutate จึง ↶ ได้)
 
@@ -528,6 +528,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `async def _enqueue_verify(` `async def _verify_worker(` `def _verify_one(` — ตรวจเวลาด้วย FA (วัดอย่างเดียว ไม่เปลี่ยนเนื้อ) อันดับต่ำสุด ถูกงานอื่นแย่ง GPU ได้เสมอ
 - `server.py` `def _fa_measure2(` `def _write_check(` `CHECK_VERSION = 2` `def _chk_info(` `def _chk_verdict(` — check v2 ผ่าน lyrics_refine.check_timing เขียนผลลง lyrics.check.json (verdict ok/bad/unmeasurable ตามเกณฑ์ใน LC)
 - `server.py` `import lyrics_conf as LC` — สูตรป้ายความมั่นใจ (import เข้าโปรเซสหลัก)
+- `server.py` `def _lyr_sparse(` `def _va_for(` `def _cover_of(` `_lyr_cov: dict` — เนื้อแค่บางช่วง (ซับบทพูดในเอ็มวี): cover จากผลตรวจล่าสุด (ถ้าตรวจหลังเนื้อเปลี่ยน) ไม่งั้น Σd/คลิป, แผนที่เสียงร้องเฉพาะ vocals.m4a (โหลดใน thread), _write_check เก็บ cover
 ! เพิ่ม CHECK_VERSION แล้วเพลงเก่าทั้งคลังจะถูกตรวจใหม่ตอนบูต (lifespan backfill)
 
 ### เวลารายตัวอักษร โหมดคาราโอเกะไล่สี (words)
@@ -537,13 +538,15 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ถ้าข้อความเปลี่ยนระหว่างทำ ผลจะถูกทิ้ง ส่วนการแก้แค่เวลาใน Studio ไม่ทำ words ใหม่ (ตั้งใจ)
 
 ### เลือกเนื้อดีที่สุดจากทุกแหล่ง (best)
-คำค้น: เลือกเนื้อดีที่สุด, best, เทียบเนื้อ, ทุกแหล่ง, JOOX, NetEase, YouTube Music, Musixmatch, lrclib, เปลี่ยนเนื้ออัตโนมัติ, lyrics.best.json, ซ่อมเวลาอัตโนมัติ, refine, manual-edit
+คำค้น: เลือกเนื้อดีที่สุด, best, เทียบเนื้อ, ทุกแหล่ง, JOOX, NetEase, YouTube Music, Musixmatch, lrclib, เปลี่ยนเนื้ออัตโนมัติ, lyrics.best.json, ซ่อมเวลาอัตโนมัติ, refine, manual-edit, เนื้อไม่ครบ, เนื้อแค่บางช่วง, บทพูด, เนื้อค้าง, sparse, cover, คลุมเสียงร้อง, gate
 - `server.py` `# ===== เลือกเนื้อดีที่สุด` `async def _enqueue_best(` `async def _best_worker(` `async def _run_best(` — งานเบื้องหลังหลังได้เนื้อรอบแรก: รวมทุกแหล่ง + OCR, ให้ FA ให้คะแนน, ตัดสิน, ซ่อมเวลา, ตรวจ v2 แล้วสั่ง words ต่อ
 - `server.py` `def _best_needed(` `def _best_decide(` `def _best_apply(` `def _best_record(` `async def _refine_dec(` `def _check_now(` — เช็คว่าต้องทำไหม, ตัดสิน keep|shift|retime|newtext|found|none, เขียน lyrics.json (สำรองลง 🕘 ก่อน), บันทึกผลลง lyrics.best.json
 - `server.py` `BEST_MANUAL = frozenset(` `BEST_VERSION = 2` — แหล่งที่ห้ามแตะ (manual-edit/manual-lrc/manual-txt) และรุ่นของงาน
+- `server.py` `def _best_pool(` `def _best_timed(` `BEST_MASS_FRAC = ` `BEST_SPARSE_V = ` — ให้คะแนน + ธง sparse (คลุมเสียงร้อง < 40 และ < ครึ่งของตัวที่คลุมสุด และตัวอักษร < 0.4 เท่า) + gate ตั้งจากตัวที่ข้อความมากพอ (บทพูด 9 บรรทัด match 81 เคยดัน gate จนเนื้อเต็มเพลงตกหมด) / เนื้อเดิม sparse ตัดสินแบบไม่มีเนื้อเดิม (กฎ weak ไม่ยุ่ง — คงไว้กันเพลงญี่ปุ่นถูกเปลี่ยนเป็นโรมาจิ) (ไม่มีแหล่งคน -> auto-caption ที่คลุม ≥ 60%) / เพลงเก่า sparse ทำใหม่ครั้งเดียว ("sv" ใน lyrics.best.json)
 - `server.py` `def _prefetch_best(` `async def _best_sources(` `BEST_PRE_TTL = ` — เพลงใหม่: ดึงแหล่งออนไลน์ + OCR ไว้ก่อนระหว่างรอแยกเสียง (ไม่ใช้ GPU) แล้ว _run_best ใช้ชุดนั้นเมื่อ hash เนื้อ + ภาษายังเหมือนตอนดึง (ผู้สมัครชุดเดียวกัน = ผลตัดสินเดิม) ไม่งั้นดึงใหม่ · เพลงที่ต้องรอถอดเสียงไม่ดึงล่วงหน้า (OCR ซ้อน demucs/ถอดเสียงแล้วงานพวกนั้นช้าลง — ให้ไปซ้อนกับการคำนวณเสียง FA ในงานเลือกเนื้อแทน)
 - `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบัน/ผู้สมัครที่ดึงล่วงหน้า (_best_pre) มีคำอังกฤษ (ตัดสินก่อนสร้าง task เพราะ _best_sources หยิบ _best_pre ออกไป) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
 ! บรรทัด [best] ใน log แตกเวลาเป็นขั้น (รอคิว / แหล่ง / รอGPU / FA / ซ่อม / ตรวจ) + "เนื้อใหม่ขึ้นจอหลังกดเพิ่ม" — ดูตรงนี้ก่อนถ้าเนื้อเพลงใหม่ช้า
+! "partial" ในงานนี้ = แหล่งออนไลน์ดึงไม่ครบ (ลองใหม่ได้) คนละเรื่องกับ sparse (เนื้อมีแค่บางช่วง) · เปลี่ยนกติกา sparse ต้องวัดด้วย scripts/eval_lyrics.py best + sparse
 ! งานอัตโนมัติห้ามเขียนทับเนื้อที่คนแก้หรือวางไฟล์เอง (BEST_MANUAL) เด็ดขาด แม้มีคนกดสั่ง (เช็คทั้งตอนเข้าคิวและตอนรัน) ถ้าเนื้อเปลี่ยนระหว่างทำ (hash ไม่ตรง) ต้องทิ้งผล และเพิ่ม BEST_VERSION แล้วจะทำซ้ำทั้งคลัง
 
 ## server.py — Studio (หน้าแอดมิน)
@@ -608,6 +611,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ### สร้างเนื้อเพลงอัตโนมัติ — ลำดับแหล่งเนื้อ (gen_lyrics)
 คำค้น: สร้างเนื้อ, หาเนื้อ, โหลดเนื้อใหม่, สร้างใหม่ทั้งคลัง, ลำดับแหล่ง, แหล่งเนื้อ, ไม่มีเนื้อ, เนื้อหาย, gen_lyrics, generate lyrics, lyrics pipeline, source priority, exit code, NO_LYRICS, need-asr, skip-done, no-asr, nolyr
 - `scripts/gen_lyrics.py` `def process(` `def main() -> None:` — process ไล่แหล่ง 0) lyrics-in/<vid>.json 1) .lrc 2) sub.<lang>.vtt 3) lrclib 4) auto-caption 5) whisper (+ เนื้อจาก description / lrclib-plain); main = CLI [vid…] --skip-done --no-asr --detect-lang
+- `scripts/gen_lyrics.py` `def keep_sparse(` `sparse_fb: tuple` — ขั้น 2-3: ซับ/lrclib ที่มีแค่บางช่วง (คลุมคำที่ auto-caption ได้ยิน < 40% / ไม่มี auto-caption: Σd < 25% ของคลิป) พิมพ์ [sparse] แล้วข้ามไปแหล่งอื่น ใช้เป็นทางสุดท้ายที่ทางออก "ไม่มีเนื้อ" ของขั้น 5
+- `scripts/lyrics_sources.py` `def sparse_why(` `def span_pct(` `def words_cover(` `SPARSE_SPAN = ` — ตัววัดเนื้อแค่บางช่วงก่อนมี vocals (ใช้ทั้ง gen_lyrics และ server)
 - `scripts/gen_lyrics.py` `def write_out(` `def _no_lyrics(` — ตัวเขียน lyrics.json ของ gen_lyrics/verify_lyrics (atomic, สำรอง lyrics.prev.json เมื่อ src เปลี่ยน, ลบ lyrics.offset.json, พรีวิว _srt) / หมุด "ไม่มีเนื้อ" lyrics.nolyr.json
 - `scripts/gen_lyrics.py` `def from_edit(` `def from_manual(` `def read_lines(` — lyrics-in/<vid>.json (manual-edit ชนะทุกแหล่ง), .lrc (manual-lrc), .txt (manual-txt) แล้วค่อยเนื้อจาก description
 - `scripts/gen_lyrics.py` `NEED_ASR = 3` `NO_LYRICS = 4` `TRUSTED_TIME = frozenset` — exit 3 = แหล่งที่ไม่ใช้ GPU หมดแล้วต้องถอดเสียงต่อ / 4 = ลองครบแล้วไม่มีเนื้อ; ชุด src ที่เวลามาจากแหล่งตรง ๆ
@@ -688,13 +693,14 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `scripts/lyrics_refine.py` `def defects(` `def _segments(` `def _spread(` `def repeated(` — หาบรรทัดเวลาอัด/เกลี่ยเส้นตรง, เลื่อนทั้งท่อนเมื่อ FA มั่นใจ ≥ 4 บรรทัดเห็นตรงกัน, เกลี่ยตามพยางค์ + ดูดเข้า onset, ท่อนซ้ำ
 - `scripts/lyrics_refine.py` `FAST_SPS = ` `SEG_MAX_SHIFT = ` `SEG_GAIN = ` `BREAK_SIL = ` — เกณฑ์ (พยางค์/วิที่ร้องไม่ทัน, เลื่อนท่อนได้ ≤ 3 วิ, ต้องดีขึ้น ≥ 20 จุด, ช่วงเงียบที่ตัดท่อนได้)
 - `scripts/vocal_activity.py` `def analyze(` `def load(` `def gaps(` `def onset_rate(` `def voiced_at(` — แผนที่เสียงร้องจาก vocals.m4a (dB/voiced/onset ทุก 20 ms) แคช _va/<vid>.npz; CLI <vid> [--audio]
+- `scripts/vocal_activity.py` `def cover(` `def envelope(` `MIN_VOICED = ` — % เสียงร้องที่บรรทัดคลุม (เนื้อแค่บางช่วง) / คลื่นเสียงร้อง 10 จุด/วิ ให้แท็บ ✂️
 - `lyrics-in/README.md` `## ระบบซ่อมเวลาอัตโนมัติ` — กฎ + ผลวัด + ปิดด้วย KARA_REFINE=dry|off (env ของ server)
 ! กฎเหล็ก: ห้ามขยับบรรทัดเดี่ยว ๆ ตาม FA (เคยทำแล้วความตรงตก 97%→92%); timeSrc "fa" = ไม่เลื่อนเป็นท่อน (วัดตัวเอง); JSON stdin/stdout ต้องเข้ากันได้ย้อนหลัง (server เรียกเป็น subprocess)
 ! งานอัตโนมัติไม่แตะเพลง manual-edit (🩺 ใน Studio เป็นข้อเสนอ ยังไม่บันทึก); ผลซ่อมบันทึกไว้ใน lyrics.best.json → refine
 
 ### ป้ายความมั่นใจ ✅/⚠️ + ตรวจเวลาเนื้อ v2
-คำค้น: ป้ายความมั่นใจ, ป้าย, ความมั่นใจ, ✅, ⚠️, ตรวจเวลา, ตรวจเวลาเนื้อ, 🔍, confidence, badge, onTime, score, check v2, เกณฑ์, ที่มาเนื้อ, ป้ายที่มา, src label, timeSrc
-- `scripts/lyrics_conf.py` `def confidence(` `LEVELS = ` — ระดับ good/check/bad/auto/unknown/none + เหตุผลสั้น (ไม่เคยวัด ≠ ดี, วัดตัวเองไม่นับ, เนื้อเครื่องถอด = auto)
+คำค้น: ป้ายความมั่นใจ, ป้าย, ความมั่นใจ, ✅, ⚠️, ตรวจเวลา, ตรวจเวลาเนื้อ, 🔍, confidence, badge, onTime, score, check v2, เกณฑ์, ที่มาเนื้อ, ป้ายที่มา, src label, timeSrc, 🕳, เนื้อไม่ครบ, sparse
+- `scripts/lyrics_conf.py` `def confidence(` `LEVELS = ` `SPARSE_COVER = ` — ระดับ good/check/bad/auto/sparse/unknown/none + เหตุผลสั้น (ไม่เคยวัด ≠ ดี, วัดตัวเองไม่นับ, เนื้อเครื่องถอด = auto, เนื้อแค่บางช่วง = sparse ทับ good ยกเว้นเนื้อที่คนใส่เอง) — รีโมท/Studio ขึ้น 🕳 เนื้อไม่ครบ
 - `scripts/lyrics_conf.py` `HAND = frozenset` `SRC_LABEL = {` `def kind(` `def time_src_of(` — src ที่คนพิมพ์, ป้ายที่มาเนื้อภาษาไทย (รีโมท/จอใช้ชุดเดียวกัน), เดา timeSrc ให้ไฟล์รุ่นเก่า
 - `scripts/lyrics_conf.py` `OK_SCORE, BAD_SCORE = 60, 30` `OK_SCORE_V2 = 70` `DEFECT_MIN = 2` — เกณฑ์ v1 / v2 (✅ = ตรง ≥ 70% และบรรทัดบกพร่อง < 2)
 - `scripts/lyrics_refine.py` `def check_timing(` `CHECK_SLIDE = ` — ตรวจเวลา v2: FA ไม่มีหมุดหาเลื่อนรวม แล้ววัดต่อบรรทัด (ไหลเกิน 3 วิใช้ค่ามีหมุด), ไม่นับท่อนซ้ำ/บรรทัดวงเล็บล้วน, นับบรรทัดบกพร่อง

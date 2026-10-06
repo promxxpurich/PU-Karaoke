@@ -20,6 +20,7 @@
   core                         บล็อก lyrcore ใน player.html กับ studio.html ต้องเหมือนกันทุกตัวอักษร
   refine-synth                 ทำเวลาเสียเองบนซับที่คนทำ แล้วดูว่าตัวซ่อม (lyrics_refine) กู้คืนได้แค่ไหน
   check [--nosynth]            ป้าย ✅/⚠️: ตรวจเวลา v1 vs v2 — เตือนผิดในเพลงจริง vs จับเพลงที่ทำเสียเองได้
+  sparse [--set ...]           กติกาเนื้อแค่บางช่วง: เนื้อเต็มต้องไม่ติดธง / เนื้อที่ตัดเหลือบางช่วงต้องเปลี่ยนไปตัวที่ครบ
 ตัวแปรแวดล้อม: KARA_SONGS_DIR / KARA_FA_CACHE / KARA_EVAL_DIR (ค่าเริ่มต้น = ของโปรเจกต์นี้)
 """
 import difflib
@@ -367,13 +368,82 @@ def pair_err(chosen: list[dict], ref: dict) -> list[tuple[int, float | None]]:
     return out
 
 
+def _va(vid: str, audio: Path | None):
+    """แผนที่เสียงร้อง (แคช _va — คำนวณบน CPU ได้ ไม่แตะ GPU) เฉพาะ vocals.m4a เหมือน server._va_for"""
+    if not audio or audio.name != "vocals.m4a":
+        return None
+    try:
+        import vocal_activity as VA
+        return VA.load(vid, audio)
+    except Exception:
+        return None
+
+
 def score_cands(SV, F, vid: str, cands: list[dict], dur: float, audio: Path | None, opt: dict | None):
     sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
     res = []
     for stt in sets:
         res.append(F.time_lines(vid, stt, dur, audio, opt=opt) if stt else None)
-    SV._score_fa(cands, res)
+    SV._score_fa(cands, res, va=_va(vid, audio))
     return res
+
+
+_SCORE_KEYS = ("match", "faConf", "faLines", "timing", "timingAfter", "shift", "score", "by", "cover", "sparse")
+
+
+def cmd_sparse():
+    """กติกาเนื้อแค่บางช่วง (sparse) ของงานเลือกเนื้อ บนผู้สมัครที่แช่ไว้ (freeze) — cmd_best ตัดเนื้อเดิมออกจึงทดสอบไม่ได้
+    เนื้อเดิม = ไม้บรรทัดทั้งเพลง -> ต้องไม่ถูกมองว่าแค่บางช่วง (เตือนผิด)
+    เนื้อเดิมที่ตัดเหลือบางช่วง (9 บรรทัดแรก ~ บทพูดต้นเอ็มวี / 10% กลางเพลง) -> ต้องเปลี่ยนไปตัวที่ครบ"""
+    SV = _server()
+    F = _fa()
+    n_full = flag_full = 0
+    sw = {"head9": [0, 0, 0], "mid10": [0, 0, 0]}          # [กรณี, ติดธง sparse, เปลี่ยนไปตัวที่ครบ]
+    for r in refsets(arg("--set", "all")):
+        z = jload(EVAL / "src" / f"{r['vid']}.json")
+        if not z:
+            continue
+        drop = {"current"} | ({"yt-sub"} if r["kind"] == "silver" else set())
+        base = [{k: v for k, v in c.items() if k not in _SCORE_KEYS} for c in z["cands"] if c["provider"] not in drop]
+        audio = r["dir"] / "vocals.m4a"
+        audio = audio if audio.is_file() else None
+        L, n = r["lines"], len(r["lines"])
+        variants = {"full": L, "head9": L[:9], "mid10": L[n // 2: n // 2 + max(3, n // 10)]}
+        try:
+            score_cands(SV, F, r["vid"], base, r["dur"], audio, None)    # ผู้สมัครเหมือนกันทุกแบบ ให้คะแนนครั้งเดียว
+        except Exception as exc:
+            print("fa fail", r["vid"], exc)
+            continue
+        out = {}
+        for name, lv in variants.items():
+            cur = {"src": "yt-sub", "lines": [dict(l) for l in lv]}     # เนื้ออัตโนมัติที่คนพิมพ์ + เวลาในตัว
+            cc = {"provider": "current", "label": "เนื้อเดิม", "synced": True, "lines": cur["lines"],
+                  "texts": None, "meta": {}, "via": "local"}
+            try:
+                score_cands(SV, F, r["vid"], [cc], r["dur"], audio, None)
+            except Exception as exc:
+                print("fa fail", r["vid"], name, exc)
+                continue
+            cands = [dict(c) for c in base] + [cc]
+            dec = SV._best_decide(cands, cur)
+            out[name] = (dec["action"], (dec.get("cand") or {}).get("provider", "-"), cc.get("cover"),
+                         bool(cc.get("sparse")))
+        if "full" not in out:
+            continue
+        n_full += 1
+        flag_full += out["full"][3]
+        for name in ("head9", "mid10"):
+            if name in out:
+                act, prov, cv, sp = out[name]
+                sw[name][0] += 1
+                sw[name][1] += sp
+                sw[name][2] += act == "newtext"
+        fmt = lambda o: f"{o[0]}/{o[1]} คลุม {o[2]}{' SPARSE' if o[3] else ''}" if o else "-"
+        print(f"{r['vid']} {r['kind']:6s} full {fmt(out.get('full'))} | head9 {fmt(out.get('head9'))}"
+              f" | mid10 {fmt(out.get('mid10'))}", flush=True)
+    print(f"== เนื้อเต็มถูกมองว่าแค่บางช่วง (เตือนผิด): {flag_full}/{n_full}")
+    for name, (k, f_, s_) in sw.items():
+        print(f"== {name}: ติดธง sparse {f_}/{k} · เปลี่ยนไปตัวที่ครบ {s_}/{k}")
 
 
 def cmd_best():
@@ -398,7 +468,7 @@ def cmd_best():
         audio = r["dir"] / "vocals.m4a"
         audio = audio if audio.is_file() else None
         for c in cands:
-            for k in ("match", "faConf", "faLines", "timing", "timingAfter", "shift", "score", "by"):
+            for k in _SCORE_KEYS:
                 c.pop(k, None)
         try:
             score_cands(SV, F, r["vid"], cands, r["dur"], audio, None)
@@ -411,7 +481,7 @@ def cmd_best():
         if opt or refine:
             c2 = [dict(c) for c in cands]
             for c in c2:
-                for k in ("match", "faConf", "faLines", "timing", "timingAfter", "shift", "score", "by"):
+                for k in _SCORE_KEYS:
                     c.pop(k, None)
             if opt:
                 score_cands(SV, F, r["vid"], c2, r["dur"], audio, opt)
@@ -535,7 +605,8 @@ def main():
         return
     cmd = sys.argv[1]
     {"gold": cmd_gold, "fa": cmd_fa, "display": cmd_display, "freeze": cmd_freeze, "best": cmd_best,
-     "core": cmd_core, "refine-synth": cmd_refine_synth, "check": cmd_check}.get(cmd, lambda: print(__doc__))()
+     "core": cmd_core, "refine-synth": cmd_refine_synth, "check": cmd_check,
+     "sparse": cmd_sparse}.get(cmd, lambda: print(__doc__))()
 
 
 

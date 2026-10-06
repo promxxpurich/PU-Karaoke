@@ -32,8 +32,12 @@ OK_SCORE, BAD_SCORE = 60, 30
 # (ท่อนครึ่งหลังเลื่อน 84% vs 61%, บรรทัดอัด 100% vs 10%, เกลี่ยเส้นตรง 90% vs 13%)
 OK_SCORE_V2 = 70
 DEFECT_MIN = 2            # บรรทัดที่เวลาอัด/เดา ตั้งแต่เท่านี้ขึ้นไป = ควรเช็ก (กด 🩺 ใน Studio)
+# เนื้อ "แค่บางช่วง": % ของเวลาที่มีเสียงร้องจริง (vocal_activity.cover) ที่มีบรรทัดคลุม — วัดกับคลังจริง 223 เพลง
+# เนื้อที่ถูกต้องต่ำสุด 61 (ค่ากลาง 95) / ซับแค่บทพูดในเอ็มวี 5, เนื้อ 4 บรรทัดจากคำอธิบาย 26
+SPARSE_COVER = 40.0
+# ตรวจเวลาอย่างเดียวไม่พอ: ซับบทพูด 9 บรรทัดตรงเวลา 100% ได้ ✅ ทั้งที่ร้องทั้งเพลงไม่มีเนื้อขึ้น
 
-LEVELS = ("good", "check", "bad", "auto", "unknown", "none")
+LEVELS = ("good", "check", "bad", "auto", "sparse", "unknown", "none")
 
 # ป้าย "เนื้อแบบไหน" ที่คนสั่งเพลงอ่านรู้เรื่อง — รีโมทกับจอทีวีใช้ข้อความชุดเดียวกัน
 SRC_LABEL = {
@@ -68,19 +72,25 @@ def time_src_of(j: dict) -> str:
     return "self" if j.get("src") in ("manual-lrc", "manual-edit", "yt-sub", "lrclib", "yt-auto") else "asr"
 
 
+MANUAL = frozenset({"manual-edit", "manual-lrc", "manual-txt"})   # คนตั้งใจใส่เอง — ไม่เตือนว่าไม่ครบ
+
+
 def confidence(src: str, time_src: str, on_time: float | None,
                measured_by: str = "", measurable: bool = True,
-               defects: int = 0, version: int = 1) -> tuple[str, str]:
-    """คืน (ระดับ, เหตุผลสั้น) — good | check | auto | unknown | none
+               defects: int = 0, version: int = 1, sparse: str = "") -> tuple[str, str]:
+    """คืน (ระดับ, เหตุผลสั้น) — good | check | bad | auto | sparse | unknown | none
 
-    กติกา 3 ข้อ ทุกข้อมาจากกับดักที่โค้ดนี้เคยตกมาแล้วจริง ๆ:
+    กติกา 4 ข้อ ทุกข้อมาจากกับดักที่โค้ดนี้เคยตกมาแล้วจริง ๆ:
       1. "ไม่เคยวัด" ไม่ใช่ "ดี" ต้องขึ้นว่ายังไม่ได้ตรวจ
       2. ไม้บรรทัดที่มาจากแหล่งเดียวกับเวลา = วัดตัวเอง ห้ามนับ
          (เคยเจอตอน A/B โมเดลถอดเสียง: เทียบกับแคชของตัวเองชนะทุกครั้ง)
       3. เนื้อจากเครื่องถอดเสียง ต่อให้เวลาตรง 100% ก็ยังการันตีตัวหนังสือไม่ได้
+      4. เวลาตรงทุกบรรทัดไม่ได้แปลว่าเนื้อครบ — sparse = เหตุผลว่าคลุมแค่บางช่วง (ผู้เรียกวัดมา, "" = ครบ)
     """
     if src not in HAND:                              # yt-auto
         return "auto", "เนื้อมาจากเครื่องถอดเสียงของ YouTube"
+    if sparse and src not in MANUAL:                 # กติกา 4: ทับ "good" — จอขึ้น ♪ ค้างทั้งท่อนที่ร้อง
+        return "sparse", f"เนื้อมีแค่บางช่วงของเพลง ({sparse}) — Studio → 🔎 หาเนื้อ"
     if measured_by and measured_by == (time_src or "self"):
         on_time = None                               # กติกา 2: วัดตัวเอง = ไม่ได้วัด
     if on_time is None:

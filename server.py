@@ -1402,6 +1402,7 @@ def _chk_verdict(vid: str) -> str:
 
 
 _lyr_from: dict[str, dict | None] = {}     # videoId -> {"kind": picked|best, "label"} อัปเดตพร้อม _lyr_cache
+_lyr_cov: dict[str, float | None] = {}     # videoId -> % ของคลิปที่มีบรรทัดขึ้น (Σd) อัปเดตพร้อม _lyr_cache
 
 
 def _lyr_meta(vid: str) -> tuple[float, int, bool, str, str]:
@@ -1438,7 +1439,50 @@ def _lyr_meta(vid: str) -> tuple[float, int, bool, str, str]:
     except Exception:
         frm = None
     _lyr_from[vid] = frm
+    try:                                       # ทุกแหล่ง (เดิมคิดเฉพาะแหล่งที่เวลาไม่น่าเชื่อ) — ไว้ดูว่าเนื้อมีแค่บางช่วงไหม
+        _lyr_cov[vid] = LS.span_pct(L, float(j.get("duration") or 0) or float(_song_meta(vid)["duration"] or 0)) if n else None
+    except Exception:
+        _lyr_cov[vid] = None
     return _lyr_cache[vid]
+
+
+def _lyr_sparse(vid: str) -> str:
+    """เนื้อปัจจุบันมีแค่บางช่วงของเพลงไหม (ซับบทพูดในเอ็มวี) -> เหตุผลสั้น / "" = ครบ หรือไม่รู้
+    วัดจากผลตรวจล่าสุดก่อน (เสียงร้องจริงที่มีบรรทัดคลุม — แม่นกว่า) ผลตรวจเก่า/ก่อนแก้เนื้อ ใช้สัดส่วนเวลาคลิป
+    เนื้อที่คนใส่เองไม่นับ (ตั้งใจใส่แค่นั้นเอง) — ใช้ทั้งป้าย 🕳, จุดเริ่ม/จบอัตโนมัติ และงานเลือกเนื้อ"""
+    mt, n, _, src, _ = _lyr_meta(vid)
+    if not n or src in LC.MANUAL:
+        return ""
+    ck = _chk_info(vid)
+    cv = ck.get("cover")
+    if cv is not None and float(ck.get("at") or 0) >= mt - 1:
+        return f"คลุมที่ร้อง {cv:.0f}%" if cv < LC.SPARSE_COVER else ""
+    sp = _lyr_cov.get(vid)
+    return f"คลุมแค่ {sp:.0f}% ของคลิป" if sp is not None and sp < LS.SPARSE_SPAN else ""
+
+
+def _va_for(vid: str) -> dict | None:
+    """แผนที่เสียงร้อง (scripts/vocal_activity.py แคชใน _va) — เฉพาะ vocals.m4a: เสียงเต็มเพลงมีดนตรีทั้งเพลง วัดไม่ได้
+    ครั้งแรกของเพลงใช้ ffmpeg + CPU 2-4 วิ -> ห้ามเรียกบน event loop (asyncio.to_thread)"""
+    a = _song_dir(vid) / "vocals.m4a"
+    if not a.is_file():
+        return None
+    try:
+        import vocal_activity as VA
+        return VA.load(vid, a)
+    except Exception as exc:
+        print(f"[va] {vid} {type(exc).__name__}: {exc}")
+        return None
+
+
+def _cover_of(vid: str, lines: list[dict], off: float, va: dict | None = None) -> float | None:
+    """% ของเสียงร้องที่เนื้อชุดนี้คลุม (เวลาเนื้อ + offset = เวลาในเสียง) — ไม่มี vocals = None"""
+    va = va if va is not None else _va_for(vid)
+    if not va or not lines:
+        return None
+    import vocal_activity as VA
+    return VA.cover(va, [(float(l["t"]) + off, float(l["t"]) + off + float(l.get("d") or 0)) for l in lines
+                         if isinstance(l.get("t"), (int, float))])
 
 
 # offset ประจำเพลง: บวกเข้ากับ t ตอนแสดง (บวก = ซับขึ้นช้าลง) ทิศเดียวกับ ?lyroffset= ของจอหลัก
@@ -1567,9 +1611,10 @@ def _lyr_span(vid: str) -> tuple[float, float] | None:
 
 
 def _auto_span(vid: str, tv: dict) -> tuple[float, float | None]:
-    """จุดเริ่ม/จบอัตโนมัติจากเวลาเนื้อ (เวลาเนื้อ + offset ประจำเพลง = เวลาในเสียง) — ไม่มีเนื้อ = ทั้งคลิป"""
+    """จุดเริ่ม/จบอัตโนมัติจากเวลาเนื้อ (เวลาเนื้อ + offset ประจำเพลง = เวลาในเสียง) — ไม่มีเนื้อ = ทั้งคลิป
+    เนื้อแค่บางช่วง = ทั้งคลิปเหมือนกัน: บรรทัดแรก/สุดท้ายเป็นบทพูด ไม่ใช่ต้น/ท้ายเพลง (เคยตัดเพลงทิ้ง 100 วิสุดท้าย)"""
     sp = _lyr_span(vid)
-    if not sp:
+    if not sp or _lyr_sparse(vid):
         return 0.0, None
     off = _lyr_offset(vid)
     s = sp[0] + off - tv.get("customLead", 4)
@@ -1682,7 +1727,7 @@ def _lyr_fields(item: dict) -> None:
             ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
             ck.get("measuredBy") or "",
             measurable=ck.get("verdict") != "unmeasurable",
-            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1))
+            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1), sparse=_lyr_sparse(vid))
         return
     if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
         item["lyrStatus"] = "nolyr"   # ลองครบทุกแหล่งแล้วจริง ๆ ไม่ใช่ "ยังไม่ได้ลอง"
@@ -2025,6 +2070,9 @@ def _find_lyrics(vid: str) -> tuple[bool, str]:
         raise RuntimeError("ไม่มี scripts/gen_lyrics.py")
     rc, out, err = _run_child("lyrfind", vid, [sys.executable, str(script), "--no-asr", vid],
                               timeout=FIND_TIMEOUT, cwd=str(BASE))
+    for l in (out or "").splitlines():
+        if l.startswith("[sparse]"):
+            print(l)                # ซับ/lrclib ที่มีแค่บางช่วง (บทพูดในเอ็มวี) ถูกข้าม — ไปลองแหล่งอื่นก่อน
     if rc == _NEED_ASR_RC:
         return True, ""
     if rc != 0:
@@ -2101,6 +2149,9 @@ def _build_lyrics(vid: str) -> str:
     if vid in _preempt_kill:
         _preempt_kill.discard(vid)
         raise _Preempted()
+    for l in (out or "").splitlines():
+        if l.startswith(("[asr]", "[sparse]")):
+            print(l)                # เวลาถอดเสียงจริงของ whisper (เวลารวมของ gen_lyrics รวมเน็ต/ลองซ้ำด้วย) / ซับที่ข้าม
     if rc == _NO_LYRICS_RC:
         return ""                   # ลองครบทุกแหล่งแล้วไม่มีเนื้อ — ไม่ใช่ความล้มเหลว
     if rc != 0:
@@ -2440,6 +2491,12 @@ def _write_check(vid: str, score: float | None, shift: float, by: str, n: int, n
     old = _chk_info(vid)
     rec = {"vid": vid, "at": time.time(), "src": j.get("src") or "", "timeSrc": LC.time_src_of(j) if j else "",
            "measuredBy": by, "lines": n, "shift": round(shift, 2), "note": note}
+    try:                    # เวลาตรงทุกบรรทัดไม่ได้แปลว่าเนื้อครบ — เก็บว่าคลุมเสียงร้องกี่ % ไว้ให้ป้าย 🕳 (ผู้เรียกอยู่ใน thread)
+        cv = _cover_of(vid, j.get("lines") or [], _lyr_offset(vid)) if j else None
+        if cv is not None:
+            rec["cover"] = cv
+    except Exception as exc:
+        print(f"[check] {vid} วัดความคลุมไม่ได้: {type(exc).__name__}: {exc}")
     defects = list((v2 or {}).get("defects") or [])
     if v2 is not None:
         rec.update(v=CHECK_VERSION, defects=defects, g=v2.get("g") or 0.0)
@@ -2889,7 +2946,7 @@ def _lyr_health() -> dict:
             ck.get("score") if ck.get("verdict") not in ("", "unmeasurable", "reported") else None,
             ck.get("measuredBy") or "",
             measurable=ck.get("verdict") != "unmeasurable",
-            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1))
+            defects=len(ck.get("defects") or []), version=int(ck.get("v") or 1), sparse=_lyr_sparse(vid))
         conf[lvl] = conf.get(lvl, 0) + 1
     return {
         "withLyrics": sum(by_src.values()),
@@ -4717,10 +4774,14 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
         else M.queries(title, uploader)
     lyr_texts: list[str] = []
     try:
-        if (d / "lyrics.json").is_file():
+        if (d / "lyrics.json").is_file() and not _lyr_sparse(vid):     # เนื้อแค่บางช่วง = บทพูด ค้นไปก็ไม่เจอเพลง
             lyr_texts = [l["x"] for l in json.loads((d / "lyrics.json").read_text("utf-8")).get("lines") or []]
         if not lyr_texts:
             lyr_texts = G.read_lines(vid, d)[0] or []
+        if not lyr_texts:                    # คำที่ YouTube ถอดได้ (auto-caption) — ได้ยินท่อนร้องทั้งเพลง
+            auto = d / f"auto.{_song_lang(vid)[0] or 'th'}.vtt"
+            w = LS.words_from_auto_vtt(auto, _song_lang(vid)[0] or "th") if auto.is_file() else None
+            lyr_texts = [l["x"] for l in (G.lines_from_words(w, dur) or [])] if w else []
         if not lyr_texts:                    # ยังไม่มีเนื้อเลย -> ใช้สิ่งที่ whisper ได้ยิน
             for f in [G.segment_cache_path(vid)] + sorted(SEG_CACHE.glob(f"{vid}.*.json")):
                 if f.is_file():
@@ -4847,10 +4908,14 @@ def _score_whisper(vid: str, cands: list[dict]) -> None:
         c["by"] = by
 
 
-def _score_fa(cands: list[dict], results: list[dict | None]) -> None:
+def _score_fa(cands: list[dict], results: list[dict | None], va: dict | None = None, off: float = 0.0) -> None:
     """คะแนนด้วย FA: match = ข้อความเข้ากับเสียงร้องแค่ไหน (ความมั่นใจเฉลี่ย)
     timing = % บรรทัดที่เวลาเดิมตรงกับที่ FA หาได้ภายใน 0.5 วิ / หลังเลื่อนทั้งเพลงค่าเดียว
-    แนบ faLines = ข้อความชุดนั้นจับเวลาด้วย FA แล้ว (ใช้ได้ทันทีแม้เป็นเนื้อเปล่า)"""
+    แนบ faLines = ข้อความชุดนั้นจับเวลาด้วย FA แล้ว (ใช้ได้ทันทีแม้เป็นเนื้อเปล่า)
+    va (แผนที่เสียงร้อง _va_for — ผู้เรียกโหลดใน thread) -> cover = % เสียงร้องที่ชุดนี้คลุม
+    match อย่างเดียวหลอกได้: บทพูด 9 บรรทัดในเอ็มวีได้ 81% (ชัดทุกคำ) สูงกว่าเนื้อเต็มเพลง 55%
+    off = offset ประจำเพลงของเนื้อปัจจุบัน (ใช้กับผู้สมัคร current เมื่อหาค่าเลื่อนไม่ได้)"""
+    import vocal_activity as VA
     for c, r in zip(cands, results):
         if not r:
             continue
@@ -4869,6 +4934,17 @@ def _score_fa(cands: list[dict], results: list[dict | None]) -> None:
                 c["shift"] = round(m, 2) if abs(m) >= 0.3 else 0.0
                 c["timing"] = round(100 * sum(abs(x) <= 0.5 for x in ds) / len(ds), 1)
                 c["timingAfter"] = round(100 * sum(abs(x - c["shift"]) <= 0.5 for x in ds) / len(ds), 1)
+        if va is not None:
+            # คลุมเสียงร้อง = ค่าที่มากกว่าระหว่าง "ที่ FA วางบรรทัดที่มั่นใจ" กับ "เวลาของแหล่งเอง + ค่าเลื่อน"
+            # (บรรทัดอังกฤษตอนไม่มีโมเดลอังกฤษ / แร็ปเร็ว FA ไม่มั่นใจ แต่เวลาของแหล่งยังบอกได้ว่าคลุมตรงไหน)
+            cvs = [VA.cover(va, [(l["t"], l["t"] + l["d"]) for l, cf in zip(fl, confs) if cf >= FA_MIN_CONF])]
+            if c["synced"]:
+                sh = c["shift"] if "shift" in c else (off if c["provider"] == "current" else 0.0)
+                cvs.append(VA.cover(va, [(float(l["t"]) + sh, float(l["t"]) + sh + float(l.get("d") or 0))
+                                         for l in c["lines"]]))
+            cvs = [x for x in cvs if x is not None]
+            if cvs:
+                c["cover"] = max(cvs)
 
 
 @app.post("/api/studio/song/{vid}/sources")
@@ -4891,16 +4967,28 @@ async def studio_sources(vid: str, request: Request):
         if engine_fa and cands:
             try:
                 sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
+                va = asyncio.create_task(asyncio.to_thread(_va_for, vid))   # แผนที่เสียงร้อง (ffmpeg) ซ้อนกับ FA
                 r = await _fa(vid, {"sets": sets, "duration": _song_meta(vid)["duration"] or 0})
-                _score_fa(cands, r.get("results") or [])
+                _score_fa(cands, r.get("results") or [], va=await va, off=_lyr_offset(vid))
             except Exception as exc:
                 print(f"[sources] {vid} FA ให้คะแนนไม่ได้ ({exc}) -> ใช้ whisper")
                 await asyncio.to_thread(_score_whisper, vid, cands)
         else:
             await asyncio.to_thread(_score_whisper, vid, cands)
         _src_cache[key] = (time.time(), (cands, used))
-    ranked = sorted(cands, key=lambda c: (-(c.get("match") or 0), -(c.get("timingAfter") or 0)))
-    return {"candidates": ranked, "queries": used,
+    # ตัวที่งานเลือกเนื้ออัตโนมัติจะใช้ขึ้นก่อน (เดิมเรียงตาม match ล้วน -> บทพูด 9 บรรทัด 81% ขึ้นที่หนึ่ง)
+    # แล้วตัวที่ครบทั้งเพลงตาม match / ตัวที่มีแค่บางช่วงไว้ท้าย
+    pick = None
+    try:
+        dec = _best_decide(cands, None if track else _read_lyr(vid))
+        pick = (dec.get("cand") or {}).get("id") if dec.get("action") != "none" else None
+        if pick is None:
+            pick = (_best_pool(cands)[3] or {}).get("id")
+    except Exception as exc:
+        print(f"[sources] {vid} เลือกตัวแนะนำไม่ได้: {type(exc).__name__}: {exc}")
+    ranked = sorted(cands, key=lambda c: (c.get("id") != pick, bool(c.get("sparse")),
+                                          -(c.get("match") or 0), -(c.get("timingAfter") or 0)))
+    return {"candidates": ranked, "queries": used, "pick": pick,
             "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)}}
 
 
@@ -4921,6 +5009,14 @@ BEST_TIME_HUMAN = 60.0        # เวลาที่คนทำ: ตรงก�
 BEST_TIME_SUB = 30.0          # ซับ YouTube ของคลิปนี้: เชื่อคนมากกว่า FA เว้นแต่ไม่ตรงเลยจริง ๆ
 BEST_TIME_AI = 85.0           # เวลาที่เครื่องเดา (whisper/auto-cap): ต้องตรงมากกว่านี้ถึงเก็บไว้ ไม่งั้นใช้ FA
 BEST_SHIFT_MIN, BEST_SHIFT_GAIN = 0.5, 15.0   # เลื่อนทั้งเพลงเมื่อเลื่อน >= 0.5 วิ และตรงขึ้น >= 15%
+# เนื้อ "แค่บางช่วง" (ซับบทพูดในเอ็มวี h2nIHSgQ2Bs: 9 บรรทัด match 81 แต่คลุมเสียงร้อง 5%) — match เฉลี่ยของบรรทัดที่มี
+# วัดว่า "ตรงไหม" ไม่ได้วัดว่า "ครบไหม" จึงเคยตั้งเกณฑ์ gate สูงจนเนื้อเต็มเพลงตกหมด ต้องดู 2 อย่างประกอบ:
+BEST_MASS_FRAC = 0.4          # คะแนนตัวอักษร (_text_score) ไม่ถึงเท่านี้ของตัวที่มากที่สุด = เนื้อน้อย -> ห้ามตั้งเกณฑ์ gate
+BEST_SPARSE_REL = 0.5         # sparse = คลุมเสียงร้อง < LC.SPARSE_COVER และ < เท่านี้ของตัวที่คลุมมากที่สุด และเนื้อน้อย
+#                               (ครบทั้งสามข้อ — คลิปที่บทพูดยาว เนื้อดีคลุมได้แค่ ~35% แต่ตัวอักษรยังมากจึงไม่โดน)
+BEST_AUTO_COVER = 60.0        # เนื้อเดิม sparse + ไม่มีแหล่งที่คนพิมพ์ -> ใช้ auto-caption ได้ถ้าคลุมเสียงร้องเท่านี้ขึ้นไป
+BEST_AUTO_OVER = 3.0          # และตัวอักษรเข้ากับเสียงร้องมากกว่าเนื้อเดิมเท่านี้
+BEST_SPARSE_V = 1             # รุ่นกติกา sparse ใน lyrics.best.json ("sv") — เพลงเก่าที่เนื้อแค่บางช่วงทำใหม่ครั้งเดียว
 # ไม่มี "ขยับรายบรรทัด" ตั้งใจ: เคยลองขยับบรรทัดที่ FA เห็นต่าง 0.5-1.5 วิ ไปตาม FA
 # วัดกับ 20 เพลงที่ผู้ใช้จับเวลาเอง ความตรงลดจาก 97% เหลือ 92% ทุกเพลง = ตรงนั้น FA ผิด ไม่ใช่คน
 BEST_IDLE_GAP = 2.0           # งานตอนว่างเว้นระหว่างเพลง กันแหล่งออนไลน์ตัดการเชื่อมต่อ
@@ -5070,6 +5166,11 @@ def _best_needed(vid: str) -> bool:
     if j:
         if (j.get("src") or "") in BEST_MANUAL:
             return False
+        # เนื้ออัตโนมัติที่มีแค่บางช่วง (ซับบทพูดในเอ็มวี) ตัดสินไว้ก่อนมีกติกา sparse -> ทำใหม่ครั้งเดียว
+        # ต้องมาก่อนเช็ก "best" ข้างล่าง: เนื้อที่งานนี้เคยจับเวลาใหม่ (retime) มีฟิลด์ best อยู่แล้ว
+        sp = LS.span_pct(j.get("lines") or [], float(j.get("duration") or 0) or float(_song_meta(vid)["duration"] or 0))
+        if sp is not None and sp < LS.SPARSE_SPAN and int(_best_rec(vid).get("sv") or 0) < BEST_SPARSE_V:
+            return True
         if j.get("best") and not (int(_best_rec(vid).get("v") or 1) < BEST_VERSION and REFINE_MODE != "off"):
             return False
     elif not (d / "lyrics.nolyr.json").is_file():
@@ -5112,27 +5213,48 @@ def _best_src(c: dict, cur: dict | None) -> str:
     return p
 
 
-def _best_decide(cands: list[dict], cur: dict | None) -> dict:
-    """ตัดสินจากผลให้คะแนนของ FA (ฟังก์ชันล้วน — ทดลองกับทั้งคลังได้โดยไม่เขียนไฟล์)
-    คืน {"action": keep|shift|retime|newtext|found|none, "reason", "cand", "lines", "timeSrc", "shift"}"""
+def _best_timed(c: dict) -> bool:
+    """เวลาในตัวของแหล่งตรงกับเสียงร้องพอใช้ได้เลย (หลังเลื่อนทั้งเพลง)"""
+    return c["synced"] and (c.get("timingAfter") or 0) >= BEST_TIME_HUMAN
+
+
+def _best_pool(cands: list[dict]) -> tuple[list[dict], float, list[dict], dict | None]:
+    """ให้คะแนนตัวอักษร + ติดธง sparse แล้วคืน (ผู้สมัครที่มีคะแนน, เกณฑ์ gate, ผู้สมัครที่แทนได้, ตัวที่ดีที่สุด)
+    ใช้ร่วมกันระหว่างงานเลือกเนื้อ (_best_decide) กับ 🔎 ห้องหาเนื้อใน Studio (ตัวที่ระบบจะเลือกขึ้นก่อน)"""
     for c in cands:
         if c.get("faConf") is not None:
             c["score"] = _text_score(c)
     scored = [c for c in cands if "score" in c]
-    gate = max(BEST_MIN_MATCH, max((c.get("match") or 0 for c in scored if c["provider"] not in ("yt-auto", "ocr")),
-                                   default=0) - BEST_MATCH_SPREAD)
-
-    def timed(c):
-        return c["synced"] and (c.get("timingAfter") or 0) >= BEST_TIME_HUMAN
-    cur_c = next((c for c in scored if c["provider"] == "current"), None)
+    mass_all = max((c["score"] for c in scored), default=0)
+    mass_human = max((c["score"] for c in scored if c["provider"] not in ("yt-auto", "ocr")), default=0)
+    ref_cover = max((c["cover"] for c in scored if c.get("cover") is not None
+                     and (c.get("match") or 0) >= BEST_MIN_MATCH), default=None)
+    for c in scored:                    # แค่บางช่วง = คลุมเสียงร้องน้อย (ทั้งตัวเลขเปล่าและเทียบตัวที่ดีที่สุด) และตัวอักษรน้อย
+        cv = c.get("cover")
+        c["sparse"] = bool(cv is not None and ref_cover is not None and cv < LC.SPARSE_COVER
+                           and cv < BEST_SPARSE_REL * ref_cover and c["score"] < BEST_MASS_FRAC * mass_all)
+    # เกณฑ์ gate ตั้งจากตัวที่ข้อความมากพอเท่านั้น — บรรทัดน้อยแต่ชัดได้ match สูงเกินจริง (บทพูด 9 บรรทัด = 81)
+    gate = max(BEST_MIN_MATCH, max((c.get("match") or 0 for c in scored if c["provider"] not in ("yt-auto", "ocr")
+                                    and c["score"] >= BEST_MASS_FRAC * mass_human), default=0) - BEST_MATCH_SPREAD)
     # ตัวหนังสือเครื่องถอด (yt-auto) / เครื่องอ่านจากภาพ (ocr) ไม่เอามาแทน — สะกดเพี้ยนได้
     # (เวลาจากภาพยังใช้ได้ผ่านผู้สมัคร "ocr+แหล่ง" = ข้อความของคน + เวลาที่ขึ้นจอในคลิป)
     # คะแนนเท่ากันให้ตัวที่เวลาในตัวตรงเสียงชนะ
-    pool = [c for c in scored if c["provider"] not in ("current", "yt-auto", "ocr")
+    pool = [c for c in scored if c["provider"] not in ("current", "yt-auto", "ocr") and not c["sparse"]
             and (c.get("match") or 0) >= gate and c.get("faLines")]
-    top = max(pool, key=lambda c: (c["score"] * (1.03 if timed(c) else 1.0), c.get("match") or 0)) if pool else None
+    top = max(pool, key=lambda c: (c["score"] * (1.03 if _best_timed(c) else 1.0), c.get("match") or 0)) \
+        if pool else None
+    return scored, gate, pool, top
+
+
+def _best_decide(cands: list[dict], cur: dict | None) -> dict:
+    """ตัดสินจากผลให้คะแนนของ FA (ฟังก์ชันล้วน — ทดลองกับทั้งคลังได้โดยไม่เขียนไฟล์)
+    คืน {"action": keep|shift|retime|newtext|found|none, "reason", "cand", "lines", "timeSrc", "shift"}"""
+    scored, gate, pool, top = _best_pool(cands)
+    timed = _best_timed
+    cur_c = next((c for c in scored if c["provider"] == "current"), None)
     cur_src = (cur or {}).get("src") or ""
     cur_ts = LC.time_src_of(cur) if cur else ""
+    thin = ""                                     # เหตุผลถ้าเนื้อเดิมมีแค่บางช่วง
     if cur_c is None:
         if cur:                                   # FA ให้คะแนนเนื้อเดิมไม่ได้ (เช่นภาษาอื่นล้วน) = ไม่แตะ
             return {"action": "keep", "reason": "วัดเนื้อเดิมกับเสียงร้องไม่ได้"}
@@ -5140,11 +5262,27 @@ def _best_decide(cands: list[dict], cur: dict | None) -> dict:
             chosen, action = top, "found"
         else:
             return {"action": "none", "reason": "ไม่เจอเนื้อที่เข้ากับเสียงร้องจากทุกแหล่ง"}
+    elif cur_c.get("sparse"):
+        # เนื้อเดิมแค่บางช่วง (ซับบทพูด/4 บรรทัดจากคำอธิบาย): ตัดสินแบบไม่มีเนื้อเดิม — กฎ "ของเดิมต้องแพ้ขาด" ไม่ใช้
+        # ไม่มีแหล่งที่คนพิมพ์ผ่านเกณฑ์ -> คำบรรยายอัตโนมัติที่คลุมทั้งเพลง (ลำดับเดียวกับ gen_lyrics) ดีกว่าจอค้าง ♪ ทั้งเพลง
+        thin = f"เนื้อเดิมมีแค่บางช่วง (คลุมเสียงร้อง {cur_c['cover']:.0f}%)"
+        autos = [c for c in scored if c["provider"] == "yt-auto" and c.get("faLines")
+                 and (c.get("cover") or 0) >= BEST_AUTO_COVER and (c.get("match") or 0) >= BEST_MIN_MATCH
+                 and c["score"] >= BEST_AUTO_OVER * max(cur_c["score"], 1)]
+        if top and top["score"] >= 200:
+            chosen, action = top, "newtext"
+        elif autos:
+            chosen, action = max(autos, key=lambda c: c["score"]), "newtext"
+        else:
+            chosen, action = cur_c, "keep"
     else:
         cs = cur_c["score"]
         chosen, action = cur_c, "keep"
         if top:
-            weak = (cur_c.get("match") or 0) < 30 and (top.get("match") or 0) < 45   # FA ตัดสินเพลงนี้ไม่ได้ (ภาษาที่ไม่มีโมเดล) -> อย่าเปลี่ยน
+            # FA ตัดสินเพลงนี้ไม่ได้ (ภาษาที่ไม่มีโมเดล) -> อย่าเปลี่ยน — เนื้อญี่ปุ่นได้คะแนนน้อยเพราะ FA อ่านไม่ออก
+            # ไม่ใช่เพราะเนื้อน้อย (ลองยกเว้นตอนตัวใหม่ตัวอักษรมากกว่า 3 เท่าแล้ว เพลงญี่ปุ่นถูกเปลี่ยนเป็นโรมาจิ)
+            # เนื้อ 4 บรรทัดของ ahkGRFhyxx4 ที่เคยติดกฎนี้ ไปทาง sparse ข้างบนแทน
+            weak = (cur_c.get("match") or 0) < 30 and (top.get("match") or 0) < 45
             if weak:
                 win = False
             elif cur_src == "yt-auto":            # ตัวหนังสือเครื่องถอด -> เนื้อที่คนพิมพ์ชนะง่ายกว่า
@@ -5184,13 +5322,18 @@ def _best_decide(cands: list[dict], cur: dict | None) -> dict:
         use_shift = False
         why_t = "จับเวลาใหม่ด้วย FA" + (f" (เวลาเดิมตรงแค่ {ta:.0f}%)" if ta is not None else "")
     else:
-        return {"action": "keep", "reason": "FA จับเวลาเนื้อนี้ไม่ได้"}
+        return {"action": "keep", "reason": (thin + " แต่ " if thin else "") + "FA จับเวลาเนื้อนี้ไม่ได้"}
     if action == "keep":
-        return {"action": "keep", "reason": f"เนื้อเดิมดีที่สุดแล้ว · {why_t}", "cand": chosen, "score": ta,
+        why_k = f"{thin} — ไม่เจอแหล่งที่ครบกว่า" if thin else "เนื้อเดิมดีที่สุดแล้ว"
+        return {"action": "keep", "reason": f"{why_k} · {why_t}", "cand": chosen, "score": ta,
                 "shift": shift if not use_shift and abs(shift) >= 0.3 else 0.0}
-    why_x = {"newtext": f"ข้อความจาก {chosen['label']} เข้ากับเสียงร้องมากกว่า ({chosen['score']} vs "
-                        f"{cur_c['score'] if cur_c else 0} ตัวอักษร)",
-             "found": f"เจอเนื้อจาก {chosen['label']}"}.get(action, "")
+    if thin and action == "newtext":
+        cv = chosen.get("cover")
+        why_x = f"{thin} · ใช้ {chosen['label']}" + (f" (คลุม {cv:.0f}%)" if cv is not None else "")
+    else:
+        why_x = {"newtext": f"ข้อความจาก {chosen['label']} เข้ากับเสียงร้องมากกว่า ({chosen['score']} vs "
+                            f"{cur_c['score'] if cur_c else 0} ตัวอักษร)",
+                 "found": f"เจอเนื้อจาก {chosen['label']}"}.get(action, "")
     return {"action": action, "reason": " · ".join(x for x in (why_x, why_t) if x), "cand": chosen,
             "lines": lines, "src": _best_src(chosen, cur), "timeSrc": tsrc, "shift": shift if use_shift else 0.0,
             "score": ta}
@@ -5233,11 +5376,11 @@ def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
 
 def _best_record(vid: str, base: str, out: str, dec: dict, cands: list[dict], partial: bool,
                  refine: dict | None = None) -> None:
-    rec = {"v": BEST_VERSION, "at": int(time.time()), "base": base, "out": out, "action": dec["action"],
-           "reason": dec["reason"], "partial": partial,
+    rec = {"v": BEST_VERSION, "sv": BEST_SPARSE_V, "at": int(time.time()), "base": base, "out": out,
+           "action": dec["action"], "reason": dec["reason"], "partial": partial,
            **({"refine": refine} if refine else {}),
            "cands": [{k: c.get(k) for k in ("provider", "label", "synced", "match", "score", "timing",
-                                             "timingAfter", "shift")} for c in cands]}
+                                             "timingAfter", "shift", "cover", "sparse")} for c in cands]}
     _write_json_atomic(_song_dir(vid) / "lyrics.best.json", rec)
 
 
@@ -5387,6 +5530,9 @@ async def _run_best(vid: str) -> None:
             warm = asyncio.create_task(_best_fa_warm(vid, _fa_warm_text(vid)))
             _bg_tasks.add(warm)                    # อาจยังคำนวณรอบอังกฤษต่อหลังงานนี้จบ — ถือ reference ไว้
             warm.add_done_callback(_bg_tasks.discard)
+        # แผนที่เสียงร้อง (ffmpeg + CPU 2-4 วิครั้งแรก) ไว้วัดว่าผู้สมัครคลุมเสียงร้องกี่ % — ทำใน thread ซ้อนกับ OCR/แหล่ง/FA
+        # (ขั้นซ่อมเวลาข้างล่างก็ใช้แคชชุดนี้ต่อ)
+        va_task = asyncio.create_task(asyncio.to_thread(_va_for, vid))
         cands, used, pre = await _best_sources(vid, base)
         t = lap("แหล่ง(ดึงไว้ก่อน)" if pre else "ocr+แหล่ง", t)
         online = sum(1 for c in cands if c["provider"] in ONLINE_PROVIDERS)
@@ -5409,7 +5555,7 @@ async def _run_best(vid: str) -> None:
                 finally:
                     _heavy_job = None
         t = lap("FA", t)
-        _score_fa(cands, r.get("results") or [])
+        _score_fa(cands, r.get("results") or [], va=await va_task, off=_lyr_offset(vid))
         _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
         dec = _best_decide(cands, cur)
         ref = await _refine_dec(vid, dec, cur, cands)

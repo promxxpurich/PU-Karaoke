@@ -18,6 +18,12 @@ MIN_LINES = 6                     # น้อยกว่านี้ไม่�
 DUR_TOL = 3.0                     # lrclib: ความยาวเพลงต่างกันได้กี่วินาที
 ASR_SIM = 0.35                    # เนื้อจาก lrclib ต้องเหมือนคำที่ถอดจากเสียงร้องแค่ไหน
 VTT_NONLATIN = 0.6                # ซับต้องมีบรรทัดที่ไม่ใช่ภาษาละตินอย่างน้อยเท่านี้
+# เนื้อ "แค่บางช่วง" (sparse) — ซับที่คนทำแค่บทพูดในเอ็มวี / เนื้อ 4 บรรทัดในคำอธิบาย ผ่าน MIN_LINES ได้
+# แต่ร้องจริงทั้งเพลงไม่มีบรรทัดขึ้น (จอค้าง ♪ + บรรทัดถัดไปเป็นนาที) วัดกับคลังจริง 223 เพลง:
+# เนื้อที่ถูกต้องมีบรรทัดขึ้น ≥ 40% ของคลิปทุกเพลง ตัวที่พัง 5% / 19%
+SPARSE_SPAN = 25.0                # % ของคลิปที่มีบรรทัดขึ้น (Σd) ต่ำกว่านี้ = แค่บางช่วง (ใช้ตอนยังไม่มี vocals)
+SPARSE_WORDS = 40.0               # หรือ % ของคำที่ auto-caption ได้ยิน ที่มีบรรทัดคลุม ต่ำกว่านี้ = แค่บางช่วง
+SPARSE_MIN_WORDS = 30             # auto-caption ต้องมีคำอย่างน้อยเท่านี้ถึงใช้เป็นไม้บรรทัดได้
 
 _TAG = re.compile(r"</?[cvbi][^>]*>|<\d{2}:\d{2}[:.]\d{2}[.,]\d{3}>")
 _VTT_TS = re.compile(r"(\d{1,3}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,3}):(\d{2}):(\d{2})[.,](\d{1,3})")
@@ -243,6 +249,39 @@ def _finish(rows: list[tuple[float, str, float]], duration: float) -> list[dict]
         nxt = out[i + 1][0] if i + 1 < len(out) else (duration if duration > t else t + 6.0)
         lines.append({"t": round(t, 2), "d": line_dur(t, nxt, e), "x": x})
     return lines
+
+
+def span_pct(lines: list[dict] | None, duration: float) -> float | None:
+    """% ของคลิปที่มีบรรทัดขึ้นจอ (Σd ÷ ความยาวคลิป) — คลิปสั้น/ไม่รู้ความยาว = None (ไม่ตัดสิน)"""
+    if not lines or not duration or duration <= 60:
+        return None
+    return 100.0 * sum(max(0.0, float(l.get("d") or 0)) for l in lines) / duration
+
+
+def words_cover(lines: list[dict] | None, words: list[dict] | None, pad: float = 0.5) -> float | None:
+    """% ของคำ auto-caption (เวลาที่ YouTube ได้ยินคนร้อง/พูด) ที่มีบรรทัดคลุมอยู่ ±pad วิ
+    ไม้บรรทัด "ร้องตรงไหน" ก่อนจะมี vocals: เพลงที่ร้องสั้นจริง (EDM/ดนตรียาว) คำก็น้อยตาม จึงไม่ถูกตัดผิด"""
+    ws = [w for w in (words or []) if w.get("start") is not None]
+    if not lines or len(ws) < SPARSE_MIN_WORDS:
+        return None
+    spans = sorted((float(l["t"]) - pad, float(l["t"]) + float(l.get("d") or 0) + pad) for l in lines)
+    hit, j = 0, 0
+    for w in sorted(ws, key=lambda w: w["start"]):
+        m = (float(w["start"]) + float(w.get("end") or w["start"])) / 2
+        while j < len(spans) and spans[j][1] < m:
+            j += 1
+        hit += any(a <= m <= b for a, b in spans[j:j + 3])
+    return 100.0 * hit / len(ws)
+
+
+def sparse_why(lines: list[dict] | None, duration: float, words: list[dict] | None = None) -> str:
+    """เนื้อชุดนี้มีแค่บางช่วงของเพลงไหม -> ข้อความเหตุผล ("" = ครบพอ)
+    มี auto-caption ใช้คำที่ได้ยินเป็นไม้บรรทัด ไม่มีค่อยดูสัดส่วนเวลาคลิป"""
+    wc = words_cover(lines, words)
+    if wc is not None:
+        return f"คลุมคำที่ได้ยินแค่ {wc:.0f}%" if wc < SPARSE_WORDS else ""
+    sp = span_pct(lines, duration)
+    return f"คลุมแค่ {sp:.0f}% ของคลิป" if sp is not None and sp < SPARSE_SPAN else ""
 
 
 def _cues_of(text: str) -> list[tuple[float, float, list[str]]]:

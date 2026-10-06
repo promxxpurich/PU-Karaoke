@@ -804,12 +804,35 @@ def process(vid: str, no_asr: bool = False) -> bool:
         return False
     src_lines, text_src = read_lines(vid, folder, lang)
     manual_text = text_src == "manual-txt"        # .txt ที่ผู้ใช้วางเอง -> ข้ามแหล่งอื่น ไปจับเวลาเลย
+    # คำที่ auto-caption ได้ยิน = ไม้บรรทัด "ร้องตรงไหน" ของขั้น 2-3 (ยังไม่มี vocals) และเส้นเวลาของขั้น 4
+    auto = folder / f"auto.{lang}.vtt"
+    auto_words = LS.words_from_auto_vtt(auto, lang) if auto.is_file() else None
+    # ซับ/lrclib ที่มีแค่บางช่วงของเพลง (บทพูดในเอ็มวี) — ไม่ใช้ก่อน แต่เก็บไว้เป็นทางสุดท้าย
+    # (เพลงภาษาที่ไม่มี FA ไม่มีงานเลือกเนื้อมาช่วยทีหลัง จบที่ "ไม่มีเนื้อ" แย่กว่ามีบางท่อน)
+    sparse_fb: tuple | None = None
+
+    def keep_sparse(lines: list[dict], src: str, engine: str, note: str = "") -> bool:
+        nonlocal sparse_fb
+        why = LS.sparse_why(lines, duration, auto_words)
+        if not why:
+            return False
+        print(f"[sparse] {vid} [{src}] {len(lines)} บรรทัด {why} (น่าจะแค่บทพูด/บางท่อน) — ลองแหล่งอื่นก่อน",
+              flush=True)
+        sparse_fb = sparse_fb or (lines, src, engine, (note + " · " if note else "") + "แค่บางช่วง: " + why)
+        return True
+
+    def no_lyrics(note: str) -> None:
+        if sparse_fb:                              # หมดทุกแหล่งแล้ว -> ใช้ตัวที่มีบางช่วงดีกว่าไม่มีเลย
+            lines, src, engine, why = sparse_fb
+            write_out(folder, vid, lines, duration, src, engine, note=why)
+            return
+        _no_lyrics(folder, vid, note)
 
     # ---- 2) ซับจริงของ YouTube — เฉพาะภาษาของเพลง (ซับภาษาอื่นคือคำแปล ร้องตามไม่ได้) ----
     sub = folder / f"sub.{lang}.vtt"
     if not manual_text and sub.is_file():
         lines = LS.from_vtt(sub, duration, lang)
-        if lines:
+        if lines and not keep_sparse(lines, "yt-sub", f"youtube subtitle ({lang})"):
             write_out(folder, vid, lines, duration, "yt-sub", f"youtube subtitle ({lang})")
             return False
 
@@ -820,15 +843,14 @@ def process(vid: str, no_asr: bool = False) -> bool:
                              duration, "\n".join(src_lines), j.get("description") or "")
         if got:
             lines, who = got
-            write_out(folder, vid, lines, duration, "lrclib", "lrclib.net synced", note=who)
-            return False
+            if not keep_sparse(lines, "lrclib", "lrclib.net synced", who):
+                write_out(folder, vid, lines, duration, "lrclib", "lrclib.net synced", note=who)
+                return False
 
     # ---- 4) auto-caption ของ YouTube (ASR ของ Google) ---------------------
     # ไม่แตะ GPU จึงต้องอยู่ "ก่อน" ประตู --no-asr ไม่งั้นเพลงที่มี auto-caption
     # จะยังเข้าคิวแยกเสียง+ถอดเสียงเหมือนเดิมทั้งที่ไม่จำเป็น
     # อยู่ "หลัง" lrclib เพราะ lrclib คือเนื้อที่คนพิมพ์ + เวลาที่คนจับ แม่นกว่าเสมอ
-    auto = folder / f"auto.{lang}.vtt"
-    auto_words = LS.words_from_auto_vtt(auto, lang) if auto.is_file() else None
     if auto_words and not manual_text:
         if not src_lines:
             # ยังไม่มีเนื้อ -> ลอง lrclib แบบผ่อนเกณฑ์ โดยใช้ "คำที่ YouTube ถอดจากคลิปนี้"
@@ -865,7 +887,7 @@ def process(vid: str, no_asr: bool = False) -> bool:
         return True
     if not audio.is_file():
         print(f"[skip] {vid} ไม่มีเสียงให้ถอด")
-        _no_lyrics(folder, vid, "ไม่มีเสียงให้ถอด")
+        no_lyrics("ไม่มีเสียงให้ถอด")
         return False
     # เลือกโมเดลตาม "บทบาทของตัวหนังสือ": มีเนื้อจริงแล้ว -> ผลถอดเป็นแค่เส้นเวลา
     # ไม่มีเนื้อเลย -> ตัวที่ถอดได้จะถูกใช้เป็นคำค้น lrclib ต่อ ต้องเอาตัวแม่น
@@ -885,7 +907,7 @@ def process(vid: str, no_asr: bool = False) -> bool:
         # หมดทุกแหล่งแล้ว — ของเดิมจะเอาคำที่ whisper ถอดได้มาเป็นเนื้อเลย
         # แต่เนื้อที่เครื่องเดาเองอ่านแล้วไม่เป็นภาษา จึงเลิกทำ ขึ้นว่าไม่มีเนื้อแทน
         print(f"[skip] {vid} ไม่มีเนื้อจากแหล่งไหนเลย (วางไฟล์เองได้ที่ lyrics-in/{vid}.txt)")
-        _no_lyrics(folder, vid, "ลองครบทุกแหล่งแล้วไม่เจอเนื้อ")
+        no_lyrics("ลองครบทุกแหล่งแล้วไม่เจอเนื้อ")
         return False
 
     words = [w for sg in data["segs"] for w in (sg.get("words") or [])
@@ -899,7 +921,7 @@ def process(vid: str, no_asr: bool = False) -> bool:
         # เนื้อจาก lrclib แบบไม่มีเวลาเป็นของ "เพลงต้นฉบับ" ซึ่งอาจยาวไม่เท่าคลิปนี้
         # จับเวลาไม่ลง = แสดงไปก็ผิดจังหวะทั้งเพลง ขึ้นว่าไม่มีเนื้อดีกว่า
         print(f"[skip] {vid} [{text_src}] จับเวลาไม่ลง", flush=True)
-        _no_lyrics(folder, vid, f"มีเนื้อจาก {text_src} แต่จับเวลาไม่ลง")
+        no_lyrics(f"มีเนื้อจาก {text_src} แต่จับเวลาไม่ลง")
         return False
     lines, cov = got
     write_out(folder, vid, lines, duration, text_src,

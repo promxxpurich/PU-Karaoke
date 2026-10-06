@@ -157,6 +157,42 @@ def onset_rate(va: dict, t0: float, t1: float) -> float:
     return float(((on >= t0) & (on < t1)).sum()) / (t1 - t0)
 
 
+MIN_VOICED = 10.0              # วินาที — เสียงร้องรวมน้อยกว่านี้ (บรรเลง/แยกเสียงพัง) วัดความคลุมไม่ได้
+
+
+def cover(va: dict | None, spans, pad: float = 0.3) -> float | None:
+    """% ของเวลาที่มีเสียงร้องจริง ที่มีบรรทัดเนื้อคลุมอยู่ — spans = [(เริ่ม, จบ)] เป็นเวลาในเสียง
+    เนื้อครบทั้งเพลงได้ ~90+ (คลังจริง: ต่ำสุด 61) / ซับแค่บทพูดในเอ็มวีได้ 5 — ไม่มีแผนที่เสียงร้อง = None"""
+    if not va or not len(va["voiced"]):
+        return None
+    v = va["voiced"]
+    fs = va["fsec"]
+    tot = int(v.sum())
+    if tot * fs < MIN_VOICED:
+        return None
+    m = np.zeros(len(v), bool)
+    for a, b in spans:
+        i, j = max(0, int((a - pad) / fs)), min(len(v), int((b + pad) / fs) + 1)
+        if j > i:
+            m[i:j] = True
+    return round(100.0 * int((v & m).sum()) / tot, 1)
+
+
+def envelope(va: dict | None, per_sec: int = 10) -> list[float] | None:
+    """คลื่นเสียงร้องแบบหยาบ (0..1, per_sec จุด/วิ) จากแคชเดียวกัน — แท็บ ✂️ ไม่ต้องโหลด/ถอดรหัส vocals.m4a ทั้งไฟล์"""
+    if not va or not len(va["db"]):
+        return None
+    db = np.asarray(va["db"], np.float32)
+    k = max(1, int(round(1.0 / (per_sec * va["fsec"]))))
+    n = len(db) // k
+    if not n:
+        return None
+    g = db[:n * k].reshape(n, k).max(axis=1)
+    ref = float(np.percentile(g, 97))
+    lin = np.power(10.0, (g - ref) / 20.0)                   # dB -> สัดส่วนความดังเทียบช่วงดังของเพลง
+    return [round(float(x), 2) for x in np.clip(lin, 0.0, 1.0)]
+
+
 def main() -> None:
     argv = sys.argv[1:]
     audio = None
