@@ -376,6 +376,8 @@ async def _lifespan(_app: FastAPI):
     # ไม่ใช่ตอนแขกกดเพิ่มเพลงใหม่เพลงแรก
     _yt_cookies(wait=0)
     tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog())]
+    if WARM:                        # โหลดโมเดลหาเนื้อไว้รอ — เพลงแรกจะได้เร็วเหมือนเพลงหลัง ๆ
+        tasks.append(asyncio.create_task(_warmup()))
     yield
     for t in tasks:
         t.cancel()
@@ -2994,6 +2996,7 @@ def health(search: int = 0):
         "dl": {"queued": len(_dl_pending), "order": _dl_pending.order(), "state": _dl_state},
         "heavyJob": list(_heavy_job) if _heavy_job else None,
         "faWorker": _fa_worker.status(),           # FA แบบโหลดโมเดลค้าง
+        "warm": _warm_state,                       # อุ่นเครื่องตอนเปิดโปรแกรม (วินาทีต่อขั้น)
         "queueOrder": [q.get("videoId") for q in room.queue],
     }
     if search:
@@ -4209,25 +4212,29 @@ class _FaWorker:
                 return r["out"]
         raise _FaWorkerDown("ไม่ได้คำตอบ")
 
+    def load_now(self) -> float | None:
+        """เปิดตัวโหลดค้าง + โหลดโมเดลไว้ (op load) — บล็อกจนเสร็จ คืนวินาที / None = ไม่ได้ทำ"""
+        if not self.lock.acquire(blocking=False):
+            return None                             # กำลังทำงานอยู่ = โมเดลโหลดอยู่แล้ว
+        try:
+            t0 = time.monotonic()
+            self._ask({"op": "load"}, 300)
+            dt = time.monotonic() - t0
+            print(f"[fa] โหลดโมเดลค้างไว้ {len(self.loaded)} ตัว | {dt:.0f}s")
+            return dt
+        except Exception as exc:
+            print(f"[fa] โหลดโมเดลล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
+            return None
+        finally:
+            self.lock.release()
+
     def preload_bg(self, vid: str | None = None) -> None:
         """โหลดโมเดลไว้ก่อนระหว่าง demucs แยกเสียง (งานดิสก์/หน่วยความจำ) — vocals เสร็จแล้วคำนวณได้ทันที"""
         if not FA_WORKER or not _fa_ok_cached() or (vid and _song_lang(vid)[0] not in LS.FA_LANGS):
             return
         if self.alive() and self.loaded:
             return
-
-        def run() -> None:
-            if not self.lock.acquire(blocking=False):
-                return                              # กำลังทำงานอยู่ = โมเดลโหลดอยู่แล้ว
-            try:
-                t0 = time.monotonic()
-                self._ask({"op": "load"}, 300)
-                print(f"[fa] โหลดโมเดลค้างไว้ {len(self.loaded)} ตัว | {time.monotonic() - t0:.0f}s")
-            except Exception as exc:
-                print(f"[fa] โหลดโมเดลล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
-            finally:
-                self.lock.release()
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=self.load_now, daemon=True).start()
 
     def status(self) -> dict:
         return {"on": FA_WORKER, "alive": self.alive(), "pid": self.proc.pid if self.alive() else None,
@@ -4236,6 +4243,38 @@ class _FaWorker:
 
 
 _fa_worker = _FaWorker()
+
+
+# --- อุ่นเครื่องตอนเปิดโปรแกรม ------------------------------------------------
+# ผู้ใช้ขอ: เพลงแรกหลังเปิดโปรแกรมหาเนื้อได้เร็วเหมือนเพลงหลัง ๆ — โหลดโมเดล FA (2 ตัว ~17 วิ) ไว้ตั้งแต่เปิด
+# และค้างไว้ตลอด (fa_align KARA_FA_IDLE ค่าเริ่มต้น 0) เดิมโหลดตอนเพลงแรกเข้ามาแล้วปิดเองหลังว่าง 15 นาที
+# วัดแล้วไม่ทำ: รันโมเดลหนึ่งรอบกับเสียงเงียบ (FA ครั้งแรก 16.5 vs 16.7 วิ = ไม่ต่าง), อุ่น whisper ด้วยตรวจภาษา
+# (2.6 -> 1.8 วิ ต่างไม่ถึง 1 วิ) และ demucs (โปรเซสต่อเพลง โมเดลเล็ก) — "รอเสียงFA 17" ใน log คือเวลาคำนวณจริง
+WARM = os.environ.get("KARA_WARM", "on") != "off"
+WARM_DELAY = 8.0              # วินาทีหลังเปิด — ให้เซิร์ฟเวอร์/จอตั้งตัวก่อน
+_warm_state: dict = {}        # /api/health -> warm
+
+
+async def _warmup() -> None:
+    await asyncio.sleep(WARM_DELAY)
+    t0 = time.monotonic()
+    _warm_state.update(status="working", at=int(time.time()))
+    steps: dict[str, Any] = {}
+
+    def imports() -> None:            # โมดูลที่งานหาเนื้อ import ในโปรเซสหลัก (ครั้งแรกต้องอ่านดิสก์)
+        import gen_lyrics, lyrics_more, lyrics_refine, verify_lyrics, vocal_activity  # noqa: F401
+    try:
+        await asyncio.to_thread(imports)
+        steps["import"] = round(time.monotonic() - t0, 1)
+    except Exception as exc:
+        steps["import"] = type(exc).__name__
+    if FA_WORKER and _fa_ok_cached():
+        dt = await asyncio.to_thread(_fa_worker.load_now)
+        steps["FA"] = round(dt, 1) if dt is not None else "ข้าม (กำลังทำงานอยู่)"
+    total = time.monotonic() - t0
+    _warm_state.update(status="done", steps=steps, sec=round(total, 1))
+    print("[warm] พร้อมแล้ว: " + " · ".join(f"{k} {v}{'s' if isinstance(v, (int, float)) else ''}"
+                                          for k, v in steps.items()) + f" | รวม {total:.0f}s")
 
 
 def _fa_call(vid: str, payload: dict, kind: str = "fa") -> dict:

@@ -641,14 +641,16 @@ def handle(vid: str, audio: Path | None, req: dict) -> dict:
 
 def serve() -> None:
     """ตัวโหลดโมเดลค้าง: server เปิดไว้หนึ่งตัว ส่งคำขอทีละบรรทัด — ใช้ emissions()/time_lines() ตัวเดียวกับทางปกติ
-    ว่างเกิน KARA_FA_IDLE วิ หรือ stdin ปิด (server ปิด/ตาย) = ออกเอง คืนหน่วยความจำ"""
+    stdin ปิด (server ปิด/ตาย) = ออกเอง · KARA_FA_IDLE = วินาทีที่ว่างแล้วปิดเองคืนหน่วยความจำ (~2.6 GB)
+    ค่าเริ่มต้น 0 = ค้างไว้ตลอด (ผู้ใช้เลือก: เพลงแรกหลังพักนานก็ยังเร็ว — โมเดลเฉย ๆ ไม่ได้ทำให้เครื่องร้อน)
+    op load = โหลดโมเดลไว้ก่อน (ลองรันหนึ่งรอบกับเสียงเงียบเพิ่มด้วยแล้ว คำนวณจริงครั้งแรกไม่เร็วขึ้น: 16.5 vs 16.7 วิ)"""
     import select
-    idle = float(os.environ.get("KARA_FA_IDLE") or 900)
+    idle = float(os.environ.get("KARA_FA_IDLE") or 0)
     out = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
     os.dup2(2, 1)                                   # print หลง (ไลบรารี) ไปทาง stderr — stdout จริงเหลือแต่คำตอบ
     sys.stdout = sys.stderr
     while True:
-        r, _, _ = select.select([sys.stdin], [], [], idle)
+        r, _, _ = select.select([sys.stdin], [], [], idle if idle > 0 else None)
         if not r:
             return                                  # ว่างนาน -> ออก คำขอถัดไป server เปิดตัวใหม่เอง
         line = sys.stdin.readline()
