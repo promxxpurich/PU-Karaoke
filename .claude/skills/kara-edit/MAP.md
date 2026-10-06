@@ -378,14 +378,17 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ค่าใหม่ (data-tv="key") ต้องเพิ่มใน TV_SCHEMA ของ server.py + applyTv ใน static/player.html + renderTvPreview ที่นี่ · ชิปใหม่ต้องตรงกับ TV_CHIPS (server.py) และ CH ใน static/player.html
 
 ### ✂️ แท็บตัดต่อ & คอมโบ (แทร็กสองเพลง + จอทีวีเล็ก + แก้คอมโบ)
-คำค้น: ตัดต่อ, ตัดคลิป, จุดเริ่ม, จุดจบ, trim, เฟดรายเพลง, คอมโบ, combo, เพลย์ลิสต์, ฟังรอยต่อ, จอเล็ก, บันทึกคิวเป็นคอมโบ, โหมด custom
-- `static/studio.html` `id="vcut"` ` .cutgrid{display:grid` ` .ctrk canvas{` ` .cbx{background` — HTML/CSS: รายการซ้าย (คิว/คอมโบ), จอเล็ก #ctvv + แผ่นดำ #ctvbk + ซับ #cl1/#cl2, แทร็ก A/B, กล่องแก้คอมโบ
+คำค้น: ตัดต่อ, ตัดคลิป, จุดเริ่ม, จุดจบ, trim, เฟดรายเพลง, คอมโบ, combo, เพลย์ลิสต์, ฟังรอยต่อ, จอเล็ก, บันทึกคิวเป็นคอมโบ, โหมด custom, หน้าอินโทร, มือถือ, iPad, จอสัมผัส, touch, ลากด้วยนิ้ว, ซูมแทร็ก, ปุ่มขยับละเอียด, ดูดเข้าท่อน, 🧲
+- `static/studio.html` `id="vcut"` ` .cutgrid{display:grid` ` .ctrk .cv{` ` .cbx{background` — HTML/CSS: รายการซ้าย (คิว/คอมโบ), จอเล็ก #ctvv (+ #ctvv2 ไว้ฟังรอยต่อ) + แผ่นดำ #ctvbk + ซับ #cl1/#cl2, แทร็ก A/B, กล่องแก้คอมโบ
+- `static/studio.html` ` .cgrip{position:absolute` `class="cstick"` `@media (max-width:999px) and (min-height:600px){` `@media (pointer:coarse){` — มือถือ/iPad: ที่จับเป็น DOM (นิ้ว 44px, touch-action none) บน canvas pan-y, จอแคบคอลัมน์เดียว + แถบแคปซูล + จอเล็ก/แถบเล่นติดด้านบน (#vcut overflow visible), ปุ่ม 44px, มือถือแถวปุ่ม ±วินาทีแยกบรรทัด
 - `static/studio.html` `// ===== 16e. ✂️ ตัดต่อ` `function cutEntries(){` `function cutEff(e){` `async function cutEnsure(vid){` `async function cutEnv(vid){` `function renderCut(){` `function cutTrackHtml(` — รายการเพลงที่ตัด, ค่าที่ใช้จริง (ว่าง = อัตโนมัติ/ต้นคลิป/ท้ายคลิป/ค่า 📺), GET /api/studio/song/{vid}/clip + lyrics + คลื่นเสียงร้อง 10 จุด/วิ
-- `static/studio.html` `function cutDraw(el){` `function cutHit(` `function cutSnap(` `function cutSave(e){` — วาดคลื่น/ท่อนร้อง/ช่วงตัด/เส้นลาดเฟด/ที่จับ, ลากขีด = จุดเริ่ม/จบ (ดูดต้นท่อน, Alt = ไม่ดูด), ลากจุดกลม = เฟด (ทีละ 0.5 วิ), บันทึกหน่วง 400ms
-- `static/studio.html` `function cutLoadPv(` `function cutJoin(){` `function cutTick(){` — จอเล็กเล่นไฟล์ในเครื่อง + จำลองเฟด + ซับจาก lycFrame, ▶ ฟังรอยต่อ (A จบ−8 วิ → B จุดเริ่ม 8 วิ)
+- `static/studio.html` `function cutWin(` `function cutMap(` `function cutDraw(el){` `function cutSnap(` `function cutSave(e){` — ช่วงที่แสดง (ทั้งเพลง/🔍 ต้น/🔍 ท้าย ล็อกระหว่างลาก) + ตัวแปลงเวลา↔พิกเซลตัวเดียว, วาดคลื่น/ท่อนร้อง/ช่วงตัด/เส้นลาดเฟด + วางที่จับ DOM, ดูดต้นท่อน (🧲 / Alt = ไม่ดูด) รัศมีตามซูม, บันทึกหน่วง 400ms
+- `static/studio.html` `function cutNudge(` `function cutSeekAt(` `function cutPointerEnd(` `const cutTyping = ` — ปุ่ม −1 −.1 +.1 +1 / เฟด ±0.5, แตะแทร็ก = ไปตรงนั้น (เมาส์ตอนกด / นิ้วตอนปล่อยถ้าขยับ < 8px), จบการลากทั้ง pointerup/pointercancel/lostpointercapture (จำ pointerId), พิมพ์เวลาอยู่ห้ามสร้างแทร็กใหม่
+- `static/studio.html` `const cutVid = ` `function cutAudioOn(` `function cutLoadPv(` `function cutJoin(){` `function cutTick(){` — จอเล็กเล่นไฟล์ในเครื่อง + จำลองเฟด (iOS ปรับ volume ไม่ได้ -> GainNode) + ซับจาก lycFrame, play() เรียกตรงในจังหวะที่แตะ (#t= เริ่มตรงจุด), ▶ ฟังรอยต่อ (A จบ−8 วิ → B ในวิดีโอตัวที่สองที่ปลดล็อกไว้ จุดเริ่ม 8 วิ)
 - `static/studio.html` `function renderCutCombo(){` `async function cutComboClick(b){` `async function cutComboSave(c){` `async function cutComboFromQueue(){` `function cutRoom(){` — ชื่อ/เรียง/ลบ/ค้นเพลงเพิ่ม, ▶ เพิ่มเข้าคิว (ws addcombo), 💾 คิว → คอมโบ (คัดค่าที่เห็นจริงรวมค่าอัตโนมัติไปเป็นค่าตัดเอง), วาดใหม่เมื่อคิว/ค่าจอเปลี่ยน
 ! state แยกจาก S ของตัวแก้เนื้อ (CUT) — แก้ที่นี่ไม่ทำให้เนื้อ dirty · เพลงในคิว = ค่าประจำเพลง (trim.json ใช้ตอนเปิด Custom) / ใบคิวจากคอมโบ = แก้รอบนี้ (queue clip) / โหมดคอมโบ = บันทึกทั้งคอมโบ
 ! SPAN_MIN (15 วิ) ต้องตรงกับ server.py · ซับในจอเล็กเรียก lycPrep/lycFrame อย่างเดียว ห้ามแก้บล็อก lyrcore
+! คลื่นเสียงมาจาก /clip → env (แคช _va ฝั่งเซิร์ฟเวอร์) ไม่มีค่อยถอดรหัสไฟล์เองแบบเดิม · ทดสอบจอสัมผัสด้วย headless Chrome + Input.dispatchTouchEvent (แตะระหว่างหน้ายังไหล = เบราว์เซอร์นับเป็นหยุดหน้า)
 
 ### websocket ของ Studio (อัปเดตสด) + สถานะเชื่อมต่อ
 คำค้น: websocket, ws, อัปเดตสด, live update, เชื่อมต่อแล้ว, กำลังเชื่อมต่อ, รีเฟรชรายการ, archiveRev, jobsRev, Studio หลายเครื่อง

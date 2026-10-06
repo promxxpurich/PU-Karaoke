@@ -3996,12 +3996,20 @@ async def studio_clip_info(vid: str, request: Request):
     d = _studio_vid(vid)
     mt = _lyr_meta(vid)[0]
     a = _auto_span(vid, room.tv)
+    # คลื่นเสียงร้อง 10 จุด/วิ จากแคชแผนที่เสียงร้อง (_va) — มือถือ/iPad ไม่ต้องโหลด+ถอดรหัส vocals.m4a ทั้งไฟล์เอง
+    # (ครั้งแรกของเพลงคำนวณใน thread 2-4 วิ ไม่มี vocals = None แล้ว Studio ถอดรหัสเองแบบเดิม)
+    env = None
+    try:
+        import vocal_activity as VA
+        env = VA.envelope(await asyncio.to_thread(_va_for, vid))
+    except Exception as exc:
+        print(f"[clip] {vid} คลื่นเสียงไม่ได้: {type(exc).__name__}: {exc}")
     return {"videoId": vid, "title": _song_meta(vid)["title"] or vid,
             "duration": _song_meta(vid)["duration"], "trim": _trim(vid),
             "auto": {"start": a[0], "end": a[1]}, "lyrOffset": _lyr_offset(vid),
             "lyricsUrl": f"/song/{vid}/lyrics.json?v={int(mt * 1000)}" if mt else None,
             "video": (d / "video.mp4").is_file(), "audio": (d / "audio.m4a").is_file(),
-            "vocals": (d / "vocals.m4a").is_file()}
+            "vocals": (d / "vocals.m4a").is_file(), "env": env}
 
 
 @app.post("/api/studio/song/{vid}/trim")

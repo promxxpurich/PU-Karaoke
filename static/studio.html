@@ -313,7 +313,24 @@
  .ctrk .hd .ab{flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:12px;background:var(--panel3)}
  .ctrk .hd b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .ctrk .hd small{color:var(--dim);white-space:nowrap}
- .ctrk canvas{display:block;width:100%;height:90px;border-radius:10px;background:var(--panel);border:1px solid var(--line);cursor:pointer;touch-action:none}
+ .ctrk .cv{position:relative}
+ /* touch-action pan-y: ปัดขึ้นลงบนแทร็ก = เลื่อนหน้า (แตะเฉย ๆ = ดูตรงนั้น) — ที่จับลากได้เป็น DOM ของตัวเองด้านล่าง */
+ .ctrk canvas{display:block;width:100%;height:90px;border-radius:10px;background:var(--panel);border:1px solid var(--line);cursor:pointer;touch-action:pan-y}
+ /* ที่จับ: จุดเริ่ม/จบ = แถบล่าง (ขีดชมพู) · เฟดเข้า/ออก = แถบบน (จุดกลม) จึงไม่ทับกันแม้เฟดสั้น */
+ .cgrip{position:absolute;width:20px;margin-left:-10px;touch-action:none;cursor:ew-resize;z-index:2}
+ .cgrip.s,.cgrip.e{top:26%;bottom:0}
+ .cgrip.fi,.cgrip.fo{top:0;height:26%}
+ .cgrip::after{content:"";position:absolute;left:50%;transform:translateX(-50%)}
+ .cgrip.s::after,.cgrip.e::after{top:0;bottom:0;width:6px;border-radius:3px;background:#ff4d8d;box-shadow:0 0 0 2px rgba(6,6,11,.55)}
+ .cgrip.fi::after,.cgrip.fo::after{top:50%;width:12px;height:12px;margin-top:-6px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px #ff4d8d}
+ .cgrip.on::after{background:#ffc2d8}
+ .cgrip.off{display:none}
+ .czoom{display:inline-flex;gap:2px;margin-left:auto;flex:none}
+ .czoom button{padding:3px 9px;font-size:12px;border-radius:999px;color:var(--dim)}
+ .czoom button.on{color:#fff}
+ .ctrk .ctl .grp{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+ .ctrk .ctl .nds{display:inline-flex;gap:4px}
+ .ctrk .ctl .nd{min-width:34px}
  .ctrk .ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--dim)}
  .ctrk .ctl input{width:84px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 7px;text-align:center;font-variant-numeric:tabular-nums}
  .ctrk .ctl input.f{width:58px}
@@ -335,6 +352,10 @@
  .cbres{position:absolute;left:0;right:0;top:100%;z-index:5;margin-top:4px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.5)}
  .cbres button{display:block;width:100%;text-align:left;border:none;border-radius:0;background:none;padding:8px 12px;overflow:hidden;text-overflow:ellipsis}
  .cbres button:hover{background:var(--panel3)}
+ .ctv video.alt{opacity:0}                         /* ▶ ฟังรอยต่อ: เพลง B โหลดรอในตัวที่สอง (iOS สลับไฟล์กลางทางแล้วเงียบ/ไม่ยอมเล่น) */
+ .ctv.b video#ctvv{opacity:0}
+ .ctv.b video#ctvv2{opacity:1}
+ .chint .tc{display:none}
  /* ---------- 📺 หน้าจอหลัก ---------- */
  .tvgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:18px;max-width:1280px;margin:0 auto;padding:18px}
  .tvside{position:sticky;top:0;align-self:start}
@@ -411,6 +432,50 @@
    .qhead{grid-template-columns:84px minmax(0,1fr)}.qhead img{width:84px}.qbtns{grid-column:1/-1;flex-direction:row}
    body{overflow:auto}
    .app{height:auto;min-height:100vh}
+   .tabs .lg{display:none}
+   /* ✂️ ตัดต่อ & คอมโบ: คอลัมน์เดียว ช่องซ้ายเป็นแถบปุ่มแคปซูลเลื่อนข้าง */
+   #vcut{overflow:visible}                          /* .view เป็นกล่องเลื่อนเอง -> sticky ข้างในไม่ติดจอ */
+   .cutgrid{grid-template-columns:minmax(0,1fr);gap:10px;padding:10px 10px 60px}
+   .cutside{position:static;display:flex;gap:6px;overflow-x:auto;padding:6px;scrollbar-width:none;align-self:stretch}
+   .cutside .sec{display:none}
+   .cutside .ci{width:auto;flex:none;margin:0;border-radius:999px;border-color:var(--line)}
+   .cutside .ci span{max-width:42vw}
+   .cbx .fr input[type=text]{flex:1 1 100%}
+   .ctrk .hd{flex-wrap:wrap;row-gap:4px}
+   .ctrk .hd b{flex:1 1 55%;min-width:0}
+   .ctrk .hd small{order:3;flex:1 1 100%}
+ }
+ /* มือถือแนวตั้ง/iPad: จอเล็ก + แถบเล่นติดด้านบนตอนเลื่อนดูแทร็ก (แนวนอนจอเตี้ย ไม่ติด กันบังทั้งจอ) */
+ @media (max-width:999px) and (min-height:600px){
+   .cstick{position:sticky;top:0;z-index:6;background:var(--bg);padding-bottom:4px;box-shadow:0 10px 16px -12px rgba(0,0,0,.8)}
+   .cstick .ctv{width:min(100%,560px,calc((100dvh - 200px) * 16 / 9))}
+ }
+ /* จอแคบ/จอสัมผัส: จุดเริ่ม กับ จุดจบ คนละแถว (เฟดเข้า/ออกแถวเดียวกัน) */
+ @media (max-width:999px), (pointer:coarse){
+   .ctrk .ctl .grp.pt{flex:1 1 100%}
+ }
+ /* มือถือ: แถวบน = ชื่อ + ช่องเวลา + ⤓ × ▶ · แถวล่าง = −1 −.1 +.1 +1 เต็มความกว้าง / ชื่อแอปซ่อนให้แท็บพอ */
+ @media (max-width:600px){
+   .ctrk .ctl .grp.pt{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;align-items:center;gap:6px}
+   .ctrk .ctl .grp.pt input{width:100%}
+   .ctrk .ctl .grp.pt .nds{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+   .logo > span:last-child{display:none}
+ }
+ /* จอสัมผัส (มือถือ/iPad ทุกขนาด): ปุ่มและที่จับใหญ่พอสำหรับนิ้ว */
+ @media (pointer:coarse){
+   #vcut button{min-height:44px;padding:8px 12px;font-size:14px}
+   #vcut .czoom button{min-height:36px;padding:6px 12px}
+   .ctrk canvas{height:120px}
+   .ctrk .ctl{font-size:14px;gap:8px}
+   .ctrk .ctl input{min-height:44px;font-size:16px;width:96px}
+   .ctrk .ctl input.f{width:70px}
+   .cgrip{width:44px;margin-left:-22px}
+   .cgrip.fi::after,.cgrip.fo::after{width:16px;height:16px;margin-top:-8px}
+   .cbsongs .r{min-height:52px}
+   .cbsongs .r button{min-width:44px;min-height:44px;font-size:16px}
+   .cbres button{min-height:48px}
+   .cbfind input{min-height:44px;font-size:16px}
+   .chint .kb{display:none}.chint .tc{display:inline}
  }
 </style></head><body>
 <div class="app">
@@ -418,10 +483,10 @@
     <button id="back" class="ghost">← รายการ</button>
     <div class="logo"><span class="mk">🎤</span><span><b>PU</b> KARAOKE <small>STUDIO</small></span></div>
     <nav class="tabs" id="tabs">
-      <button data-view="songs" class="on">🎵 เพลงทั้งหมด</button>
-      <button data-view="queue">▶ กำลังเล่น &amp; คิว<span class="cnt hide" id="qcnt"></span></button>
-      <button data-view="tv">📺 หน้าจอหลัก</button>
-      <button data-view="cut">✂️ ตัดต่อ &amp; คอมโบ</button>
+      <button data-view="songs" class="on">🎵 เพลง<span class="lg">ทั้งหมด</span></button>
+      <button data-view="queue">▶ <span class="lg">กำลังเล่น &amp; </span>คิว<span class="cnt hide" id="qcnt"></span></button>
+      <button data-view="tv">📺 <span class="lg">หน้า</span>จอ<span class="lg">หลัก</span></button>
+      <button data-view="cut">✂️ ตัดต่อ<span class="lg"> &amp; คอมโบ</span></button>
     </nav>
     <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
     <button class="ghost" id="helpbtn" title="คีย์ลัด">⌨️</button>
@@ -539,22 +604,28 @@
     <aside class="cutside" id="cutside"></aside>
     <div class="cutmain">
       <div class="cwarn hide" id="cwarn">⚠️ โหมด Custom ปิดอยู่ — จุดเริ่ม/จบที่ตั้งยังไม่มีผลบนทีวี (คอมโบเล่นตามที่ตัดไว้เสมอ) <button id="cwon">เปิดโหมด Custom</button></div>
+      <div class="cstick">
       <div class="ctv" id="ctv">
         <video id="ctvv" playsinline preload="auto"></video>
+        <video id="ctvv2" class="alt" playsinline preload="auto"></video>
         <div class="bk" id="ctvbk"></div>
         <div class="tt" id="ctvt"></div>
         <div class="ly"><div id="cl1"></div><div id="cl2"></div></div>
-        <div class="ph" id="ctvph">เลือกเพลงในคิวหรือคอมโบทางซ้าย</div>
+        <div class="ph" id="ctvph">เลือกเพลงในคิวหรือคอมโบ</div>
       </div>
       <div class="ctp">
         <button id="cprev" title="คู่ก่อนหน้า">◀</button><span class="pg" id="cpg"></span><button id="cnext" title="คู่ถัดไป">▶</button>
         <button class="primary" id="cjoin" title="เล่นท้ายเพลง A แล้วเฟดไปต้นเพลง B">▶ ฟังรอยต่อ</button>
         <button id="cplay" title="เล่น/หยุด (Space)">⏯</button><span class="tm" id="ctm">0:00 / 0:00</span>
+        <button id="csnap" class="on" title="ลากแล้วดูดเข้าต้น/ท้ายท่อนร้องที่ใกล้ที่สุด">🧲 ดูดเข้าท่อน</button>
+      </div>
       </div>
       <div id="ctracks"></div>
       <div class="cbx hide" id="cbx"></div>
-      <div class="hint" style="margin-top:14px">ลากขีดชมพูซ้าย/ขวา = จุดเริ่ม/จุดจบ · ลากจุดกลมด้านบน = ความยาวเฟดเข้า/ออก (เส้นลาด = ระดับเสียง ภาพเฟดตามเสียง) ·
-        แตะแทร็ก = ดูตรงนั้นในจอเล็ก · ⤓ = ใช้ตำแหน่งที่จอเล็กเล่นอยู่ · × = กลับค่าเดิม · กด <kbd>Alt</kbd> ค้างระหว่างลาก = ไม่ดูดเข้าต้นท่อน ·
+      <div class="hint chint" style="margin-top:14px">ลากขีดชมพู = จุดเริ่ม/จุดจบ · ลากจุดกลมด้านบน = ความยาวเฟดเข้า/ออก (เส้นลาด = ระดับเสียง ภาพเฟดตามเสียง) ·
+        <span class="kb">คลิกแทร็ก</span><span class="tc">แตะแทร็ก</span> = ดูตรงนั้นในจอเล็ก · 🔍 ต้น/ท้าย = ซูมดูช่วงนั้นให้ลากละเอียดขึ้น ·
+        −1 −.1 +.1 +1 = ขยับทีละวินาที/เศษวินาที · ⤓ = ใช้ตำแหน่งที่จอเล็กเล่นอยู่ · × = กลับค่าเดิม ·
+        🧲 = ดูดเข้าต้นท่อนร้อง<span class="kb"> (กด <kbd>Alt</kbd> ค้างระหว่างลาก = ไม่ดูดชั่วคราว)</span> ·
         เพลงในคิว: แก้แล้วจำเป็นค่าประจำเพลง (ใช้ตอนเปิดโหมด Custom) · เพลงจากคอมโบในคิว: แก้เฉพาะรอบนี้</div>
     </div>
   </div></section>
@@ -2304,7 +2375,9 @@ function updateQCount(){
 // โหมดคอมโบ: ค่าตัดด้วยมือล้วน ๆ (ว่าง = ต้นคลิป/ท้ายคลิป) บันทึกทั้งคอมโบ
 // แยกจาก state S ของตัวแก้เนื้อทั้งหมด — แก้ที่นี่ไม่ทำให้เนื้อ dirty
 const CUT = {mode:'queue', cid:null, combos:[], loaded:false, pair:0, info:{}, infoFail:{}, env:{}, envBusy:{},
-             lyr:{}, qclip:{}, saveT:{}, pv:null, join:null, drag:null, find:''};
+             lyr:{}, qclip:{}, saveT:{}, pv:null, join:null, drag:null, find:'', view:{}, tap:null, ac:null,
+             snap:(() => { try{ return localStorage.getItem('cutSnap') !== '0'; }catch(e){ return true; } })()};
+const CUT_PAD = 14;                        // เว้นขอบซ้าย/ขวาของแทร็ก — ที่จับไม่ชนท่าปัดย้อนกลับของ iOS
 const CLIP_K = ['start', 'end', 'fadeIn', 'fadeOut'];
 const SPAN_MIN = 15;                       // ตรงกับ server.py — ช่วงเล่นสั้นกว่านี้ถูกทิ้งจุดจบ
 const cutTv = () => (S.room && S.room.tv) || TV.cur || {};
@@ -2366,6 +2439,8 @@ async function cutEnsure(vid){
 // คลื่นเสียงร้องแบบหยาบ (10 จุด/วิ) ไว้ให้เห็นว่าร้องตรงไหน — decode ครั้งเดียวต่อเพลง
 async function cutEnv(vid){
   const inf = CUT.info[vid]; if(!inf || CUT.env[vid] || CUT.envBusy[vid]) return;
+  // เซิร์ฟเวอร์ส่งมาจากแคชแผนที่เสียงร้องแล้ว (10 จุด/วิ) — มือถือไม่ต้องโหลด+ถอดรหัสไฟล์เสียงทั้งไฟล์
+  if(inf.env && inf.env.length){ CUT.env[vid] = Float32Array.from(inf.env); cutDrawAll(); return; }
   const file = inf.vocals ? 'vocals.m4a' : inf.audio ? 'audio.m4a' : null; if(!file) return;
   CUT.envBusy[vid] = true;
   try{
@@ -2397,7 +2472,9 @@ function renderCut(){
   $('#cpg').textContent = E.length ? (B ? `เพลง ${CUT.pair + 1}–${CUT.pair + 2} จาก ${E.length}` : `เพลง ${CUT.pair + 1} จาก ${E.length}`) : '';
   $('#cprev').disabled = CUT.pair <= 0; $('#cnext').disabled = CUT.pair >= E.length - 2;
   $('#cjoin').disabled = !(A && B && CUT.info[A.vid] && CUT.info[B.vid]);
-  if(!CUT.drag) $('#ctracks').innerHTML = !E.length
+  $('#csnap').classList.toggle('on', CUT.snap);
+  // ระหว่างลาก/พิมพ์เวลาอยู่ ห้ามสร้างแทร็กใหม่ (ช่องหลุดโฟกัส แป้นพิมพ์ iOS ปิดเอง) — วาดใหม่แค่ canvas
+  if(!CUT.drag && !cutTyping()) $('#ctracks').innerHTML = !E.length
     ? `<div class="empty">${CUT.mode === 'combo' ? 'คอมโบนี้ยังไม่มีเพลง — ค้นเพลงด้านล่างแล้วกด ＋' : 'ยังไม่มีเพลง YouTube ในคิว'}</div>`
     : [A, B].map((e, r) => e ? cutTrackHtml(e, r) : '').join('');
   cutDrawAll();
@@ -2405,7 +2482,8 @@ function renderCut(){
   // จอเล็กค้างเพลงที่ไม่อยู่ในคู่นี้แล้ว (เลื่อนคู่ / เพิ่ม-ลบเพลงในคอมโบ) -> กลับมาที่เพลง A
   if(CUT.pv && !CUT.join && ![A, B].some(e => e && e.key === CUT.pv.key)){ cutPause(); CUT.pv = null; }
   if(!CUT.pv && A && CUT.info[A.vid]) cutLoadPv(A, cutEff(A).s, false);
-  if(!E.length && CUT.pv){ cutPause(); CUT.pv = null; $('#ctvv').removeAttribute('src'); $('#ctvph').classList.remove('hide'); $('#ctvt').textContent = ''; }
+  if(!E.length && CUT.pv){ cutPause(); CUT.pv = null; const v = $('#ctvv'); v.removeAttribute('src'); delete v.dataset.src;
+    $('#ctvph').classList.remove('hide'); $('#ctvt').textContent = ''; }
 }
 function cutTrackHtml(e, r){
   const inf = CUT.info[e.vid], f = inf ? cutEff(e) : null, c = e.clip || {}, tv = cutTv();
@@ -2413,76 +2491,88 @@ function cutTrackHtml(e, r){
   const sPh = e.combo ? 'ต้นคลิป' : (inf && inf.auto && inf.auto.start ? 'อัตโนมัติ ' + fmtD(inf.auto.start) : 'ต้นคลิป');
   const ePh = e.combo ? 'ท้ายคลิป' : (inf && inf.auto && inf.auto.end != null ? 'อัตโนมัติ ' + fmtD(inf.auto.end) : 'ท้ายคลิป');
   const val = (k, fmt) => c[k] != null ? fmt(c[k]) : '';
+  const z = CUT.view[e.key] || 'all';
+  // ปุ่มขยับละเอียด (ลากด้วยนิ้วให้ตรงเศษวินาทียาก) + ⤓ ใช้ตำแหน่งที่จอเล็กเล่นอยู่ / × กลับค่าเดิม / ▶ ฟังตรงนั้น
+  const nd = (k, steps) => steps.map(([d, lb]) => `<button class="nd" data-cnudge="${k}:${d}" title="${d > 0 ? '+' : ''}${d} วิ">${lb}</button>`).join('');
+  const pt = (k, lb, phd, go) => `<span class="grp pt"><span class="lb">${lb}</span><input data-cf="${k}" value="${val(k, fmtT)}" placeholder="${esc(ph(k, phd))}">
+      <button data-cset="${k}" title="ใช้ตำแหน่งที่จอเล็กเล่นอยู่">⤓</button><button data-cclr="${k}" title="กลับค่าเดิม">×</button><button data-cgo="${k}" title="${go}">▶</button>
+      <span class="nds">${nd(k, [[-1, '−1'], [-0.1, '−.1'], [0.1, '+.1'], [1, '+1']])}</span></span>`;
+  const fd = (k, lb) => `<span class="grp fd"><span class="lb">${lb}</span><input class="f" data-cf="${k}" value="${val(k, v => (+v).toFixed(1))}" placeholder="${tv[k] ?? 0}"> วิ <span class="nds">${nd(k, [[-0.5, '−'], [0.5, '+']])}</span></span>`;
   return `<div class="ctrk ${inf ? '' : 'empty'}" data-ck="${esc(e.key)}">
     <div class="hd"><span class="ab">${r ? 'B' : 'A'}</span><b>${esc(e.title)}</b>
-      <small>${e.cur ? '▶ กำลังเล่น · ' : ''}${e.singer ? '🎤 ' + esc(e.singer) + ' · ' : ''}${e.comboName ? '🎬 ' + esc(e.comboName) + ' · ' : ''}${inf ? (f ? 'เล่น ' + fmtD(f.e - f.s) + ' จาก ' + fmtD(f.D) : '') : 'ยังโหลดไม่เสร็จ'}</small></div>
-    <canvas></canvas>
-    ${inf ? `<div class="ctl">เริ่ม <input data-cf="start" value="${val('start', fmtT)}" placeholder="${esc(ph('start', sPh))}">
-      <button data-cset="start" title="ใช้ตำแหน่งที่จอเล็กเล่นอยู่">⤓</button><button data-cclr="start" title="กลับค่าเดิม">×</button>
-      <button data-cgo="start" title="เล่นจากจุดเริ่ม">▶</button><span class="gap"></span>
-      จบ <input data-cf="end" value="${val('end', fmtT)}" placeholder="${esc(ph('end', ePh))}">
-      <button data-cset="end" title="ใช้ตำแหน่งที่จอเล็กเล่นอยู่">⤓</button><button data-cclr="end" title="กลับค่าเดิม">×</button>
-      <button data-cgo="end" title="เล่น 6 วิสุดท้ายก่อนจบ">▶</button><span class="gap"></span>
-      เฟดเข้า <input class="f" data-cf="fadeIn" value="${val('fadeIn', v => (+v).toFixed(1))}" placeholder="${tv.fadeIn ?? 0}"> วิ
-      เฟดออก <input class="f" data-cf="fadeOut" value="${val('fadeOut', v => (+v).toFixed(1))}" placeholder="${tv.fadeOut ?? 0}"> วิ
+      <small>${e.cur ? '▶ กำลังเล่น · ' : ''}${e.singer ? '🎤 ' + esc(e.singer) + ' · ' : ''}${e.comboName ? '🎬 ' + esc(e.comboName) + ' · ' : ''}${inf ? (f ? 'เล่น ' + fmtD(f.e - f.s) + ' จาก ' + fmtD(f.D) : '') : 'ยังโหลดไม่เสร็จ'}</small>
+      ${inf ? `<span class="czoom">${[['all', 'ทั้งเพลง'], ['s', '🔍 ต้น'], ['e', '🔍 ท้าย']].map(([k, lb]) =>
+        `<button data-czoom="${k}" class="${z === k ? 'on' : ''}" title="${k === 'all' ? 'ดูทั้งเพลง' : 'ซูมดูช่วง' + (k === 's' ? 'จุดเริ่ม' : 'จุดจบ') + ' ลากได้ละเอียดขึ้น'}">${lb}</button>`).join('')}</span>` : ''}</div>
+    <div class="cv"><canvas></canvas>${inf ? [['s', 'start'], ['e', 'end'], ['fi', 'fadeIn'], ['fo', 'fadeOut']]
+      .map(([cl, pr]) => `<i class="cgrip ${cl}" data-part="${pr}"></i>`).join('') : ''}</div>
+    ${inf ? `<div class="ctl">${pt('start', 'เริ่ม', sPh, 'เล่นจากจุดเริ่ม')}${pt('end', 'จบ', ePh, 'เล่น 6 วิสุดท้ายก่อนจบ')}
+      ${fd('fadeIn', 'เฟดเข้า')}${fd('fadeOut', 'เฟดออก')}
       ${e.combo ? '' : '<button data-cclr="all" title="ล้างค่าที่ตั้งเองทั้งหมดของเพลงนี้">↺ ทั้งหมด</button>'}</div>` : ''}
   </div>`;
 }
 function cutEntryByKey(k){ return cutEntries().find(e => e.key === k); }
 // ----- วาดแทร็ก -----
 function cutDrawAll(){ document.querySelectorAll('#ctracks .ctrk').forEach(el => cutDraw(el)); }
+// ช่วงเวลาที่แทร็กแสดง (ทั้งเพลง / 🔍 ต้น / 🔍 ท้าย) — ล็อกไว้ระหว่างลาก ไม่งั้นช่วงเลื่อนตามจุดเริ่ม ที่จับวิ่งหนีนิ้ว
+function cutWin(e, f){
+  if(CUT.drag && CUT.drag.e.key === e.key) return CUT.drag.win;
+  const z = CUT.view[e.key] || 'all', D = f.D;
+  if(z === 's') return [Math.max(0, f.s - 15), Math.min(D, f.s + 25)];
+  if(z === 'e') return [Math.max(0, f.e - 25), Math.min(D, f.e + 15)];
+  return [0, D];
+}
+// ตัวแปลงเวลา <-> พิกเซลของแทร็ก ใช้ตัวเดียวกันทุกที่ (วาด / ที่จับ / แตะ / ลาก) — sp = วินาทีต่อพิกเซล
+function cutMap(e, f, W){
+  const [t0, t1] = cutWin(e, f), w = Math.max(1, W - 2 * CUT_PAD), span = Math.max(0.5, t1 - t0);
+  return {t0, t1, sp:span / w, X:t => CUT_PAD + (t - t0) / span * w, T:x => clamp(t0 + (x - CUT_PAD) / w * span, 0, f.D)};
+}
 function cutDraw(el){
   const cv = el.querySelector('canvas'), e = cutEntryByKey(el.dataset.ck); if(!cv || !e) return;
   const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
   if(cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)){ cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const inf = CUT.info[e.vid]; if(!inf || !inf.duration) return;
-  const f = cutEff(e), X = t => t / f.D * W;
-  // คลื่นเสียงร้อง
-  const env = CUT.env[e.vid], mid = 44, amp = 26;
+  const inf = CUT.info[e.vid];
+  if(!inf || !inf.duration){ el.querySelectorAll('.cgrip').forEach(x => x.classList.add('off')); return; }
+  const f = cutEff(e), M = cutMap(e, f, W), X = M.X;
+  // แถบบน (26%) = เฟด · กลาง = คลื่นเสียงร้อง · ล่าง = ท่อนร้อง — คิดจากความสูงจริง (จอสัมผัสสูงกว่า)
+  const band = H * 0.26, top = band / 2, bot = H - 4, mid = band + (H - band - 16) / 2, amp = Math.max(8, (H - band - 18) / 2);
+  const env = CUT.env[e.vid];
   g.fillStyle = 'rgba(255,255,255,.28)';
-  if(env){ const n = env.length; for(let x = 0; x < W; x += 2){ const i0 = Math.floor(x / W * f.D * 10), i1 = Math.max(i0 + 1, Math.floor((x + 2) / W * f.D * 10));
+  if(env){ const n = env.length; for(let x = CUT_PAD; x < W - CUT_PAD; x += 2){ const i0 = Math.max(0, Math.floor(M.T(x) * 10)), i1 = Math.max(i0 + 1, Math.floor(M.T(x + 2) * 10));
       let m = 0; for(let i = i0; i < i1 && i < n; i++) m = Math.max(m, env[i]); const h = Math.max(1, m * amp); g.fillRect(x, mid - h, 1.4, h * 2); } }
   // ท่อนร้อง (เวลาเนื้อ + offset ประจำเพลง = เวลาในเสียง)
   const L = CUT.lyr[e.vid], off = +inf.lyrOffset || 0;
   if(L){ g.fillStyle = 'rgba(156,134,255,.75)';
-    for(const l of L){ const a = X(l.t + off), b = X(l.e != null ? l.e + off : l.t + off + (+l.d || 1)); g.fillRect(a, H - 13, Math.max(2, b - a - 1), 7); } }
+    for(const l of L){ const a = X(l.t + off), b = X(l.e != null ? l.e + off : l.t + off + (+l.d || 1)); if(b < 0 || a > W) continue;
+      g.fillRect(a, H - 13, Math.max(2, b - a - 1), 7); } }
   // ช่วงที่ตัดทิ้ง
+  const xs = X(f.s), xe = X(f.e);
   g.fillStyle = 'rgba(6,6,11,.62)';
-  g.fillRect(0, 0, X(f.s), H); g.fillRect(X(f.e), 0, W - X(f.e), H);
+  g.fillRect(0, 0, Math.max(0, xs), H); g.fillRect(xe, 0, Math.max(0, W - xe), H);
   // กรอบช่วงที่เล่น + เส้นลาดระดับเสียง (เฟดเข้า/ออก)
-  const xs = X(f.s), xe = X(f.e), top = 9, bot = H - 4;
   g.strokeStyle = '#ff4d8d'; g.lineWidth = 2; g.strokeRect(xs + 1, 1, Math.max(2, xe - xs - 2), H - 2);
   g.beginPath(); g.moveTo(xs, bot); g.lineTo(X(f.s + f.fi), top); g.lineTo(X(f.e - f.fo), top); g.lineTo(xe, bot);
   g.strokeStyle = '#ffc2d8'; g.lineWidth = 1.6; g.stroke();
   g.fillStyle = 'rgba(255,77,141,.16)';
   g.beginPath(); g.moveTo(xs, bot); g.lineTo(X(f.s + f.fi), top); g.lineTo(xs, top); g.fill();
   g.beginPath(); g.moveTo(xe, bot); g.lineTo(X(f.e - f.fo), top); g.lineTo(xe, top); g.fill();
-  // ที่จับ
-  g.fillStyle = '#ff4d8d'; g.fillRect(xs - 3, 0, 6, H); g.fillRect(xe - 3, 0, 6, H);
-  g.fillStyle = '#fff';
-  for(const x of [X(f.s + f.fi), X(f.e - f.fo)]){ g.beginPath(); g.arc(x, top, 5.5, 0, 7); g.fill(); }
   g.font = '11px "Noto Sans Thai",sans-serif'; g.fillStyle = '#ffc2d8';
-  if(f.fi > 0) g.fillText(`เฟดเข้า ${f.fi.toFixed(1)} วิ`, Math.min(X(f.s + f.fi) + 8, W - 80), 24);
-  if(f.fo > 0){ const t = `เฟดออก ${f.fo.toFixed(1)} วิ`; g.fillText(t, Math.max(4, X(f.e - f.fo) - g.measureText(t).width - 8), 24); }
+  if(f.fi > 0) g.fillText(`เฟดเข้า ${f.fi.toFixed(1)} วิ`, Math.min(X(f.s + f.fi) + 12, W - 80), band + 12);
+  if(f.fo > 0){ const t = `เฟดออก ${f.fo.toFixed(1)} วิ`; g.fillText(t, Math.max(4, X(f.e - f.fo) - g.measureText(t).width - 12), band + 12); }
   // หัวเล่นของจอเล็ก
-  if(CUT.pv && CUT.pv.key === e.key){ const x = X($('#ctvv').currentTime || 0); g.fillStyle = '#7cc7ff'; g.fillRect(x - 1, 0, 2, H); }
+  if(CUT.pv && CUT.pv.key === e.key){ const x = X(cutVid().currentTime || 0); if(x >= 0 && x <= W){ g.fillStyle = '#7cc7ff'; g.fillRect(x - 1, 0, 2, H); } }
+  // ที่จับ (DOM ลอยบน canvas) ตามตำแหน่งในช่วงที่แสดง — อยู่นอกช่วงซูม = ซ่อน
+  const put = (cl, t) => { const gr = el.querySelector('.cgrip.' + cl); if(!gr) return; const x = X(t);
+    gr.classList.toggle('off', x < CUT_PAD - 1 || x > W - CUT_PAD + 1); gr.style.left = x + 'px';
+    gr.classList.toggle('on', !!(CUT.drag && CUT.drag.el === el && CUT.drag.part === gr.dataset.part)); };
+  put('s', f.s); put('e', f.e); put('fi', f.s + f.fi); put('fo', f.e - f.fo);
 }
-// ----- ลากบนแทร็ก -----
-function cutHit(el, x, y){
-  const e = cutEntryByKey(el.dataset.ck), inf = e && CUT.info[e.vid]; if(!inf) return null;
-  const W = el.querySelector('canvas').clientWidth, f = cutEff(e), X = t => t / f.D * W;
-  if(y < 22 && Math.abs(x - X(f.s + f.fi)) < 10) return {e, part:'fadeIn'};
-  if(y < 22 && Math.abs(x - X(f.e - f.fo)) < 10) return {e, part:'fadeOut'};
-  if(Math.abs(x - X(f.s)) < 8) return {e, part:'start'};
-  if(Math.abs(x - X(f.e)) < 8) return {e, part:'end'};
-  return {e, part:'seek'};
-}
-// ดูดเข้าต้นท่อนร้องที่ใกล้ (ถือ Alt = ไม่ดูด)
-function cutSnap(e, t, alt){
-  const L = CUT.lyr[e.vid], inf = CUT.info[e.vid]; if(alt || !L || !inf) return t;
-  const off = +inf.lyrOffset || 0, px = inf.duration / 300 * 4;   // ~4px
-  let best = t, bd = Math.max(0.6, px);
+// ----- ลาก / แตะบนแทร็ก -----
+// ดูดเข้าต้น/ท้ายท่อนร้องที่ใกล้ (🧲 ปิดได้ · ถือ Alt = ไม่ดูดชั่วคราว) — รัศมีราว 6px ตามการซูม (เดิมตายตัว ~4 วิ ซูมแล้วยังกระโดด)
+function cutSnap(e, t, alt, sp){
+  const L = CUT.lyr[e.vid], inf = CUT.info[e.vid]; if(alt || !CUT.snap || !L || !inf) return t;
+  const off = +inf.lyrOffset || 0;
+  let best = t, bd = Math.max(0.15, (sp || inf.duration / 300) * 6);
   for(const l of L){ for(const c of [l.t + off, (l.e ?? l.t + (+l.d || 0)) + off]){ const d = Math.abs(c - t); if(d < bd){ bd = d; best = c; } } }
   return best;
 }
@@ -2491,33 +2581,69 @@ function cutSetVal(e, k, v){
   if(v == null || !isFinite(v)) delete c[k]; else c[k] = r2(v);
   cutSave(e);
 }
+// ปุ่ม −1 −.1 +.1 +1 (จุดเริ่ม/จบ) และ −/+ 0.5 (เฟด) — จอเล็กไปดูจุดใหม่ให้เลย
+function cutNudge(e, k, dv){
+  const f = cutEff(e);
+  if(k === 'start') cutSetVal(e, k, clamp(f.s + dv, 0, f.e - SPAN_MIN));
+  else if(k === 'end'){ const v = clamp(f.e + dv, f.s + SPAN_MIN, f.D); if(f.D && v >= f.D - 0.05){ delete e.clip.end; cutSave(e); } else cutSetVal(e, k, v); }
+  else cutSetVal(e, k, clamp(Math.round(((k === 'fadeIn' ? f.fi : f.fo) + dv) * 2) / 2, 0, Math.min(10, (f.e - f.s) / 2)));
+  if(k === 'start' || k === 'end'){ const g = cutEff(e); cutLoadPv(e, k === 'start' ? g.s : Math.max(g.s, g.e - 0.1), !cutVid().paused); }
+}
+function cutSeekAt(el, e, clientX){
+  const cv = el.querySelector('canvas'), r = cv.getBoundingClientRect();
+  cutLoadPv(e, cutMap(e, cutEff(e), r.width).T(clientX - r.left), !cutVid().paused);
+}
+const cutTyping = () => { const a = document.activeElement; return !!(a && a.tagName === 'INPUT' && a.closest && a.closest('#ctracks')); };
+// ที่จับ = ลาก (นิ้วเดียว จำ pointerId) · แทร็กเปล่า = ดูตรงนั้นในจอเล็ก: เมาส์ทันทีที่กด / นิ้วตอนปล่อยเท่านั้น
+// (canvas เป็น pan-y: ปัดขึ้นลง = เลื่อนหน้า ขยับเกิน 8px หรือเบราว์เซอร์ยกเลิก ไม่นับเป็นแตะ)
 document.addEventListener('pointerdown', ev => {
+  if(CUT.ac && CUT.ac.state !== 'running' && ev.target.closest && ev.target.closest('#vcut')) CUT.ac.resume().catch(() => {});
+  const gr = ev.target.closest && ev.target.closest('#ctracks .cgrip');
+  if(gr){
+    if(CUT.drag) return;                                  // นิ้วที่สองแย่งการลากไม่ได้
+    const el = gr.closest('.ctrk'), e = cutEntryByKey(el.dataset.ck); if(!e || !CUT.info[e.vid]) return;
+    const r = el.querySelector('canvas').getBoundingClientRect();
+    ev.preventDefault();
+    try{ gr.setPointerCapture(ev.pointerId); }catch(err){}
+    CUT.drag = {el, e, part:gr.dataset.part, pid:ev.pointerId, win:cutWin(e, cutEff(e)), W:r.width, left:r.left};
+    cutDraw(el);
+    return;
+  }
   const cv = ev.target.closest && ev.target.closest('#ctracks canvas'); if(!cv) return;
-  const el = cv.closest('.ctrk'), r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-  const h = cutHit(el, x, y); if(!h) return;
-  const f = cutEff(h.e), t = clamp(x / r.width * f.D, 0, f.D);
-  if(h.part === 'seek'){ cutLoadPv(h.e, t, !$('#ctvv').paused); return; }
-  ev.preventDefault(); cv.setPointerCapture(ev.pointerId);
-  CUT.drag = {el, e:h.e, part:h.part, W:r.width, left:r.left};
+  const el = cv.closest('.ctrk'), e = cutEntryByKey(el.dataset.ck); if(!e || !CUT.info[e.vid]) return;
+  if(ev.pointerType === 'mouse'){ cutSeekAt(el, e, ev.clientX); return; }
+  CUT.tap = {pid:ev.pointerId, x:ev.clientX, y:ev.clientY, el, e};
 });
 document.addEventListener('pointermove', ev => {
-  const d = CUT.drag; if(!d) return;
-  const e = d.e, f = cutEff(e), t = clamp((ev.clientX - d.left) / d.W * f.D, 0, f.D), c = e.clip;
-  if(d.part === 'start') c.start = r2(clamp(cutSnap(e, t, ev.altKey), 0, f.e - SPAN_MIN));
-  else if(d.part === 'end') c.end = r2(clamp(cutSnap(e, t, ev.altKey), f.s + SPAN_MIN, f.D));
+  const tp = CUT.tap;
+  if(tp && tp.pid === ev.pointerId && Math.hypot(ev.clientX - tp.x, ev.clientY - tp.y) > 8) CUT.tap = null;
+  const d = CUT.drag; if(!d || ev.pointerId !== d.pid) return;
+  const e = d.e, f = cutEff(e), c = e.clip, M = cutMap(e, f, d.W), t = M.T(ev.clientX - d.left);
+  if(d.part === 'start') c.start = r2(clamp(cutSnap(e, t, ev.altKey, M.sp), 0, f.e - SPAN_MIN));
+  else if(d.part === 'end') c.end = r2(clamp(cutSnap(e, t, ev.altKey, M.sp), f.s + SPAN_MIN, f.D));
   else if(d.part === 'fadeIn') c.fadeIn = Math.round(clamp(t - f.s, 0, Math.min(10, (f.e - f.s) / 2)) * 2) / 2;
   else if(d.part === 'fadeOut') c.fadeOut = Math.round(clamp(f.e - t, 0, Math.min(10, (f.e - f.s) / 2)) * 2) / 2;
   if(d.part === 'end' && c.end >= f.D - 0.05) delete c.end;
   cutDraw(d.el);
 });
-document.addEventListener('pointerup', () => {
-  const d = CUT.drag; if(!d) return;
+// ปล่อยนิ้ว / เบราว์เซอร์ยกเลิก (แจ้งเตือนเด้ง, ปัดหน้า) / หลุด capture — ทุกทางจบการลากและบันทึก
+// (เดิมฟังแค่ pointerup: ถูกยกเลิกบนจอสัมผัสแล้วค้าง CUT.drag ไว้ แทร็กไม่วาดใหม่อีกเลย)
+function cutPointerEnd(ev){
+  const tp = CUT.tap;
+  if(tp && ev.pointerId === tp.pid){ CUT.tap = null; if(ev.type === 'pointerup') cutSeekAt(tp.el, tp.e, ev.clientX); }
+  const d = CUT.drag; if(!d || ev.pointerId !== d.pid) return;
   CUT.drag = null; cutSave(d.e); renderCut();
   if(d.part === 'start') cutLoadPv(d.e, cutEff(d.e).s, false);
-});
+}
+document.addEventListener('pointerup', cutPointerEnd);
+document.addEventListener('pointercancel', cutPointerEnd);
+document.addEventListener('lostpointercapture', cutPointerEnd, true);
 // ----- ปุ่ม / ช่องเวลา -----
 $('#vcut').addEventListener('click', async ev => {
   const b = ev.target.closest('button'); if(!b) return;
+  cutAudioOn();                                   // iOS: สร้าง/ปลุกเสียงในจังหวะที่แตะเท่านั้น
+  if(b.id === 'csnap'){ CUT.snap = !CUT.snap; b.classList.toggle('on', CUT.snap);
+    try{ localStorage.setItem('cutSnap', CUT.snap ? '1' : '0'); }catch(e){} return; }
   if(b.dataset.cq){ CUT.mode = 'queue'; CUT.pair = 0; cutPause(); CUT.pv = null; renderCut(); return; }
   if(b.dataset.cc){ CUT.mode = 'combo'; CUT.cid = b.dataset.cc; CUT.pair = 0; cutPause(); CUT.pv = null; renderCut(); return; }
   if(b.dataset.cnew){ await cutComboNew([]); return; }
@@ -2531,14 +2657,17 @@ $('#vcut').addEventListener('click', async ev => {
   }
   if(b.id === 'cprev'){ CUT.pair--; CUT.pv = null; cutPause(); renderCut(); return; }
   if(b.id === 'cnext'){ CUT.pair++; CUT.pv = null; cutPause(); renderCut(); return; }
-  if(b.id === 'cplay'){ const v = $('#ctvv'); if(!CUT.pv) return; CUT.join = null; v.paused ? v.play().catch(() => {}) : v.pause(); return; }
+  if(b.id === 'cplay'){ if(!CUT.pv) return; if(CUT.join){ cutPause(); return; }
+    const v = $('#ctvv'); v.paused ? v.play().catch(() => {}) : v.pause(); return; }
   if(b.id === 'cjoin'){ cutJoin(); return; }
   const tr = b.closest('.ctrk'), e = tr && cutEntryByKey(tr.dataset.ck);
   if(e){
     const f = cutEff(e);
+    if(b.dataset.czoom){ CUT.view[e.key] = b.dataset.czoom; renderCut(); return; }
+    if(b.dataset.cnudge){ const [k, dv] = b.dataset.cnudge.split(':'); cutNudge(e, k, +dv); renderCut(); return; }
     if(b.dataset.cset){
       if(!CUT.pv || CUT.pv.key !== e.key){ toast('แตะแทร็กนี้หรือกด ▶ เพื่อเล่นเพลงนี้ในจอเล็กก่อน'); return; }
-      const t = $('#ctvv').currentTime, k = b.dataset.cset;
+      const t = cutVid().currentTime, k = b.dataset.cset;
       if(k === 'start' && t > f.e - SPAN_MIN){ toast(`จุดเริ่มต้องก่อนจุดจบอย่างน้อย ${SPAN_MIN} วิ`); return; }
       if(k === 'end' && t < f.s + SPAN_MIN){ toast(`จุดจบต้องหลังจุดเริ่มอย่างน้อย ${SPAN_MIN} วิ`); return; }
       cutSetVal(e, k, t); renderCut(); return;
@@ -2561,7 +2690,9 @@ $('#vcut').addEventListener('change', ev => {
   if(k === 'start') v = clamp(v, 0, f.e - SPAN_MIN);
   else if(k === 'end') v = clamp(v, f.s + SPAN_MIN, f.D);
   else v = clamp(v, 0, 10);
-  cutSetVal(e, k, v); renderCut();
+  cutSetVal(e, k, v);
+  el.value = k.startsWith('fade') ? (+v).toFixed(1) : fmtT(v);
+  renderCut();
 });
 // ----- บันทึก (หน่วง 400ms ต่อเพลง) -----
 function cutClean(c){ const o = {}; CLIP_K.forEach(k => { if(c[k] != null && isFinite(c[k])) o[k] = +c[k]; }); return o; }
@@ -2581,27 +2712,69 @@ function cutSave(e){
   }, 400);
 }
 // ----- จอทีวีเล็ก -----
-function cutLoadPv(e, at, play){
+// วิดีโอตัวที่เล่นอยู่: ระหว่าง ▶ ฟังรอยต่อช่วงเพลง B = ตัวที่สอง (#ctvv2) นอกนั้นตัวหลัก
+const cutVid = () => (CUT.join && CUT.join.phase === 'B') ? $('#ctvv2') : $('#ctvv');
+// iOS ปรับ volume ของวิดีโอไม่ได้ (อ่านกลับได้ 1 เสมอ) — เสียงเฟดในจอเล็กต้องผ่าน Web Audio (GainNode)
+// เครื่องอื่นใช้ volume แบบเดิม (ต่อ Web Audio แล้วเสียงไปทางนั้นถาวร ไม่จำเป็นก็ไม่ต่อ)
+const CUT_VOL_OK = (() => { try{ const a = document.createElement('audio'); a.volume = 0.5; return a.volume === 0.5; }catch(e){ return true; } })();
+function cutAudioOn(){
+  if(CUT_VOL_OK) return;
+  try{
+    if(!CUT.ac){
+      CUT.ac = new (window.AudioContext || window.webkitAudioContext)();
+      try{ if(navigator.audioSession) navigator.audioSession.type = 'playback'; }catch(e){}   // ดังแม้ iPhone เปิดโหมดเงียบ
+    }
+    for(const v of [$('#ctvv'), $('#ctvv2')]) if(!v._g){       // ต่อได้ครั้งเดียวต่อวิดีโอหนึ่งตัว
+      v._g = CUT.ac.createGain(); CUT.ac.createMediaElementSource(v).connect(v._g).connect(CUT.ac.destination); }
+    if(CUT.ac.state !== 'running') CUT.ac.resume().catch(() => {});
+  }catch(e){}
+}
+function cutVol(v, k){
+  if(v._g){ if(Math.abs((v._k ?? 1) - k) > 0.01){ v._k = k; v._g.gain.setTargetAtTime(k, CUT.ac.currentTime, 0.03); } }
+  else if(Math.abs(v.volume - k) > 0.005) v.volume = k;
+}
+// โหลดเพลงลงวิดีโอตัวหลักที่ตำแหน่ง at — เปลี่ยนไฟล์ใช้ #t= ให้เริ่มตรงนั้นเลย และเรียก play() ทันทีในจังหวะที่แตะ
+// (เดิมรอ loadedmetadata ค่อยเล่น — iOS ไม่นับเป็นการแตะของผู้ใช้ กดครั้งแรกจึงไม่เล่น)
+function cutLoadPv(e, at, play, keepJoin){
   const inf = CUT.info[e.vid]; if(!inf) return;
+  if(!keepJoin) cutJoinStop();
   const v = $('#ctvv'), src = `/song/${e.vid}/${inf.video ? 'video.mp4' : 'audio.m4a'}`;
   CUT.pv = {key:e.key, vid:e.vid};
   $('#ctvph').classList.add('hide'); $('#ctvt').textContent = e.title;
-  const go = () => { try{ v.currentTime = at; }catch(err){} if(play) v.play().catch(() => {}); };
-  if(v.getAttribute('src') !== src){ v.src = src; v.addEventListener('loadedmetadata', go, {once:true}); } else go();
+  at = Math.max(0, at || 0);
+  if(v.dataset.src !== src){
+    v.dataset.src = src; v.src = `${src}#t=${at.toFixed(2)}`;
+    v.addEventListener('loadedmetadata', () => { try{ if(Math.abs(v.currentTime - at) > 0.3) v.currentTime = at; }catch(err){} }, {once:true});
+  }else{ try{ v.currentTime = at; }catch(err){} }
+  if(play) v.play().catch(() => {});
   cutDrawAll();
 }
-function cutPause(){ const v = $('#ctvv'); if(v && !v.paused) v.pause(); CUT.join = null; }
+function cutJoinStop(){
+  const J = CUT.join; if(!J) return;
+  CUT.join = null; $('#ctv').classList.remove('b');
+  const v2 = $('#ctvv2'), t = v2.currentTime || 0; if(!v2.paused) v2.pause();
+  if(J.phase === 'B') cutLoadPv(J.B, t, false, true);      // หยุดระหว่างเพลง B -> B กลับไปอยู่ตัวหลัก ณ ตำแหน่งที่ฟังถึง
+}
+function cutPause(){ const v = $('#ctvv'); if(v && !v.paused) v.pause(); cutJoinStop(); }
 // ▶ ฟังรอยต่อ: A ตั้งแต่ จบ−8 วิ -> เฟดตามค่า -> B ตั้งแต่จุดเริ่มไป 8 วิ
+// B โหลดรอในวิดีโอตัวที่สอง และปลดล็อกในการแตะครั้งเดียวกัน (เล่นเงียบแล้วหยุด) — สลับไฟล์ในตัวเดียวกลางทาง
+// iOS เงียบไป 0.5-2 วิหรือไม่ยอมเล่นต่อ เพราะไม่ได้อยู่ในจังหวะที่ผู้ใช้แตะ
 function cutJoin(){
   const E = cutEntries(), A = E[CUT.pair], B = E[CUT.pair + 1]; if(!A || !B) return;
-  const fa = cutEff(A);
-  CUT.join = {phase:'A', A, B};
-  cutLoadPv(A, Math.max(fa.s, fa.e - 8), true);
+  const ib = CUT.info[B.vid]; if(!ib || !CUT.info[A.vid]) return;
+  const fa = cutEff(A), fb = cutEff(B);
+  cutJoinStop();
+  cutLoadPv(A, Math.max(fa.s, fa.e - 8), true, true);
+  const v2 = $('#ctvv2'), src = `/song/${B.vid}/${ib.video ? 'video.mp4' : 'audio.m4a'}`;
+  if(v2.dataset.src !== src){ v2.dataset.src = src; v2.src = `${src}#t=${fb.s.toFixed(2)}`; } else { try{ v2.currentTime = fb.s; }catch(e){} }
+  v2.muted = true;
+  v2.play().then(() => { v2.pause(); v2.muted = false; try{ v2.currentTime = fb.s; }catch(e){} }).catch(() => { v2.muted = false; });
+  CUT.join = {phase:'A', A, B, until:fb.s + 8};
 }
 function cutTick(){
   requestAnimationFrame(cutTick);
   if(document.body.dataset.view !== 'cut' || !CUT.pv) return;
-  const v = $('#ctvv'), e = cutEntryByKey(CUT.pv.key), inf = e && CUT.info[e.vid];
+  const J = CUT.join, v = cutVid(), e = J && J.phase === 'B' ? J.B : cutEntryByKey(CUT.pv.key), inf = e && CUT.info[e.vid];
   const pos = v.currentTime || 0;
   $('#ctm').textContent = `${fmtD(pos)} / ${fmtD(v.duration || (inf && inf.duration) || 0)}`;
   if(!e || !inf) return;
@@ -2612,13 +2785,16 @@ function cutTick(){
     if(f.fi > 0 && pos < f.s + f.fi) k = clamp((pos - f.s) / f.fi, 0, 1);
     if(f.fo > 0 && pos > f.e - f.fo) k = Math.min(k, clamp((f.e - pos) / f.fo, 0, 1));
   }
-  $('#ctvbk').style.opacity = (1 - k).toFixed(3); v.volume = k;
+  $('#ctvbk').style.opacity = (1 - k).toFixed(3); cutVol(v, k);
   if(!v.paused && pos >= f.e){
-    const J = CUT.join;
-    if(J && J.phase === 'A' && J.A.key === e.key){ J.phase = 'B'; const fb = cutEff(J.B); J.until = fb.s + 8; cutLoadPv(J.B, fb.s, true); }
-    else { v.pause(); CUT.join = null; }
+    if(J && J.phase === 'A' && J.A.key === e.key){          // A จบ -> B ในวิดีโอตัวที่สอง (โหลดรอไว้แล้ว)
+      v.pause(); J.phase = 'B';
+      const v2 = $('#ctvv2'); $('#ctv').classList.add('b'); cutVol(v2, 0);
+      CUT.pv = {key:J.B.key, vid:J.B.vid}; $('#ctvt').textContent = J.B.title;
+      v2.play().catch(() => {});
+    }else{ v.pause(); cutJoinStop(); return; }
   }
-  if(CUT.join && CUT.join.phase === 'B' && CUT.join.B.key === e.key && pos >= CUT.join.until){ v.pause(); CUT.join = null; }
+  if(J && J.phase === 'B' && !v.paused && pos >= J.until){ v.pause(); cutJoinStop(); return; }   // ฟังรอยต่อจบ
   // ซับแบบจอทีวี 2 บรรทัด (lycFrame ตัวเดียวกับทีวี)
   const L = CUT.lyr[e.vid], l1 = $('#cl1'), l2 = $('#cl2');
   if(L && L.length){
@@ -2635,10 +2811,11 @@ document.addEventListener('keydown', ev => {
   ev.preventDefault(); $('#cplay').click();
 });
 addEventListener('resize', () => { if(document.body.dataset.view === 'cut') cutDrawAll(); });
-// ห้องเปลี่ยน (คิวขยับ / ค่าจอเปลี่ยน) -> วาดใหม่ ยกเว้นตอนกำลังลาก
+// ห้องเปลี่ยน (คิวขยับ / ค่าจอเปลี่ยน) -> วาดใหม่ ยกเว้นตอนกำลังลาก/พิมพ์
 let cutRoomSig = '';
 function cutRoom(){
-  if(document.body.dataset.view !== 'cut' || CUT.drag) return;
+  // ระหว่างลาก / พิมพ์เวลา (คลังอัปเดตถี่ตอนงานเบื้องหลังวิ่ง) ห้ามวาดแทร็กใหม่ — รอบหน้าค่อยวาด
+  if(document.body.dataset.view !== 'cut' || CUT.drag || cutTyping()) return;
   const st = S.room || {}, sig = [(st.current || {}).id, ...(st.queue || []).map(q => q.id), JSON.stringify(st.tv || {}), st.archiveRev].join('|');
   if(sig === cutRoomSig) return;
   if(st.archiveRev !== cutRoom.rev){ cutRoom.rev = st.archiveRev; if(CUT.loaded) cutLoadCombos().then(renderCut); }
