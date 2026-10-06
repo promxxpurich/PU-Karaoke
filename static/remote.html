@@ -1550,6 +1550,12 @@ async function search(){
   try{
     const r = await (await fetch('/api/search?q='+encodeURIComponent(raw))).json();
     if(my !== searchTok) return;
+    if(!(r.results || []).length && r.hidden && !r.error){
+      // เจอแต่คลิปที่ไม่ใช่เพลง (ยาวเกิน/ออกกำลังกาย/ตลก ฯลฯ) — เซิร์ฟเวอร์ซ่อนหมด ไม่ใช่ yt-dlp พัง
+      emptyMsg($('#results'), `<b>ไม่พบเพลง</b><br>ซ่อนคลิปที่ไม่ใช่เพลง (ยาวเกิน 10 นาที / ออกกำลังกาย / ตลก ฯลฯ) ไป ${+r.hidden} คลิป<br>`
+        + `ลองพิมพ์ชื่อเพลง + ศิลปิน หรือ copy ลิงก์จากแอป YouTube มาวางได้เลย`);
+      return;
+    }
     if(!(r.results || []).length){
       emptyMsg($('#results'), `<b>ค้นหาไม่สำเร็จ</b><br>${r.error?`<span style="color:#ff8fae;word-break:break-all">${esc(r.error)}</span><br>`:'ไม่พบผลลัพธ์<br>'}`
         + `วิธีแก้: รัน <code>./update.sh</code> เพื่ออัปเดต yt-dlp<br>หรือ copy ลิงก์จากแอป YouTube มาวางได้เลย`);

@@ -467,8 +467,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ## server.py — API ค้นหา คลัง และสถานะระบบ
 
 ### ค้นหา YouTube และเช็คฝังได้ (search / embeddable)
-คำค้น: ค้นหา, search, ค้นเพลง, YouTube, yt-dlp, ผลค้นหา, ฝังได้, embeddable, embed, oEmbed, วางลิงก์, ชื่อเพลงจริง, ช่อง, channel
-- `server.py` `@app.get("/api/search")` `def _search(` `def _annotate(` — ค้นด้วย ytsearch12 ผ่าน yt-dlp (ดึงแค่ metadata) แล้วเช็คว่าฝังได้ไหมแบบขนาน 8 เธรด เรียงคลิปที่ฝังได้ขึ้นก่อน
+คำค้น: ค้นหา, search, ค้นเพลง, YouTube, yt-dlp, ผลค้นหา, ฝังได้, embeddable, embed, oEmbed, วางลิงก์, ชื่อเพลงจริง, ช่อง, channel, กรอง, ไม่ใช่เพลง, ซ่อน, ออกกำลังกาย, แอโรบิค, ตลก, รีแอค, สัมภาษณ์, ไลฟ์สด, 10 นาที, filter
+- `server.py` `@app.get("/api/search")` `def _search(` `def _annotate(` — ค้นด้วย yt-dlp (ดึงแค่ metadata) เผื่อ 2 เท่า (ytsearch24) กรองแล้วเหลือ 12, ส่ง hidden = จำนวนที่ซ่อน, แล้วเช็คว่าฝังได้ไหมแบบขนาน 8 เธรด เรียงคลิปที่ฝังได้ขึ้นก่อน
+- `server.py` `SEARCH_MAX_SEC = ` `_NOT_SONG_RE = re.compile(` `def _is_song_clip(` — ซ่อนคลิปที่ไม่ใช่เพลง: ยาวเกิน 10 นาที (= SEP_MAX_SEC), ไลฟ์ที่ยังออกอากาศ, ชื่อคลิป/ช่องมีคำออกกำลังกาย/ตลก/รีแอค/สอนร้อง-เล่น/สัมภาษณ์/เบื้องหลัง · รีโมทผลว่างแต่ hidden > 0 ขึ้น "ไม่พบเพลง — ซ่อน N คลิป" (ใน static/remote.html ฟังก์ชัน search)
+! ซ่อนเสมอแม้แขกพิมพ์คำนั้นเอง (ผู้ใช้เลือก) · คำไทยห้ามสั้นจนชนชื่อเพลง ("ฮา", "สอน", "แกล้ง") · _swipe_yt (PU Match) ใช้ _search จึงโดนกรองด้วย · วางลิงก์ (/api/embeddable) ไม่กรอง
 - `server.py` `@app.get("/api/embeddable")` `def _oembed(` `def _embeddable(` `def _yt_info(` — ตอนวางลิงก์: เช็คว่าเจ้าของปิดการฝังไหม (oEmbed ตอบ 401/403) และดึงชื่อจริง/ช่อง, แคช 1 ชม.
 
 ### คลังเพลงในเครื่องและสถานะเพลงก่อนเพิ่ม (archive / songinfo / library)

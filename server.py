@@ -2752,7 +2752,38 @@ async def _reprioritize() -> None:
     _preempt_heavy()
 
 
-def _search(q: str, n: int = 12) -> list[dict[str, Any]]:
+SEARCH_MAX_SEC = SEP_MAX_SEC   # ผลค้นที่ยาวกว่านี้ (เมดเลย์/รวมเพลง/ไลฟ์ย้อนหลัง) ไม่ใช่เพลงเดียว -> ซ่อน
+# ชื่อคลิป/ช่องที่ไม่ใช่เพลงให้ร้อง — ซ่อนเสมอแม้แขกพิมพ์คำนี้มาเอง (ผู้ใช้เลือก)
+# ภาษาไทยไม่มีช่องว่างคั่นคำ: เลี่ยงคำสั้นที่ชนชื่อเพลงจริง เช่น "ฮา" (ฮาร์ท), "สอน" (สอนใจ), "แกล้ง" (แกล้งลืม)
+_NOT_SONG_RE = re.compile(
+    r"ออกกำลัง|แอโรบ[ิี][คก]|ฟิตเนส|ซุมบ้า|คาร์ดิโอ|โยคะ|พิลาทิส|ลดน้ำหนัก|ลดพุง|ลดไขมัน|เผาผลาญ"
+    r"|กายบริหาร|บริหารร่างกาย|ยืดเหยียด"
+    r"|\b(?:aerobics?|workouts?|exercises?|fitness|zumba|cardio|yoga|pilates|hiit)\b"
+    r"|ตลก|ขำ|ฮา\s?ๆ|สุดฮา|ฮามาก|ฮาลั่น|ฮาก๊าก|คลิปฮา|พากย์ฮา|พากย์นรก|รวมคลิป|แกล้งคน|เดี่ยวไมโครโฟน|ทอล์[คก]โชว์"
+    r"|😂|🤣|\b(?:comedy|funny|pranks?|lol)\b"
+    r"|รีแอ็?ค|สอนร้อง|สอนเล่น|สอนกีตาร์|สอนเปียโน|สอนเต้น"
+    r"|\b(?:reactions?|react(?:s|ing)? to|tutorial|how to (?:sing|play))\b"
+    r"|สัมภาษณ์|เบื้องหลัง|\b(?:interview|behind the scenes?)\b",
+    re.I)
+
+
+def _is_song_clip(e: dict) -> bool:
+    """ผลค้น (entry แบบ flat ของ yt-dlp) น่าจะเป็นเพลงให้ร้องไหม — ไลฟ์ที่ยังออกอากาศ/ยาวเกิน/ชื่อเข้า _NOT_SONG_RE = ไม่ใช่
+    ไม่รู้ความยาว (ไม่ใช่ไลฟ์) ให้ผ่านไปก่อน"""
+    if e.get("live_status") in ("is_live", "is_upcoming"):
+        return False
+    try:
+        if float(e.get("duration") or 0) > SEARCH_MAX_SEC:
+            return False
+    except (TypeError, ValueError):
+        pass
+    text = f"{e.get('title') or ''} {e.get('uploader') or e.get('channel') or ''}"
+    return not _NOT_SONG_RE.search(text)
+
+
+def _search(q: str, n: int = 12, stats: dict | None = None) -> list[dict[str, Any]]:
+    """ค้น YouTube แล้วกรองคลิปที่ไม่ใช่เพลงออก (_is_song_clip) — ดึงมาเผื่อ 2 เท่าให้ยังเหลือราว n
+    stats (ถ้าส่งมา) ได้ "hidden" = จำนวนที่ซ่อนไป"""
     if not _HAS_YTDLP:
         return []
     opts = {
@@ -2762,10 +2793,16 @@ def _search(q: str, n: int = 12) -> list[dict[str, Any]]:
         "extractor_args": {"youtube": {"player_client": ["web"]}},
     }
     with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"ytsearch{n}:{q}", download=False)
+        info = ydl.extract_info(f"ytsearch{n * 2}:{q}", download=False)
     out = []
+    hidden = 0
     for e in (info or {}).get("entries", []) or []:
         if not e.get("id"):
+            continue
+        if not _is_song_clip(e):
+            hidden += 1
+            continue
+        if len(out) >= n:
             continue
         out.append({
             "videoId": e["id"],
@@ -2774,6 +2811,8 @@ def _search(q: str, n: int = 12) -> list[dict[str, Any]]:
             "duration": e.get("duration"),
             "thumb": f"https://i.ytimg.com/vi/{e['id']}/mqdefault.jpg",
         })
+    if stats is not None:
+        stats["hidden"] = hidden
     return out
 
 
@@ -2880,11 +2919,12 @@ async def api_search(q: str = Query(..., min_length=1)):
     if not _HAS_YTDLP:
         return JSONResponse({"error": "yt-dlp not installed", "results": []}, 200)
     try:
-        res = await asyncio.to_thread(_search, q)
+        st: dict = {}
+        res = await asyncio.to_thread(_search, q, 12, st)
         res = await asyncio.to_thread(_annotate, res)
         if not res:
-            print(f"[search] '{q}' -> 0 results")
-        return {"results": res}
+            print(f"[search] '{q}' -> 0 results (ซ่อนที่ไม่ใช่เพลง {st.get('hidden', 0)})")
+        return {"results": res, "hidden": st.get("hidden", 0)}
     except Exception as exc:
         print(f"[search] '{q}' FAILED:\n{traceback.format_exc()}")
         return JSONResponse({"error": f"{type(exc).__name__}: {exc}", "results": []}, 200)
