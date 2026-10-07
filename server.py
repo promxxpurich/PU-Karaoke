@@ -373,6 +373,7 @@ async def _lifespan(_app: FastAPI):
                     await _reprioritize()
                     if await _autoplay_fill():     # จอว่างแต่เปิดสุ่มไว้ (เช่น เปิดไว้ก่อนจอหลักต่อเข้ามา)
                         await room.broadcast()
+                    await _lyr_watch()             # เนื้อเพลงที่เล่นอยู่ถูกแก้จากข้างนอก -> ส่งให้จอ
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -584,6 +585,8 @@ class Room:
         }
 
     async def broadcast(self) -> None:
+        global _lyr_told
+        _lyr_told = _lyr_sig(self.current)    # จับก่อนสร้าง state: ไฟล์เปลี่ยนระหว่างนี้ = ส่งซ้ำอีกรอบ ไม่ใช่ตกหล่น
         await self.send_all(json.dumps(self.state()))
 
     async def send_all(self, msg: str) -> None:
@@ -639,6 +642,33 @@ class Room:
 
 
 room = Room()
+
+# เนื้อของเพลงที่กำลังเล่นซึ่งเปลี่ยนจากนอกงานของเซิร์ฟเวอร์ (รัน gen_lyrics เอง, แก้ไฟล์มือ, _drop_tail_junk ตอนบูต)
+# ไม่มีใคร broadcast -> จอค้างเนื้อชุดเก่า/ไม่มีเนื้อ · watchdog เทียบกับชุดที่จอได้รับล่าสุดแล้วส่งให้
+_lyr_told: tuple | None = None
+
+
+def _lyr_sig(item: dict | None) -> tuple | None:
+    vid = (item or {}).get("videoId")
+    if (item or {}).get("source") != "yt" or not vid:
+        return None
+    d = _song_dir(vid)
+    out: list = [vid]
+    for name in ("lyrics.json", "lyrics.words.json", "lyrics.offset.json"):
+        try:
+            out.append((d / name).stat().st_mtime)
+        except OSError:
+            out.append(0.0)
+    return tuple(out)
+
+
+async def _lyr_watch() -> bool:
+    """เนื้อ/เวลารายคำ/offset ของเพลงที่กำลังเล่นต่างจากที่จอได้รับล่าสุด -> broadcast (คืน True ถ้าส่ง)"""
+    sig = _lyr_sig(room.current)
+    if sig is None or sig == _lyr_told:
+        return False
+    await room.broadcast()
+    return True
 
 
 def _jobs_rev() -> str:
@@ -992,6 +1022,15 @@ def _has_audio_stream(f: Path) -> bool:
         return True
 
 
+def _subs_sig(vid: str) -> frozenset:
+    """ไฟล์ที่งานหาเนื้อรอบแรกใช้ (metadata + ซับทุกภาษา) — เทียบก่อน/หลังโหลดวิดีโอว่ามีของใหม่ไหม"""
+    d = _song_dir(vid)
+    try:
+        return frozenset(p.name for p in d.iterdir() if p.suffix == ".vtt" or p.name == "info.json")
+    except OSError:
+        return frozenset()
+
+
 def _download_video(vid: str) -> None:
     """วิดีโอ — โหลดเฉพาะภาพแล้ว mux กับ audio.m4a ที่มีอยู่แล้วด้วย -c copy
     ห้ามได้ไฟล์ที่ไม่มีเสียงเด็ดขาด: ตอนสเต็มยังไม่พร้อม จอเล่นเสียงจาก video.mp4
@@ -1175,11 +1214,13 @@ async def _download_worker() -> None:
                 _lyr_nosrc.discard(vid)
                 await _enqueue_lyr(vid)
                 await room.broadcast()
+                had = _subs_sig(vid)
                 await asyncio.to_thread(_download_video, vid)
                 print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s{_since_add(vid)}")
-                # ซับ/metadata เพิ่งมาถึง — ถ้าเคยค้นเนื้อไปแล้วตอนโฟลเดอร์ยังว่าง
-                # ผลนั้นใช้ไม่ได้ ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนจะไปถอดเสียง
-                _lyr_nosrc.discard(vid)
+                # ซับ/metadata เพิ่งมาพร้อมวิดีโอ (ไม่ได้มากับเสียง) — ผลค้นตอนโฟลเดอร์ยังว่างใช้ไม่ได้
+                # ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนถอดเสียง · ไม่มีอะไรใหม่ = ไม่ค้นซ้ำ (เดิมค้นซ้ำทุกเพลง)
+                if _subs_sig(vid) != had:
+                    _lyr_nosrc.discard(vid)
                 _dl_state.pop(vid, None)   # ไฟล์อยู่บนดิสก์แล้ว _dl_fields อ่านเองได้
                 _invalidate_dirs()         # โฟลเดอร์เพิ่งเกิด อย่าให้แคช 2 วิบังไว้
                 room.archive_rev += 1
@@ -1435,9 +1476,10 @@ def _lyr_meta(vid: str) -> tuple[float, int, bool, str, str]:
             warn = False              # เวลามาจากแหล่งโดยตรง ไม่ได้เดาเอง
         else:
             # เวลาเพี้ยนสังเกตได้จาก 2 อาการ: บรรทัดทับกันเอง กับเนื้อคลุมเพลงน้อยผิดปกติ
-            over = sum(1 for a, b in zip(L, L[1:]) if b["t"] < a["t"] + a["d"] - 0.2)
+            num = lambda l, k: float(l.get(k) or 0) if isinstance(l, dict) else 0.0   # ไฟล์แก้มือขาด t/d ได้
+            over = sum(1 for a, b in zip(L, L[1:]) if num(b, "t") < num(a, "t") + num(a, "d") - 0.2)
             song = j.get("duration") or 0
-            cov = (sum(x["d"] for x in L) / song) if song else 1.0
+            cov = (sum(num(x, "d") for x in L) / song) if song else 1.0
             warn = bool(n and (over > n * 0.1 or cov < 0.45))
         tsrc = LC.time_src_of(j)
     except Exception:
@@ -2070,8 +2112,40 @@ _lyr_state: dict[str, dict] = {}                   # videoId -> {"status","error
 _lyrfind_task: asyncio.Task | None = None
 _lyrfind_pending = _Pending("lyrfind")
 _lyr_nosrc: set[str] = set()      # เฟสที่ไม่ใช้ GPU ลองครบแล้วไม่เจอ -> เหลือทางเดียวคือถอดเสียง
+_lyrfind_now: str | None = None    # เพลงที่งานหาเนื้อ (ไม่ใช้ GPU) กำลังทำอยู่ — กันดันซ้ำเข้าคิวระหว่างทำ
+# รอบแรกไม่เจอเนื้อที่มีเวลา -> ให้งานเลือกเนื้อ (FA เทียบทุกแหล่งกับเสียงร้อง) ลองก่อน แทนถอดเสียง whisper ~1 นาที
+# เจอ = จบเลย / ไม่เจอ = ถอดเสียงตามเดิม (_best_worker สั่งต่อ) · เพลง Tattoo Colour: เนื้อถูกขึ้นจอ 147 -> ~55 วิ
+_lyr_bestfirst: set[str] = set()
 _NEED_ASR_RC = 3                  # ตรงกับ gen_lyrics.NEED_ASR
 _NO_LYRICS_RC = 4                 # ตรงกับ gen_lyrics.NO_LYRICS — ลองครบทุกแหล่งแล้วไม่มีเนื้อ
+
+
+def _manual_lang(vid: str) -> bool:
+    """มีเนื้อที่คนใส่เองใน lyrics-in/ (.json แก้ใน Studio / .lrc / .txt) -> ภาษาจากตัวอักษรของเนื้อนั้น เขียน lang.json
+    คืน True = ได้ภาษาแล้ว ไม่ต้องให้ whisper ฟัง (เดิมรอช่อง GPU ตรวจภาษาก่อนทั้งที่เนื้อพร้อมใช้อยู่แล้ว)"""
+    d = _song_dir(vid)
+    rec = LS.read_lang(d)
+    if rec and rec.get("by") not in ("yt-asr", "default", "unknown"):
+        return True                                # รู้ภาษาแน่แล้ว
+    texts: list[str] = []
+    try:
+        f = LYRICS_IN / f"{vid}.json"
+        if f.is_file():
+            texts = [str(l.get("x") or "") for l in json.loads(f.read_text("utf-8")).get("lines") or []]
+        else:
+            for ext in (".lrc", ".txt"):
+                f = LYRICS_IN / f"{vid}{ext}"
+                if f.is_file():
+                    texts = [re.sub(r"\[[^\]]*\]", "", x) for x in f.read_text("utf-8").splitlines()]
+                    break
+    except Exception:
+        return False
+    tl = LS.text_lang(" ".join(texts)) if texts else None
+    if not tl:
+        return False
+    LS.write_lang(d, tl, "lyrics")
+    _lang_cache.pop(vid, None)
+    return True
 
 
 def _find_lyrics(vid: str) -> tuple[bool, str]:
@@ -2096,6 +2170,7 @@ def _find_lyrics(vid: str) -> tuple[bool, str]:
 
 
 async def _lyrfind_worker() -> None:
+    global _lyrfind_now
     while True:
         await _lyrfind_pending.wait()
         vid = _lyrfind_pending.take_now()
@@ -2104,6 +2179,7 @@ async def _lyrfind_worker() -> None:
         if _lyr_meta(vid)[1] > 0:
             _lyr_state[vid] = {"status": "ready", "error": ""}
             await room.broadcast()
+            _prefetch_best(vid)          # เดิม continue ข้ามไป -> เพลงที่เจอเนื้อโดยไม่ใช้ GPU ไม่ได้ดึงแหล่งล่วงหน้า
             continue
         if not (_song_dir(vid) / "info.json").is_file():
             # ยังไม่มี metadata -> ค้นไปก็ผิด และจะถูกจำว่า "ไม่มีแหล่ง" ทั้งที่ยังไม่ได้ลองจริง
@@ -2111,10 +2187,12 @@ async def _lyrfind_worker() -> None:
             await room.broadcast()
             continue
         _lyr_state[vid] = {"status": "searching", "error": ""}
+        _lyrfind_now = vid
         await room.broadcast()
         t0 = time.monotonic()
         try:
-            await _ensure_lang(vid)          # gen_lyrics จะได้อ่านภาษาจาก lang.json ไม่ต้องเดาเอง
+            if not await asyncio.to_thread(_manual_lang, vid):
+                await _ensure_lang(vid)      # gen_lyrics จะได้อ่านภาษาจาก lang.json ไม่ต้องเดาเอง
             need_asr, line = await asyncio.to_thread(_find_lyrics, vid)
             if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
                 _lyr_state[vid] = {"status": "nolyr", "error": ""}
@@ -2129,13 +2207,19 @@ async def _lyrfind_worker() -> None:
             else:
                 _lyr_nosrc.add(vid)
                 _lyr_state.pop(vid, None)
-                print(f"[lyr] {vid} ต้องถอดเสียง ({time.monotonic() - t0:.0f}s){_since_add(vid)}")
+                first = _fa_ok_cached() and _song_lang(vid)[0] in LS.FA_LANGS
+                if first:
+                    _lyr_bestfirst.add(vid)
+                print(f"[lyr] {vid} ต้องถอดเสียง{' (ให้ FA เทียบทุกแหล่งก่อน)' if first else ''}"
+                      f" ({time.monotonic() - t0:.0f}s){_since_add(vid)}")
                 await _enqueue_lyr(vid)      # ไม่มี vocals? _enqueue_lyr จะสั่งแยกเสียงให้เอง
         except Exception as exc:
             _lyr_nosrc.add(vid)              # ค้นไม่ได้ก็ยังเหลือทางถอดเสียง
             _lyr_state.pop(vid, None)
             print(f"[lyr] {vid} ค้นเนื้อไม่สำเร็จ: {exc}")
             await _enqueue_lyr(vid)
+        finally:
+            _lyrfind_now = None
         await room.broadcast()
         _prefetch_best(vid)              # เนื้อรอบแรกนิ่งแล้ว -> ดึงแหล่งให้งานเลือกเนื้อไว้ก่อน (ถ้าวิดีโอมาแล้ว)
 
@@ -2232,7 +2316,7 @@ async def _enqueue_lyr(vid: str | None) -> None:
     if vid not in _lyr_nosrc:
         # ยังไม่ได้ลองแหล่งที่ไม่ใช้ GPU — ไม่ต้องรอ demucs และไม่ต้องจองคิวงานหนัก
         await _ensure_lyricfinder()
-        if not _lyrfind_pending.has(vid):
+        if not _lyrfind_pending.has(vid) and vid != _lyrfind_now:   # กำลังค้นอยู่ = ไม่ดันซ้ำ (เดิมค้นซ้อน 2 รอบ)
             _lyr_state[vid] = {"status": "queued", "error": ""}
             _lyrfind_pending.push(vid)
         return
@@ -2242,6 +2326,12 @@ async def _enqueue_lyr(vid: str | None) -> None:
             return
         await _enqueue_sep(vid)   # เหลือทางถอดเสียงแล้ว -> ขอ vocals ก่อน เดี๋ยว sep ต่อให้เอง
         return
+    if vid in _lyr_bestfirst:
+        # FA เทียบทุกแหล่งก่อน — งานเลือกเนื้อรับไปแล้ว/กำลังทำ = รอผล (_best_worker สั่งถอดเสียงต่อถ้าไม่เจอ)
+        if await _enqueue_best(vid) or _best_pending.has(vid) \
+                or _best_state.get(vid, {}).get("status") in ("queued", "working"):
+            return
+        _lyr_bestfirst.discard(vid)           # เข้างานเลือกเนื้อไม่ได้ (FA ไม่พร้อม/เคยเทียบแล้ว) -> ถอดเสียงตามเดิม
     await _ensure_lyricist()    # ต้องอยู่ก่อน early-return ด้วยเหตุผลเดียวกับ _enqueue_sep
     # เทียบทั้ง (ชนิดงาน, vid) — ของเดิมเทียบแค่ vid ทำให้ _sep_worker ที่เรียกฟังก์ชันนี้
     # ตอน _heavy_job ยังเป็น ("sep", vid) โดน return ทิ้งทุกครั้ง = ไม่เคยได้หาเนื้อเลย
@@ -2306,10 +2396,10 @@ def _song_lang(vid: str) -> tuple[str, str]:
     return lang, by
 
 
-def _detect_lang_sync(vid: str) -> tuple[str, float] | None:
+def _detect_lang_sync(vid: str, audio: Path | None = None) -> tuple[str, float] | None:
     """whisper ฟังเสียงร้องแล้วบอกภาษา — รันเป็น subprocess เหมือน demucs/gen_lyrics
     ของเดิม import gen_lyrics แล้วโหลด mlx-whisper ในโปรเซสหลัก: โมเดลหลาย GB ถูกโหลดเข้าหน่วยความจำเซิร์ฟเวอร์ทุกครั้ง"""
-    audio = _audio_for(vid)
+    audio = audio or _audio_for(vid)
     if not audio:
         return None
     rc, out, err = _run_child("lang", vid, [sys.executable, str(BASE / "scripts" / "gen_lyrics.py"),
@@ -2373,12 +2463,15 @@ async def _ensure_lang_locked(vid: str) -> str:
             LS.write_lang(d, tl, "lyrics")
             _lang_cache.pop(vid, None)
             return tl
-    audio = _audio_for(vid)
+    audio = None
     failed = False
     async with _heavy.slot(f"lang:{vid}", lambda: _prio(vid) + 0.2):
         _heavy_job = ("lang", vid)
+        # อ่านไฟล์เสียง "หลัง" ได้ช่อง: ระหว่างรอ demucs มักเสร็จพอดี — เดิมอ่านก่อนรอ แล้วจำว่าฟัง audio.m4a
+        # ทั้งที่จริงฟัง vocals.m4a -> _whisper_done คิดว่ายังไม่เคยฟังเสียงร้อง สั่งตรวจซ้ำทุกเพลง
+        audio = _audio_for(vid)
         try:
-            r = await asyncio.to_thread(_detect_lang_sync, vid)
+            r = await asyncio.to_thread(_detect_lang_sync, vid, audio)
         except Exception as exc:
             print(f"[lang] {vid} ตรวจภาษาไม่ได้: {exc}")
             r, failed = None, True
@@ -5055,7 +5148,8 @@ async def studio_sources(vid: str, request: Request):
     else:
         if not track:
             await asyncio.to_thread(_ocr_ensure, vid)
-        cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist)
+        errs: list = []
+        cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist, errs)
         engine_fa = _fa_ready() and _audio_for(vid)
         if engine_fa and cands:
             try:
@@ -5068,7 +5162,8 @@ async def studio_sources(vid: str, request: Request):
                 await asyncio.to_thread(_score_whisper, vid, cands)
         else:
             await asyncio.to_thread(_score_whisper, vid, cands)
-        _src_cache[key] = (time.time(), (cands, used))
+        if not errs and any(c["provider"] in ONLINE_PROVIDERS for c in cands):
+            _src_cache[key] = (time.time(), (cands, used))   # แหล่งพัง/ไม่เจออะไรเลย = ไม่จำ เปิดใหม่ค้นใหม่
     # ตัวที่งานเลือกเนื้ออัตโนมัติจะใช้ขึ้นก่อน (เดิมเรียงตาม match ล้วน -> บทพูด 9 บรรทัด 81% ขึ้นที่หนึ่ง)
     # แล้วตัวที่ครบทั้งเพลงตาม match / ตัวที่มีแค่บางช่วงไว้ท้าย
     pick = None
@@ -5175,7 +5270,8 @@ def _prefetch_best(vid: str | None) -> None:
     # ยังไม่มีเนื้อรอบแรก (รอถอดเสียง) = คำค้นจากเนื้อจะเปลี่ยนหลังถอดเสียง -> ดึงแหล่งล่วงหน้าไม่ได้
     # และอย่าอ่าน OCR ล่วงหน้าด้วย: วัดแล้ว OCR (~50 วิ) ซ้อนกับ demucs/ถอดเสียงทำให้งานพวกนั้นช้าลง 10-30 วิ
     # (งานเลือกเนื้อของเพลงแบบนี้เริ่มหลังถอดเสียง แล้ว OCR ไปซ้อนกับการคำนวณเสียง FA ในงานนั้นแทน)
-    gather = _best_needed(vid)
+    # เพลงที่ยังไม่มีเนื้อเลย (ชุด FA ก่อน whisper) ไม่ดึงล่วงหน้า: OCR ซ้อน demucs ทำให้แยกเสียงช้าลง — งานเลือกเนื้อทำเองตอนได้ vocals
+    gather = _best_needed(vid) and (_read_lyr(vid) is not None or (d / "lyrics.nolyr.json").is_file())
     if not gather:
         return
     for k in [k for k, v in _best_pre.items() if time.time() - v[0] > BEST_PRE_TTL]:
@@ -5221,8 +5317,10 @@ async def _best_sources(vid: str, base: str) -> tuple[list, dict, bool]:
 
 def _fa_warm_text(vid: str) -> list[str]:
     """ข้อความหลอกสำหรับอุ่นแคช FA: "ก ab" (ไทย + ละติน ≥ 2 ตัว ตาม fa_align.has_latin) = ทั้งสองโมเดล
-    เพลงไทยล้วนอุ่นแค่โมเดลไทย ("ก") — โมเดลอังกฤษ ~1.2 GB เคยโหลดทุกเพลงใหม่
-    ผู้สมัครจาก OCR/ออนไลน์มีคำอังกฤษทีหลัง ขั้นให้คะแนนคำนวณรอบอังกฤษเองในช่อง GPU (ผลไม่เปลี่ยน)"""
+    มีโมเดลอังกฤษ -> อุ่นทั้งสองรอบเดียวเสมอ: โมเดลค้างอยู่ในตัวโหลดแล้ว (+~5 วิ) ขั้นให้คะแนนจึงอ่านแคชบน CPU ได้เลย
+    (เดิมอุ่นแค่ไทย แล้วผู้สมัครออนไลน์/OCR มีคำอังกฤษ -> ต้องจองช่อง GPU รอบสอง ช่วงคืนช่องมีงานอื่นแทรก รอ 25 วิ)"""
+    if _en_model_ok():
+        return ["ก ab"]
     try:
         texts = list(_lyr_texts(vid))
         pre = _best_pre.get(vid)                    # ผู้สมัครที่ดึงไว้ระหว่างแยกเสียง (ชุดเดียวกับที่ขั้นให้คะแนนจะใช้)
@@ -5315,8 +5413,8 @@ def _best_needed(vid: str) -> bool:
             return True
         if j.get("best") and not (int(_best_rec(vid).get("v") or 1) < BEST_VERSION and REFINE_MODE != "off"):
             return False
-    elif not (d / "lyrics.nolyr.json").is_file():
-        return False                              # ยังหาเนื้อรอบแรกไม่เสร็จ
+    elif not (d / "lyrics.nolyr.json").is_file() and vid not in _lyr_bestfirst:
+        return False                              # ยังหาเนื้อรอบแรกไม่เสร็จ (เว้นแต่รอบแรกขอให้ FA เทียบก่อนถอดเสียง)
     rec = _best_rec(vid)
     h = _lyr_hash(j)
     if rec and h in (rec.get("base"), rec.get("out")):
@@ -5503,8 +5601,11 @@ def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
     out = {"v": 1, "videoId": vid, "lang": "th", "engine": "PU KARAOKE auto-best",
            "src": dec["src"], "timeSrc": dec["timeSrc"], "duration": round(dur, 2), "lines": lines,
            "best": {"action": dec["action"], "from": (cur or {}).get("src") or "", "label": c.get("label") or "",
-                    "match": c.get("match"), "score": c.get("score"), "timing": c.get("timingAfter"),
-                    "shift": dec.get("shift") or 0.0, "at": int(time.time())}}
+                    # NaN จากการให้คะแนนห้ามลงไฟล์: JSON.parse ของทีวีพัง = เนื้อทั้งเพลงหาย (_finite อยู่ท้ายไฟล์)
+                    "match": _finite(c.get("match"), -1e9, 1e9), "score": _finite(c.get("score"), -1e9, 1e9),
+                    "timing": _finite(c.get("timingAfter"), -1e9, 1e9),
+                    "shift": _finite(dec.get("shift") or 0.0, -1e9, 1e9) or 0.0,
+                    "at": int(time.time())}}
     _write_json_atomic(d / "lyrics.json", out)
     # ผลตรวจ/offset/หมุดไม่มีเนื้อ อ้างเนื้อชุดเก่า — ค้างไว้จะขึ้นป้ายผิดหรือเลื่อนซ้ำ
     for name in ("lyrics.check.json", "lyrics.nolyr.json", "lyrics.offset.json"):
@@ -5566,6 +5667,11 @@ async def _best_worker() -> None:
         vid, rank = hit
         _best_pending.discard(vid)
         await _run_best(vid)
+        if vid in _lyr_bestfirst:
+            _lyr_bestfirst.discard(vid)
+            if _lyr_meta(vid)[1] <= 0:
+                print(f"[lyr] {vid} FA เทียบทุกแหล่งแล้วไม่เจอ -> ถอดเสียง{_since_add(vid)}")
+                await _enqueue_lyr(vid)
         await room.broadcast()
         if rank >= _BACKLOG:
             await asyncio.sleep(BEST_IDLE_GAP)
@@ -5698,7 +5804,8 @@ async def _run_best(vid: str) -> None:
                     _heavy_job = None
         t = lap("FA", t)
         _score_fa(cands, r.get("results") or [], va=await va_task, off=_lyr_offset(vid))
-        _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
+        if online:                                 # ผลที่แหล่งออนไลน์ไม่ตอบเลย ไม่เก็บ — เปิด 🔎 แล้วต้องค้นใหม่
+            _src_cache[(vid, "", "")] = (time.time(), (cands, used))     # ห้องหาเนื้อใน Studio เปิดแล้วเห็นเลย
         dec = _best_decide(cands, cur)
         ref = await _refine_dec(vid, dec, cur, cands)
         t = lap("ซ่อม", t)
@@ -5711,6 +5818,7 @@ async def _run_best(vid: str) -> None:
             out = await asyncio.to_thread(_best_apply, vid, dec, cur)
             room.archive_rev += 1
             retimed = True
+            await room.broadcast()                 # เนื้อใหม่ขึ้นจอเลย ไม่ต้องรอตรวจเวลา/บันทึกผลข้างล่าง
             ta = _added_at.get(vid)
             shown = f" · เนื้อใหม่ขึ้นจอหลังกดเพิ่ม {time.monotonic() - ta:.0f}s" if ta else ""
         # ผลตรวจ v2 ของเนื้อที่ได้จริง (แคชเสียงพร้อมแล้ว = CPU ไม่กี่วิ) — เดิมใช้ค่าจากตอนให้คะแนนแบบไม่มีหมุด

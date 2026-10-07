@@ -599,7 +599,8 @@ function teardownStems(){
   stopDrift(); stopSources();
   loadToken++;
   stemMode=false; stemKey=null; bufVoc=bufInst=null; dur=0;
-  preparing=false; stemGaveUp=false; needUnlock=false; lastPlaying=null; stemErr=''; badTag=null;
+  // needUnlock=false แล้วต้องซ่อนแผ่นด้วย — onGesture() ไม่ทำอะไรเมื่อ needUnlock เป็น false แผ่นจะค้างบังเนื้อ (iPad)
+  preparing=false; stemGaveUp=false; needUnlock=false; hideUnlock(); lastPlaying=null; stemErr=''; badTag=null;
   attached=false;
   local.playbackRate = 1;
 }
@@ -741,17 +742,12 @@ function apply(st){
   const lurl = localUrlOf(c);
   const stems = stemsOf(c);
   // เนื้อเพลง: โหลดเมื่อเพลงมี และซ่อน QR/การ์ดต่อไปตอนแสดงอยู่
-  const lyHas = !!(c && c.lyricsUrl && c.lyrLines > 0);
+  const lyHas = lyHasOf(c);
   if(lyHas && c.lyricsUrl !== lyUrl) loadLyrics(c.lyricsUrl);
-  if(!lyHas){ LY = null; lyUrl = null; lyIdx = null; }
+  if(!lyHas){ LY = null; lyUrl = null; lyIdx = null; lyTok++; }   // lyTok++: คำขอของเพลงก่อนที่ค้างอยู่ห้ามกลับมาเขียนทับ
   const wu = (lyHas && c.wordsUrl) || null;          // เวลารายตัวอักษร (มีเฉพาะเพลงที่ทำแล้ว)
   if(wu !== kwUrl) loadWords(wu);
-  // โหมด off แค่ไม่โชว์ ไม่ทิ้งเนื้อที่โหลดมาแล้ว -> สลับกลับมาแล้วขึ้นทันที ไม่ต้องโหลดใหม่
-  const lyShow = lyHas && !!LY && st.lyrMode !== 'off';
-  document.body.classList.toggle('lyrics', lyShow);     // ปิดเนื้อ = QR กับการ์ดเพลงต่อไปกลับมา
-  $('#lyr').classList.toggle('hide', !lyShow);
-  $('#lyr').classList.toggle('m-dual', st.lyrMode === 'dual' || st.lyrMode === 'karaoke');
-  $('#lyr').classList.toggle('m-kara', st.lyrMode === 'karaoke');
+  lyVis(st);
   if(!c) resetFade();
   // เซิร์ฟเวอร์เริ่มเฟดออกก่อนเปลี่ยนเพลง (กดข้าม/เล่นเลย) / ยกเลิก (กดเริ่มใหม่ระหว่างเฟด) = สว่างกลับ
   if(c && st.fading && st.fading === curItem && c.id === curItem && fadedOutFor !== curItem)
@@ -1078,25 +1074,48 @@ const LYR_OFFSET = +(new URLSearchParams(location.search).get('lyroffset') || 0)
 const songOff = () => +((window._state && window._state.current && window._state.current.lyrOffset) || 0);
 let LY = null, lyUrl = null, lyTok = 0, lyIdx = null;
 
-async function loadLyrics(url){
+function lyHasOf(c){ return !!(c && c.lyricsUrl && c.lyrLines > 0); }
+// โชว์/ซ่อนเนื้อตามสถานะล่าสุด — เรียกทั้งจาก apply() และตอนโหลดเนื้อเสร็จ
+// (เดิมตัดสินแค่ใน apply ซึ่งรันก่อน fetch เสร็จเสมอ: เนื้อที่มาระหว่างเพลงโหลดแล้วแต่ค้างซ่อนจนกว่าจะมี state ถัดไป)
+function lyVis(st){
+  st = st || window._state;
+  if(!st) return;
+  // โหมด off แค่ไม่โชว์ ไม่ทิ้งเนื้อที่โหลดมาแล้ว -> สลับกลับมาแล้วขึ้นทันที ไม่ต้องโหลดใหม่
+  const lyShow = lyHasOf(st.current) && !!LY && st.lyrMode !== 'off';
+  document.body.classList.toggle('lyrics', lyShow);     // ปิดเนื้อ = QR กับการ์ดเพลงต่อไปกลับมา
+  $('#lyr').classList.toggle('hide', !lyShow);
+  $('#lyr').classList.toggle('m-dual', st.lyrMode === 'dual' || st.lyrMode === 'karaoke');
+  $('#lyr').classList.toggle('m-kara', st.lyrMode === 'karaoke');
+}
+
+const LY_RETRY = [2, 5, 10, 20];             // วินาที — โหลดพัง (เน็ต iPad/Cloudflare สะดุด, ไฟล์กำลังถูกเขียน) ลองใหม่เอง
+async function loadLyrics(url, attempt = 0){
   const my = ++lyTok;
   lyUrl = url;
   try{
-    const j = await (await fetch(url, {cache:'no-store'})).json();
+    const r = await fetch(url, {cache:'no-store'});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);   // 404 ตอบเป็น JSON ด้วย — ไม่เช็คแล้วจะกลายเป็น "ไม่มีเนื้อ" เงียบ ๆ
+    const j = await r.json();
     if(my !== lyTok) return;                 // เปลี่ยนเพลงระหว่างโหลด -> ทิ้ง
     // oi = ลำดับบรรทัดในไฟล์ — เวลารายคำ (lyrics.words.json) อ้างตามลำดับนี้ ไม่ใช่ลำดับหลังกรอง
     const L = (j.lines||[]).map((l, oi) => ({...l, oi})).filter(l => typeof l.t === 'number' && l.x);
     L.sort((a, b) => a.t - b.t);             // ไฟล์เก่า/แก้มือบางไฟล์เรียงไม่ครบ — ตรรกะจอต้องการเรียงตามเวลา
-    LY = L.length ? {lines:lycPrep(L)} : null; lyUrl = url; lyIdx = null;
+    LY = L.length ? {lines:lycPrep(L), url, base:url.split('?')[0]} : null; lyUrl = url; lyIdx = null;
     kwAttach();
     if(LY){
       lyFitDual();                           // ล็อกขนาดตัวอักษรของทั้งเพลงไว้ตั้งแต่ตอนโหลด
       // ฟอนต์ไทยมาทีหลัง -> วัดซ้ำตอนฟอนต์พร้อม ไม่งั้นได้ขนาดจากฟอนต์สำรอง
       if(document.fonts) document.fonts.ready.then(()=>{ if(my === lyTok) lyFitDual(); });
     }
+    lyVis();
   }catch(e){
-    clog('lyrics', e); LY = null;
-    setTimeout(()=>{ if(my === lyTok && lyUrl === url && !LY) lyUrl = null; }, 10000);
+    if(my !== lyTok) return;                 // คำขอเก่าพังทีหลัง ห้ามลบเนื้อของคำขอใหม่
+    clog('lyrics', e);
+    if(LY && LY.base !== url.split('?')[0]) LY = null;   // เนื้อชุดก่อนของเพลงเดียวกันขึ้นต่อระหว่างลองใหม่ / คนละเพลงต้องทิ้ง
+    lyVis();
+    const pend = () => my === lyTok && lyUrl === url && !(LY && LY.url === url);
+    if(attempt < LY_RETRY.length) setTimeout(()=>{ if(pend()) loadLyrics(url, attempt + 1); }, LY_RETRY[attempt] * 1000);
+    else setTimeout(()=>{ if(pend()) lyUrl = null; }, 10000);   // หมดรอบ -> state ถัดไปเริ่มลองใหม่ได้
   }
 }
 

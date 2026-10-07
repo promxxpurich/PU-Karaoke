@@ -9,14 +9,43 @@ gen_lyrics ใช้ YouTube Music / JOOX ตอนหาเนื้อรอ�
      "meta": {"track", "artist", "duration"}}
 """
 import base64
+import hashlib
 import json
+import os
 import re
+import time
+from pathlib import Path
 
 import requests
 
 import lyrics_sources as LS
 
 TIMEOUT = 12
+# แคชผลเน็ตร่วมกันข้ามโปรเซส: gen_lyrics (หาเนื้อรอบแรก) กับ server (งานเลือกเนื้อ/ห้องหาเนื้อ) ถามคำขอเดียวกันเกือบทุกเพลง
+# เก็บเฉพาะผลที่ได้ของจริง — ว่าง/พัง ไม่จำ (ลองใหม่ได้เสมอ) · ลบทั้งโฟลเดอร์ได้ไม่เสียอะไร
+NET_CACHE = Path(os.environ.get("KARA_NET_CACHE") or Path(__file__).resolve().parent.parent / "lyrics-preview" / "_src" / "_net")
+NET_TTL = 6 * 3600
+
+
+def _net(kind: str, key, fetch):
+    """fetch() ผ่านแคช — ผลต้องเป็นค่า JSON ธรรมดา · fetch โยน exception = ไม่จำ ส่งต่อให้ผู้เรียก"""
+    h = hashlib.sha1(json.dumps(key, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:20]
+    f = NET_CACHE / f"{kind}-{h}.json"
+    try:
+        if time.time() - f.stat().st_mtime < NET_TTL:
+            return json.loads(f.read_text("utf-8"))
+    except Exception:
+        pass
+    val = fetch()
+    if val:
+        try:
+            NET_CACHE.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_name(f.name + ".tmp")
+            tmp.write_text(json.dumps(val, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, f)
+        except Exception:
+            pass
+    return val
 _H = {"User-Agent": "Mozilla/5.0"}
 # บรรทัดเครดิตที่แหล่งพวกนี้ใส่มาในเนื้อ (JOOX/NetEase) — ไม่ใช่เนื้อที่ร้อง ห้ามขึ้นจอ
 _CREDIT = re.compile(r"(?i)^\s*(lyrics?|lyricist|composed|composer|compose|music|written|words|"
@@ -61,13 +90,25 @@ def _cand(provider: str, label: str, meta: dict, lrc: str = "", texts: list[str]
 # ค้นหา: cache.api.joox.com/openjoox/v1/search (เว็บ joox.com เรียกตัวเดียวกัน)
 # เนื้อ: api.joox.com/web-fcgi-bin/web_lyric -> JSONP ที่ field "lyric" เป็น LRC แบบ base64
 def _joox_search(query: str) -> list[dict]:
-    try:
+    def fetch():
         r = requests.get("https://cache.api.joox.com/openjoox/v1/search",
                          params={"country": "th", "lang": "th", "key": query},
                          headers={**_H, "Referer": "https://www.joox.com/"}, timeout=TIMEOUT)
         return ((r.json() or {}).get("tracks") or {}).get("items") or []
+    try:
+        return _net("joox-s", query, fetch)
     except Exception:
         return []
+
+
+def _joox_lrc(music_id: str) -> str:
+    def fetch():
+        t = requests.get("https://api.joox.com/web-fcgi-bin/web_lyric",
+                         params={"musicid": music_id, "country": "th", "lang": "th"},
+                         headers={**_H, "Referer": "https://www.joox.com/"}, timeout=TIMEOUT).text
+        ly = json.loads(t[t.find("{"):t.rfind("}") + 1]).get("lyric")
+        return base64.b64decode(ly).decode("utf-8", "replace") if ly else ""
+    return _net("joox-l", music_id, fetch)
 
 
 def from_joox(queries: list[tuple[str, str]] | str, duration: float = 0.0, per: int = 3,
@@ -86,13 +127,9 @@ def from_joox(queries: list[tuple[str, str]] | str, duration: float = 0.0, per: 
     out: list[dict] = []
     for it, via in picked[:max_total]:
         try:
-            t = requests.get("https://api.joox.com/web-fcgi-bin/web_lyric",
-                             params={"musicid": it["id"], "country": "th", "lang": "th"},
-                             headers={**_H, "Referer": "https://www.joox.com/"}, timeout=TIMEOUT).text
-            ly = json.loads(t[t.find("{"):t.rfind("}") + 1]).get("lyric")
-            if not ly:
+            lrc = _joox_lrc(it["id"])
+            if not lrc:
                 continue
-            lrc = base64.b64decode(ly).decode("utf-8", "replace")
         except Exception:
             continue
         artist = ", ".join(a.get("name", "") for a in it.get("artist_list") or [])
@@ -117,22 +154,32 @@ def _yt():
     return _ytm
 
 
+def _ytm_lyrics(browse_id: str) -> dict:
+    """{"rows": [[เริ่ม, ข้อความ, จบ]]} (มีเวลา) / {"texts": [...]} / {} — แปลงเป็นค่าธรรมดาก่อน จะได้เก็บแคชได้"""
+    def fetch():
+        l = _yt().get_lyrics(browse_id, timestamps=True) or {}
+        ly = l.get("lyrics")
+        if not ly:
+            return {}
+        if l.get("hasTimestamps") and isinstance(ly, list):
+            return {"rows": [[x.start_time / 1000.0, (x.text or "").strip(), x.end_time / 1000.0] for x in ly]}
+        texts = ly if isinstance(ly, list) else str(ly).splitlines()
+        return {"texts": [str(getattr(t, "text", t)).strip() for t in texts]}
+    return _net("ytm-l", browse_id, fetch)
+
+
 def _ytm_cand(browse_id: str, label: str, meta: dict, duration: float) -> dict | None:
-    l = _yt().get_lyrics(browse_id, timestamps=True) or {}
-    ly = l.get("lyrics")
-    if not ly:
-        return None
-    if l.get("hasTimestamps") and isinstance(ly, list):
-        rows = [(x.start_time / 1000.0, (x.text or "").strip(), x.end_time / 1000.0) for x in ly]
-        rows = [r for r in rows if r[1] and not _CREDIT.search(r[1])]
+    l = _ytm_lyrics(browse_id)
+    if l.get("rows") is not None:
+        rows = [tuple(r) for r in l["rows"] if r[1] and not _CREDIT.search(r[1])]
         lines = LS._finish(rows, duration)
         if lines:
             return {"provider": "ytmusic", "label": label, "synced": True, "lines": lines,
                     "texts": None, "meta": meta}
         return None
-    texts = ly if isinstance(ly, list) else str(ly).splitlines()
-    texts = [getattr(t, "text", t) for t in texts]
-    return _cand("ytmusic", label, meta, texts=[str(t).strip() for t in texts], duration=duration)
+    if not l.get("texts"):
+        return None
+    return _cand("ytmusic", label, meta, texts=l["texts"], duration=duration)
 
 
 def from_ytmusic(vid: str, queries: list[tuple[str, str]] | str, duration: float = 0.0,
@@ -147,7 +194,7 @@ def from_ytmusic(vid: str, queries: list[tuple[str, str]] | str, duration: float
                                                     "via": "video"})]
         vids = {vid}
         for q, via in queries:
-            for s in (_yt().search(q, filter="songs", limit=3) or [])[:per]:
+            for s in (_net("ytm-s", q, lambda: _yt().search(q, filter="songs", limit=3) or []) or [])[:per]:
                 sv = s.get("videoId")
                 if sv and sv not in vids:
                     vids.add(sv)
@@ -156,7 +203,7 @@ def from_ytmusic(vid: str, queries: list[tuple[str, str]] | str, duration: float
                                   {"track": s.get("title") or "", "artist": artist,
                                    "duration": s.get("duration_seconds") or 0, "via": via}))
         for v, label, meta in tries:
-            lid = (_yt().get_watch_playlist(v, limit=1) or {}).get("lyrics")
+            lid = _net("ytm-w", v, lambda: (_yt().get_watch_playlist(v, limit=1) or {}).get("lyrics") or "")
             if not lid or lid in seen:
                 continue
             seen.add(lid)

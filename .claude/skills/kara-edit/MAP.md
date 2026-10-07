@@ -195,10 +195,12 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ### เนื้อเพลงบนจอ: เลื่อนขึ้น / 2 บรรทัดคงที่ / ♪ ● ● ● นับถอยหลัง (lyrcore)
 คำค้น: เนื้อเพลง, ซับ, lyrics, subtitle, บรรทัด, เลื่อนขึ้น, scroll, 2 บรรทัด, dual, นับถอยหลัง, countdown, ●●●, ♪, ช่วงดนตรี, ขนาดตัวอักษร, font size, ซับขึ้นช้า, ซับขึ้นเร็ว, offset, lyroffset, lyrcore, ร้องซ้อน
 - `static/player.html` `#lyr{position:absolute` `#lyrcur{font-size` `#lyr.m-dual #lyrcur.on` `<div id="lyr"` — CSS/HTML (#lyrcur / #lyrnext = แถวบน/ล่าง, จาง/สว่าง)
-- `static/player.html` `// ===== เนื้อเพลง` `async function loadLyrics(url){` `function lyFitDual(){` `const songOff = ` `const LYR_OFFSET = ` `function lyrTick(){` — โหลด (เรียงตาม t), ล็อกขนาดตัวอักษรทั้งเพลงด้วย canvas, offset ประจำเพลง + ?lyroffset=, วาดทุก 100ms
+- `static/player.html` `// ===== เนื้อเพลง` `async function loadLyrics(url, attempt = 0){` `function lyFitDual(){` `const songOff = ` `const LYR_OFFSET = ` `function lyrTick(){` — โหลด (เรียงตาม t), ล็อกขนาดตัวอักษรทั้งเพลงด้วย canvas, offset ประจำเพลง + ?lyroffset=, วาดทุก 100ms
+- `static/player.html` `function lyVis(st){` `function lyHasOf(c){` `const LY_RETRY = ` — โชว์/ซ่อน #lyr (+ body.lyrics, m-dual/m-kara) เรียกทั้งจาก apply() และหลังโหลดเนื้อเสร็จ/พัง · โหลดพัง (ไม่ ok / JSON เสีย) ลองใหม่ 2/5/10/20 วิ ระหว่างนั้นเนื้อชุดก่อนของเพลงเดียวกันขึ้นต่อ
 - `static/player.html` `// <lyrcore>` `const LYC = {` `function lycPrep(L){` `function lycIndex(L, t){` `function lycFrame(L, t, o){` `function lycParts(x){` — ตรรกะแถว / สว่าง-จาง / ♪ / ●●● (LEAD/HOLD/GAP/CD/OVER)
 ! บล็อก // <lyrcore> … // </lyrcore> (รวมคอมเมนต์ข้างใน) ต้องเหมือน static/studio.html ทุกตัวอักษร — แก้แล้วคัดลอกทั้งบล็อก ตรวจด้วย python3 scripts/eval_lyrics.py core · scripts/eval_display.js ตัดบล็อกนี้ไปรันใต้ node: ห้ามเปลี่ยนชื่อ marker และห้ามแตะ DOM/ตัวแปรนอกบล็อก
 ! เวลาในบล็อกเป็น "เวลาเนื้อ" — lyrTick หัก songOff() + LYR_OFFSET ครั้งเดียวก่อนเรียก lycFrame
+! loadLyrics เป็น async — ตัดสินโชว์/ซ่อนใน apply() อย่างเดียวไม่พอ (เคยเป็นบั๊ก "เนื้อหาเจอแล้วแต่ไม่ขึ้นจอ" จนกว่าจะมี state ถัดไป) ต้องเรียก lyVis() หลังโหลดเสมอ · ทดสอบด้วย scripts/test_tv_lyrics.py
 
 ### โหมดคาราโอเกะ (ไล่สีตามเวลาที่ร้องจริง) + 👥 แยกเสียงร้อง / คอรัส
 คำค้น: คาราโอเกะ, karaoke, ไล่สี, colour fill, เวลารายคำ, words, word timing, FA, ตัวอักษร, กลุ่มอักษร, สระลอย, แยกเสียงร้อง, voices, คนที่ 2, สีฟ้า, คนที่ 3, คอรัส, วงเล็บ, ตัวเล็ก, ความหน่วงลำโพง, latency, บลูทูธ, ไล่สีนุ่ม, ค่อย ๆ ไล่, smooth, wipe, ทีละตัวอักษร, karaSmooth
@@ -419,6 +421,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ### สถานะห้องและการ broadcast (Room state)
 คำค้น: state, สถานะห้อง, room, broadcast, ส่งสถานะ, websocket, ws, เพลงที่เล่นอยู่, current, position, ตำแหน่งเพลง, jobsRev, archiveRev, baseUrl, ฟิลด์บนการ์ด, dlStatus, sepStatus, lyrStatus, มือถือค้าง
 - `server.py` `class Room:` `def state(self)` `async def broadcast(self)` `async def send_all(self, msg` `room = Room()` — สถานะทั้งห้อง (queue/current/playing/mix/lyrMode/autoplay/tv/position) และ JSON ที่ส่งให้ทุกจอ
+- `server.py` `_lyr_told: tuple` `def _lyr_sig(` `async def _lyr_watch(` — broadcast จำลายนิ้วมือ (mtime) เนื้อ/words/offset ของเพลงที่เล่น · watchdog ทุก 10 วิเทียบแล้วส่งซ้ำเมื่อไฟล์เปลี่ยนจากนอกงานเซิร์ฟเวอร์ (รัน gen_lyrics เอง, แก้มือ, _drop_tail_junk)
 - `server.py` `async def _ws_send(` `def _ws_drop(` `WS_SEND_TIMEOUT = 5.0` `def _jobs_rev(` — ส่งให้แต่ละเครื่องโดยรอไม่เกิน 5 วิ (มือถือที่ล็อกจอจะไม่ถ่วงทั้งห้อง) และสร้างลายนิ้วมือของงานเบื้องหลังให้ Studio รู้ว่าต้องดึงรายการใหม่
 ! state() เรียก _dl_fields/_sep_fields/_lyr_fields/_fix_fields กับทุก item ในทุก broadcast ค่าที่เติมจึงต้องคำนวณเร็ว (แคชด้วย mtime) และห้าม raise ส่วน _fix_fields ต้องอยู่ท้ายสุด
 
@@ -513,7 +516,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### หาเนื้อเพลง gen_lyrics และโหลดเนื้อใหม่ (lyrics pipeline)
 คำค้น: หาเนื้อ, เนื้อเพลง, lyrics, ซับ, gen_lyrics, lrclib, ถอดเสียง, whisper, ASR, ไม่มีเนื้อ, nolyr, โหลดเนื้อใหม่, relyr, lyrics.json, lyricsUrl, ป้ายความมั่นใจ, lyrConf, lyrStatus
-- `server.py` `async def _enqueue_lyr(` `def _find_lyrics(` `async def _lyrfind_worker(` — เฟสที่ไม่ใช้ GPU (gen_lyrics --no-asr: ไฟล์ใน lyrics-in, ซับ YouTube, lrclib ตามลำดับ) ไม่ต้องรอ demucs
+- `server.py` `async def _enqueue_lyr(` `def _find_lyrics(` `async def _lyrfind_worker(` — เฟสที่ไม่ใช้ GPU (gen_lyrics --no-asr: ไฟล์ใน lyrics-in, ซับ YouTube, lrclib, YouTube Music/JOOX ตามลำดับ) ไม่ต้องรอ demucs
+- `server.py` `_lyrfind_now: str` `_lyr_bestfirst: set` `def _manual_lang(` `def _subs_sig(` — กันดันหาเนื้อซ้ำระหว่างกำลังค้น · รอบแรกบอกต้องถอดเสียง (ภาษามี FA) -> ให้งานเลือกเนื้อ (FA เทียบทุกแหล่ง) ลองก่อน ไม่เจอค่อย whisper (_best_worker สั่งต่อ) · มีเนื้อใน lyrics-in -> ภาษาจากตัวอักษรเนื้อ ไม่รอ whisper ตรวจภาษา · โหลดวิดีโอเสร็จค้นใหม่เฉพาะเมื่อได้ซับ/info ใหม่
 - `server.py` `def _build_lyrics(` `async def _lyr_worker(` `_NEED_ASR_RC = 3` `_NO_LYRICS_RC = 4` — เฟสถอดเสียง (gen_lyrics เต็ม ใช้ GPU และรอ vocals) พร้อม exit code ที่ต้องตรงกับ gen_lyrics
 - `server.py` `async def _relyr(` `def _clear_lyrics(` — ปุ่มโหลดเนื้อใหม่: สำรองเนื้อเดิมลง lyrics.edits/ แล้วล้าง lyrics.json/check/offset/แคชถอดเสียง (ไม่แตะ lyrics-in/)
 - `server.py` `def _lyr_fields(` `def _lyr_meta(` — เติม lyricsUrl/lyrStatus/ป้ายความมั่นใจลงการ์ด (LC.confidence คำนวณสดจากที่มาของเนื้อกับผลตรวจล่าสุด)
@@ -546,9 +550,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `BEST_RETRY = ` `def _best_retry_later(` — แหล่งออนไลน์ไม่ตอบสักตัว (partial) -> นัดลองใหม่ 5 นาที / 30 นาที / 3 ชม. · การ์ดขึ้น lyrBest=retry (🔁 จะลองหาเนื้ออีกครั้ง)
 - `server.py` `def _best_pool(` `def _best_timed(` `BEST_MASS_FRAC = ` `BEST_SPARSE_V = ` — ให้คะแนน + ธง sparse (คลุมเสียงร้อง < 40 และ < ครึ่งของตัวที่คลุมสุด และตัวอักษร < 0.4 เท่า) + gate ตั้งจากตัวที่ข้อความมากพอ (บทพูด 9 บรรทัด match 81 เคยดัน gate จนเนื้อเต็มเพลงตกหมด) / เนื้อเดิม sparse ตัดสินแบบไม่มีเนื้อเดิม (กฎ weak ไม่ยุ่ง — คงไว้กันเพลงญี่ปุ่นถูกเปลี่ยนเป็นโรมาจิ) (ไม่มีแหล่งคน -> auto-caption ที่คลุม ≥ 60%) / เพลงเก่า sparse ทำใหม่ครั้งเดียว ("sv" ใน lyrics.best.json)
 - `server.py` `def _prefetch_best(` `async def _best_sources(` `BEST_PRE_TTL = ` — เพลงใหม่: ดึงแหล่งออนไลน์ + OCR ไว้ก่อนระหว่างรอแยกเสียง (ไม่ใช้ GPU) แล้ว _run_best ใช้ชุดนั้นเมื่อ hash เนื้อ + ภาษายังเหมือนตอนดึง (ผู้สมัครชุดเดียวกัน = ผลตัดสินเดิม) ไม่งั้นดึงใหม่ · เพลงที่ต้องรอถอดเสียงไม่ดึงล่วงหน้า (OCR ซ้อน demucs/ถอดเสียงแล้วงานพวกนั้นช้าลง — ให้ไปซ้อนกับการคำนวณเสียง FA ในงานเลือกเนื้อแทน)
-- `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบัน/ผู้สมัครที่ดึงล่วงหน้า (_best_pre) มีคำอังกฤษ (ตัดสินก่อนสร้าง task เพราะ _best_sources หยิบ _best_pre ออกไป) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
+- `server.py` `async def _best_fa_warm(` `def _fa_warm_text(` — คำนวณแคชเสียงร้องของ FA ระหว่างรอผู้สมัคร: มีโมเดลอังกฤษ -> อุ่นไทย+อังกฤษรอบเดียวเสมอ (ขั้นให้คะแนนอ่านแคชบน CPU ไม่ต้องจองช่อง GPU รอบสอง) ไม่มีโมเดลอังกฤษ -> โมเดลอังกฤษเฉพาะเพลง lang=en หรือเนื้อปัจจุบัน/ผู้สมัครที่ดึงล่วงหน้า (_best_pre) มีคำอังกฤษ (ตัดสินก่อนสร้าง task เพราะ _best_sources หยิบ _best_pre ออกไป) แคชชุดเดียวกับที่ขั้นให้คะแนนใช้ (ข้อความต้องมีละติน ≥ 2 ตัว ไม่งั้น fa_align ไม่ทำรอบอังกฤษ)
 ! บรรทัด [best] ใน log แตกเวลาเป็นขั้น (รอคิว / แหล่ง / รอGPU / FA / ซ่อม / ตรวจ) + "เนื้อใหม่ขึ้นจอหลังกดเพิ่ม" — ดูตรงนี้ก่อนถ้าเนื้อเพลงใหม่ช้า
 ! "partial" ในงานนี้ = แหล่งออนไลน์ดึงไม่ครบ (ลองใหม่ได้) คนละเรื่องกับ sparse (เนื้อมีแค่บางช่วง) · เปลี่ยนกติกา sparse ต้องวัดด้วย scripts/eval_lyrics.py best + sparse
+! เพลงในชุด _lyr_bestfirst (ยังไม่มีเนื้อ) _best_needed คืน True ได้ และ _enqueue_lyr ไม่ส่งถอดเสียงจนงานนี้จบ — แก้ทางออกของ _run_best ต้องให้ _best_worker สั่ง _enqueue_lyr ต่อเสมอเมื่อไม่ได้เนื้อ
 ! งานอัตโนมัติห้ามเขียนทับเนื้อที่คนแก้หรือวางไฟล์เอง (BEST_MANUAL) เด็ดขาด แม้มีคนกดสั่ง (เช็คทั้งตอนเข้าคิวและตอนรัน) ถ้าเนื้อเปลี่ยนระหว่างทำ (hash ไม่ตรง) ต้องทิ้งผล และเพิ่ม BEST_VERSION แล้วจะทำซ้ำทั้งคลัง
 
 ## server.py — Studio (หน้าแอดมิน)
@@ -658,9 +663,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `scripts/lyrics_more.py` `def from_joox(` `def from_ytmusic(` `def from_syncedlyrics(` — JOOX (เนื้อไทยครบ แต่เวลาเป็นเวอร์ชันอัลบั้ม), YouTube Music (ถามจาก videoId + ค้นด้วยท่อนเนื้อได้), NetEase ผ่าน syncedlyrics
 - `scripts/lyrics_more.py` `def from_musixmatch(` `def mxm_check(` `class MxmError` `def _richsync_lines(` — Musixmatch ต้องมี token (mxmToken ใน .studio.json), ทดสอบ token ก่อนเก็บ, เวลารายคำ richsync
 - `scripts/lyrics_more.py` `def queries(` `def lyric_queries(` `def clean_lrc(` `def _cand(` — คำค้นจากชื่อคลิป/ท่อนเนื้อ, ตัดบรรทัดเครดิต, รูปผู้สมัคร {provider, label, synced, lines, texts, meta}
+- `scripts/lyrics_more.py` `def _net(` `NET_CACHE = ` `def _joox_lrc(` `def _ytm_lyrics(` — แคชผลเน็ตร่วมข้ามโปรเซส 6 ชม. (lyrics-preview/_src/_net) เก็บเฉพาะผลที่ได้จริง ว่าง/พังไม่จำ — gen_lyrics กับงานเลือกเนื้อไม่ยิงซ้ำ
 - `lyrics-in/README.md` `## ระบบเลือกเนื้อดีที่สุดจากทุกแหล่ง` `## แหล่งเนื้อใหม่` — ภาพรวมงานเลือกเนื้อดีที่สุด + แหล่ง Musixmatch / library / OCR
 ! API ไม่ทางการ พังได้ทุกเมื่อ: ห้าม raise ให้คืน [] (ยกเว้น MxmError ให้ Studio บอกว่า token เสีย); server import เข้าโปรเซส → แก้แล้วผู้ใช้ต้องรีสตาร์ท
-! ผู้ใช้คือ server (_gather_sources ของ 🔎 หาเนื้อ + งานเลือกเนื้อดีที่สุด) ไม่ใช่ gen_lyrics; การรวม/ให้คะแนนผู้สมัคร และแหล่ง library (เพลงเดียวกันอีกคลิป) อยู่ใน server.py
+! ผู้ใช้คือ server (_gather_sources ของ 🔎 หาเนื้อ + งานเลือกเนื้อดีที่สุด) และ gen_lyrics ขั้น 3b (YouTube Music/JOOX เฉพาะข้อความ); การรวม/ให้คะแนนผู้สมัคร และแหล่ง library (เพลงเดียวกันอีกคลิป) อยู่ใน server.py
 
 ### อ่านเนื้อจากตัวหนังสือในคลิป (OCR)
 คำค้น: OCR, ตัวหนังสือในคลิป, เนื้อในภาพ, lyric video, Apple Vision, swift, swiftc, kara_ocr, อ่านภาพ, เวลาจากตัวหนังสือในคลิป, Xcode
@@ -756,6 +762,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `scripts/ocr_lyrics.py` `CACHE = Path(os.environ.get("KARA_OCR_CACHE")` — _ocr/<vid>.json ผล OCR (จำคลิปที่ไม่มีเนื้อในภาพด้วย)
 - `scripts/gen_lyrics.py` `SEG = Path(` `SRC = BASE / "lyrics-preview" / "_src"` `SRT = BASE / "lyrics-preview" / "_srt"` — _seg/<vid>.<tag>.json ผลถอดเสียง, _src/<vid>.txt เนื้อจาก description, _srt/<vid>.srt พรีวิว
 - `scripts/eval_lyrics.py` `EVAL = Path(` — _eval/ (src/ = ผู้สมัครที่แช่ไว้) ของชุดวัดผล
+- `scripts/gen_lyrics.py` `ONLINE_TTL, ONLINE_TTL_EMPTY = ` — _src/<vid>.online.json ผู้สมัคร YouTube Music/JOOX ของขั้น 3b
+- `scripts/lyrics_more.py` `NET_CACHE = ` — _src/_net/ แคชคำขอเน็ตของ JOOX/YouTube Music (6 ชม.)
 - `scripts/ab_asr.py` `AB_LOG = ` — _ab.jsonl ผล A/B โมเดลถอดเสียง
 ! แคชผูกลายเซ็นไฟล์ (ชื่อ:ขนาด:mtime) — เปลี่ยนรูปแบบแคชต้องขึ้น VERSION / SEG_V; ลบ _seg = ต้องถอดเสียงใหม่ (GPU นาน), ลบ _fa = FA ใหม่ ~10 วิ/เพลง
 ! ตั้ง KARA_FA_CACHE อย่างเดียว → _va/_ocr ย้ายไปอยู่ข้างโฟลเดอร์ _fa นั้นอัตโนมัติ (เว้นแต่ตั้ง KARA_VA_CACHE/KARA_OCR_CACHE)
@@ -800,6 +808,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `scripts/eval_display.js` `const core = html.slice(` `function oldFrame(` `function measure(` — node: ดึงบล็อก lyrcore จาก static/player.html มาวัด seen/lit/evict (stdin {"songs"} → stdout {"new","old","songs"})
 - `scripts/ab_asr.py` `def cmd_score(` — A/B โมเดลถอดเสียง (รายละเอียดในหัวข้อถอดเสียง whisper)
 - `scripts/ab_vtt.py` `def main() -> None:` — เทสเกณฑ์คัดซับ from_vtt (ไม่ใช้เน็ต/GPU)
+- `scripts/test_tv_lyrics.py` `async def s1(` `SCENARIOS = [` `FAIL = {"n": 0` — จอทีวีจริงใน Chrome ไม่มีหน้าต่าง: เปิด server.py ในโปรเซสที่พอร์ต 8099 + คลังชั่วคราว วัด "เขียนเนื้อ+broadcast → เห็นบนจอ" 12 สถานการณ์ (เนื้อมาระหว่างเล่น, เปลี่ยนกลางเพลง, ไล่สี, 4 โหมด, offset, โหลดพัง 500/404/NaN, ws หลุด, แผ่นปลดเสียง iPad, /tv/<รหัส>, แก้ไฟล์มือ, เปลี่ยนเพลง) · รัน: .venv/bin/python scripts/test_tv_lyrics.py [--only S1,S6] [--keep]
 - `lyrics-in/README.md` `## ชุดวัดผล` `KARA_FA_NO_COMPUTE=1` — คำสั่งทั้งหมด + ใช้ก่อนเปลี่ยนอะไรที่กระทบเวลา
 ! ตั้ง KARA_FA_NO_COMPUTE=1 ระหว่างที่มีคนใช้เครื่อง (ไม่มีแคช FA = raise แทนคำนวณ ไม่แย่ง GPU); eval เขียนได้แค่ _eval/ กับแคช — ห้ามแตะเนื้อจริง
 ! eval เรียกของภายใน server.py ตรง ๆ (_gather_sources, _best_decide, _score_fa, DL_DIR, SEG_CACHE) — เปลี่ยนชื่อใน server ต้องแก้ที่นี่ด้วย

@@ -2299,6 +2299,9 @@ function bestLine(i){                              // ผลเทียบล�
   const it = (S.songs || []).find(x => x.videoId === i.videoId), b = it && it.best;
   if(!b || ['queued', 'working'].includes(b.status)) return '';
   if(b.status === 'failed') return `<div class="bl bad">⚠️ เทียบเนื้อไม่สำเร็จ: ${esc(b.error)}</div>`;
+  if(b.status === 'retry')                         // แหล่งออนไลน์ไม่ตอบสักตัว -> เซิร์ฟเวอร์นัดลองใหม่เอง
+    return `<div class="bl">🔁 แหล่งออนไลน์ไม่ตอบ — จะลองหาเนื้อใหม่เอง${b.retryAt
+      ? ' ตอน ' + new Date(b.retryAt * 1000).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'}) + ' น.' : ''}</div>`;
   const changed = b.applied && b.action !== 'keep';   // เทียบซ้ำแล้วได้ keep = ไม่ได้เปลี่ยนอะไรรอบนี้
   return `<div class="bl">✨ ${changed ? esc(BEST_ACT[b.action] || 'เลือกอัตโนมัติ') : 'เทียบกับทุกแหล่งแล้ว'} — ${esc(b.reason)}</div>`;
 }
