@@ -1695,7 +1695,7 @@ def _lyr_fields(item: dict) -> None:
     """lyrStatus: na | queued | working | ready | failed"""
     vid = item.get("videoId")
     for k in ("lyricsUrl", "lyrLines", "lyrWarn", "lyrSrc", "lyrCheck", "lyrError",
-              "lyrConf", "lyrConfWhy", "lyrKind", "lyrOffset", "wordsUrl", "wordsStatus", "lyrBest",
+              "lyrConf", "lyrConfWhy", "lyrKind", "lyrOffset", "wordsUrl", "wordsStatus", "lyrBest", "lyrBestAt",
               "lyrFrom", "lyrLang"):
         item.pop(k, None)
     if item.get("source") != "yt" or not vid:
@@ -1707,6 +1707,9 @@ def _lyr_fields(item: dict) -> None:
     _bst = _best_state.get(vid, {}).get("status")
     if _bst in ("queued", "working"):
         item["lyrBest"] = _bst          # กำลังเทียบเนื้อจากทุกแหล่ง (เนื้ออาจเปลี่ยนเป็นตัวที่ดีกว่า)
+    elif vid in _best_retry_at:
+        item["lyrBest"] = "retry"       # แหล่งออนไลน์ไม่ตอบ นัดลองใหม่เองแล้ว
+        item["lyrBestAt"] = int(_best_retry_at[vid])
     _vst = _verify_state.get(vid, {}).get("status")
     chk = _vst if _vst in ("queued", "waiting", "checking", "failed") else _chk_verdict(vid)
     if chk:
@@ -2081,8 +2084,8 @@ def _find_lyrics(vid: str) -> tuple[bool, str]:
     rc, out, err = _run_child("lyrfind", vid, [sys.executable, str(script), "--no-asr", vid],
                               timeout=FIND_TIMEOUT, cwd=str(BASE))
     for l in (out or "").splitlines():
-        if l.startswith("[sparse]"):
-            print(l)                # ซับ/lrclib ที่มีแค่บางช่วง (บทพูดในเอ็มวี) ถูกข้าม — ไปลองแหล่งอื่นก่อน
+        if l.startswith(("[sparse]", "[online]")):
+            print(l)                # ซับ/lrclib ที่มีแค่บางช่วง (บทพูดในเอ็มวี) ถูกข้าม / ได้เนื้อจาก YouTube Music/JOOX
     if rc == _NEED_ASR_RC:
         return True, ""
     if rc != 0:
@@ -2116,6 +2119,7 @@ async def _lyrfind_worker() -> None:
             if (_song_dir(vid) / "lyrics.nolyr.json").is_file():
                 _lyr_state[vid] = {"status": "nolyr", "error": ""}
                 print(f"[lyr] {vid} ไม่มีเนื้อจากทุกแหล่ง ({time.monotonic() - t0:.0f}s){_since_add(vid)}")
+                await _enqueue_best(vid)     # ยังมีลุ้นจากแหล่งออนไลน์ทุกตัว (ผลเคยไม่ครบ = ลองใหม่)
             elif not need_asr:
                 _lyr_state[vid] = {"status": "ready", "error": ""}
                 room.archive_rev += 1
@@ -2160,7 +2164,7 @@ def _build_lyrics(vid: str) -> str:
         _preempt_kill.discard(vid)
         raise _Preempted()
     for l in (out or "").splitlines():
-        if l.startswith(("[asr]", "[sparse]")):
+        if l.startswith(("[asr]", "[sparse]", "[online]")):
             print(l)                # เวลาถอดเสียงจริงของ whisper (เวลารวมของ gen_lyrics รวมเน็ต/ลองซ้ำด้วย) / ซับที่ข้าม
     if rc == _NO_LYRICS_RC:
         return ""                   # ลองครบทุกแหล่งแล้วไม่มีเนื้อ — ไม่ใช่ความล้มเหลว
@@ -3492,13 +3496,15 @@ def _studio_item(vid: str, d: Path, plays: dict[str, int], qpos: dict[str, int])
 def _best_brief(vid: str) -> dict | None:
     """ผลเลือกเนื้ออัตโนมัติของเพลงนี้ สำหรับ Studio (None = ยังไม่เคยทำ)"""
     st = _best_state.get(vid, {})
+    if not st and vid in _best_retry_at:
+        st = {"status": "retry", "at": int(_best_retry_at[vid])}
     rec = _best_rec(vid)
     if not st and not rec:
         return None
     j = _read_lyr(vid) or {}
     applied = bool(j.get("best")) and _lyr_hash(j) == rec.get("out")
     rf = rec.get("refine") or {}
-    return {"status": st.get("status") or "done", "error": st.get("error") or "",
+    return {"status": st.get("status") or "done", "error": st.get("error") or "", "retryAt": st.get("at"),
             "action": rec.get("action") or "", "reason": rec.get("reason") or "", "at": rec.get("at"),
             "applied": applied, "partial": bool(rec.get("partial")),
             "refine": {"segments": len(rf.get("segments") or []), "repaired": len(rf.get("repaired") or []),
@@ -5120,10 +5126,35 @@ _best_pending = _Pending("best")
 _best_task: asyncio.Task | None = None
 _best_state: dict[str, dict] = {}                  # videoId -> {"status": queued|working|failed, "error"}
 _best_retried: set[str] = set()                    # ผลไม่ครบ (แหล่งออนไลน์เงียบ) ลองใหม่ได้ครั้งเดียวต่อรอบเปิดเซิร์ฟเวอร์
+# ...แล้วลองเองอีกตามตารางนี้ (เดิมลองครั้งเดียวแล้วค้าง "ไม่มีเนื้อ" ทั้งที่กด 🔎 หาเนื้อ ทีหลังเจอ)
+BEST_RETRY = (300.0, 1800.0, 3 * 3600.0)
+_best_retry_n: dict[str, int] = {}
+_best_retry_at: dict[str, float] = {}              # videoId -> เวลาที่จะลองรอบถัดไป (การ์ดขึ้น 🔁)
 # ผู้สมัครที่ดึงไว้ล่วงหน้าระหว่างรอแยกเสียง: videoId -> (เวลา, hash เนื้อตอนดึง, ภาษา, ผู้สมัคร, คำค้น)
 _best_pre: dict[str, tuple[float, str, str, list, dict]] = {}
 _best_pre_task: dict[str, asyncio.Task] = {}
 BEST_PRE_TTL = 900.0
+
+
+def _best_retry_later(vid: str) -> None:
+    """แหล่งออนไลน์ไม่ตอบสักตัว -> นัดลองเลือกเนื้อใหม่ตาม BEST_RETRY (นับต่อรอบเปิดเซิร์ฟเวอร์)"""
+    n = _best_retry_n.get(vid, 0)
+    if n >= len(BEST_RETRY) or vid in _best_retry_at:
+        return
+    _best_retry_n[vid] = n + 1
+    delay = BEST_RETRY[n]
+    _best_retry_at[vid] = time.time() + delay
+
+    async def later() -> None:
+        await asyncio.sleep(delay)
+        if _best_retry_at.pop(vid, None) is None:
+            return                                 # ถูกยกเลิก (ลบเพลง / สั่งเทียบเอง)
+        _best_retried.discard(vid)
+        await _enqueue_best(vid)
+        await room.broadcast()
+    t = asyncio.create_task(later())
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
 
 
 def _prefetch_best(vid: str | None) -> None:
@@ -5690,6 +5721,9 @@ async def _run_best(vid: str) -> None:
         partial = online == 0
         if partial:
             _best_retried.add(vid)
+            _best_retry_later(vid)
+        else:
+            _best_retry_n.pop(vid, None)
         await asyncio.to_thread(_best_record, vid, base, out, dec, cands, partial, _refine_rec(ref))
         _best_state.pop(vid, None)
         steps = " · ".join(f"{k} {v:.0f}" for k, v in ph.items() if v >= 0.5)
@@ -5813,6 +5847,7 @@ async def studio_action(vid: str, request: Request):
             else:
                 _best_state.pop(vid, None)
                 _best_retried.discard(vid)
+                _best_retry_at.pop(vid, None)
                 ok = await _enqueue_best(vid, force=True)
                 msg = "เข้าคิวเทียบเนื้อจากทุกแหล่งแล้ว" if ok else "อยู่ในคิวแล้ว / ยังไม่มีเนื้อหรือไฟล์เสียง"
         elif do == "best-all":
@@ -5932,6 +5967,8 @@ async def studio_delete(vid: str, request: Request, edits: int = 0):
             st.pop(vid, None)
         _lyr_nosrc.discard(vid)
         _best_retried.discard(vid)
+        _best_retry_at.pop(vid, None)
+        _best_retry_n.pop(vid, None)
         gone = await asyncio.to_thread(_purge_song_files, vid, d, bool(edits))
     _act_locks.pop(vid, None)
     _invalidate_dirs()

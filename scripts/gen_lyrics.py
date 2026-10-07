@@ -5,6 +5,7 @@
     1. lyrics-in/<vid>.lrc|.txt   ผู้ใช้วางเอง (สำคัญสุด)
     2. songs/yt/<เพลง>/sub.th.vtt ซับจริงของ YouTube — เวลาเป๊ะ ไม่ต้องคำนวณ
     3. lrclib.net                 synced LRC กรองด้วยความยาวเพลง + ความเหมือนของเนื้อ
+    3b. YouTube Music / JOOX      ข้อความที่คนพิมพ์ (ยืนยันด้วยคำที่ได้ยินในคลิป) เวลาจับจากข้อ 4/5
     4. songs/yt/<เพลง>/auto.th.vtt  auto-caption (ASR ของ YouTube) มี timestamp ระดับคำ
        4a. มีเนื้อจริงแล้ว -> ใช้เป็น "เส้นเวลา" จับเวลาให้เนื้อนั้น (ไม่แตะ GPU)
        4b. ยังไม่มีเนื้อ   -> ใช้คำที่ถอดได้เป็นคำค้น lrclib ก่อน ถ้ายังไม่เจอค่อยใช้เป็นเนื้อ
@@ -761,6 +762,72 @@ def time_with(src_lines: list[str], words: list[dict],
     return [{"t": t, "d": d_, "x": x} for t, d_, x in zip(starts, durs, src_lines)], cov
 
 
+# YouTube Music / JOOX ตอนหาเนื้อรอบแรก (แหล่งเดียวกับ 🔎 หาเนื้อ ใน Studio)
+# เดิมมีแค่ในงานเลือกเนื้อซึ่งต้องรอแยกเสียง + FA -> เพลงใหม่ขึ้นเนื้อผิด/ไม่มีเนื้อไปเกือบ 2 นาที
+ONLINE = os.environ.get("KARA_ONLINE_LYRICS", "1") != "0"   # 0 = ปิด (ทดสอบออฟไลน์)
+ONLINE_TTL, ONLINE_TTL_EMPTY = 6 * 3600, 600   # ไม่เจอเลย (เน็ต/API พัง?) จำไว้แค่ 10 นาที
+ONLINE_BETTER = 0.05            # ต้องเหมือนคำที่ได้ยินมากกว่าเนื้อเดิม (คำอธิบายใต้คลิป) เท่านี้ถึงแทน
+
+
+def online_cands(vid: str, folder: Path, info: dict, duration: float) -> list[dict]:
+    """ผู้สมัครจาก YouTube Music (ถามจากคลิปนี้ + ค้นชื่อ) และ JOOX — แคชที่ _src/<vid>.online.json
+    เฟส --no-asr กับเฟสถอดเสียงจึงได้ชุดเดียวกันโดยไม่ยิงเน็ตซ้ำ · API ไม่ทางการ พังได้ -> [] แล้วไปทางเดิม"""
+    if not ONLINE:
+        return []
+    cache = SRC / f"{vid}.online.json"
+    try:
+        c = json.loads(cache.read_text("utf-8"))
+        ttl = ONLINE_TTL if c.get("cands") else ONLINE_TTL_EMPTY
+        if time.time() - float(c.get("at") or 0) < ttl and c.get("dur") == round(duration, 1):
+            return c["cands"]
+    except Exception:
+        pass
+    try:
+        import lyrics_more as M
+        qs = [(q, "title") for q in M.queries(info.get("title") or folder.name, info.get("uploader") or "")[:2]]
+        out = M.from_ytmusic(vid, qs, duration, per=2) + M.from_joox(qs, duration, per=2, max_total=4)
+    except Exception as e:
+        print(f"[online] {vid} {type(e).__name__}: {e}", flush=True)
+        return []
+    try:
+        SRC.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"at": time.time(), "dur": round(duration, 1), "cands": out},
+                                    ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return out
+
+
+def pick_online(cands: list[dict], heard: str) -> tuple[float, list[str], dict] | None:
+    """ตัวที่ใช่เพลงนี้: เหมือนคำที่ได้ยินในคลิป (auto-caption / whisper) >= LS.ASR_SIM
+    ยังไม่มีคำที่ได้ยิน -> เชื่อได้แค่ YouTube Music ที่ผูกกับคลิปนี้เอง (ค้นด้วยชื่อเจอเพลงผิดได้)"""
+    best = None
+    for c in cands:
+        texts = [l["x"] for l in c["lines"]] if c.get("synced") else list(c.get("texts") or [])
+        if len(texts) < LS.MIN_LINES:
+            continue
+        if heard:
+            sim = LS.similarity(heard, "\n".join(texts))
+            if sim < LS.ASR_SIM:
+                continue
+        elif (c.get("meta") or {}).get("via") == "video":
+            sim = 1.0
+        else:
+            continue
+        if best is None or sim > best[0]:
+            best = (sim, texts, c)
+    return best
+
+
+def online_better(got: tuple[float, list[str], dict], src_lines: list[str], heard: str) -> bool:
+    """เนื้อออนไลน์ควรแทนเนื้อที่มีอยู่ไหม (เนื้อที่มีมักเป็นคำอธิบายใต้คลิป ซึ่งบางทีมีแค่ไม่กี่บรรทัด)"""
+    if not src_lines:
+        return True
+    if heard:
+        return got[0] > LS.similarity(heard, "\n".join(src_lines)) + ONLINE_BETTER
+    return len(got[1]) >= 1.5 * len(src_lines)
+
+
 def process(vid: str, no_asr: bool = False) -> bool:
     """คืน True ถ้ายังต้องถอดเสียงต่อ (เรียกด้วย --no-asr แล้วแหล่งที่ไม่ใช้ GPU หมดก่อน)
 
@@ -847,6 +914,19 @@ def process(vid: str, no_asr: bool = False) -> bool:
                 write_out(folder, vid, lines, duration, "lrclib", "lrclib.net synced", note=who)
                 return False
 
+    # ---- 3b) YouTube Music / JOOX — ข้อความของคนพิมพ์ แต่เวลาจับจากคลิปนี้ ------------
+    # (auto-caption ในข้อ 4 หรือ whisper ในข้อ 5) เพราะเวลาของแหล่งมักเป็นเวอร์ชันอัลบั้ม ไม่ตรงเอ็มวี
+    online = online_cands(vid, folder, j, duration) if not manual_text else []
+
+    def use_online(heard: str) -> None:
+        nonlocal src_lines, text_src
+        got = pick_online(online, heard) if online else None
+        if got and online_better(got, src_lines, heard):
+            src_lines, text_src = got[1], got[2]["provider"]
+            print(f"[online] {vid} <- {got[2]['label']} ({len(got[1])} บรรทัด"
+                  f"{f', sim {got[0]:.2f}' if heard else ', ผูกกับคลิปนี้'})", flush=True)
+    use_online(auto_text(auto_words) if auto_words else "")
+
     # ---- 4) auto-caption ของ YouTube (ASR ของ Google) ---------------------
     # ไม่แตะ GPU จึงต้องอยู่ "ก่อน" ประตู --no-asr ไม่งั้นเพลงที่มี auto-caption
     # จะยังเข้าคิวแยกเสียง+ถอดเสียงเหมือนเดิมทั้งที่ไม่จำเป็น
@@ -893,6 +973,8 @@ def process(vid: str, no_asr: bool = False) -> bool:
     # ไม่มีเนื้อเลย -> ตัวที่ถอดได้จะถูกใช้เป็นคำค้น lrclib ต่อ ต้องเอาตัวแม่น
     model = MODEL if src_lines else ACCURATE_MODEL
     data = get_segments(vid, audio, model, lang)
+    if online:                                     # ตอนนี้มีคำที่ได้ยินแล้ว -> ยืนยันผลค้นด้วยชื่อได้
+        use_online(" ".join(sg.get("text") or "" for sg in data["segs"]))
     if not src_lines:
         # ลอง lrclib อีกรอบแบบผ่อนเกณฑ์ โดยใช้ "คำที่ถอดจากเสียงร้องของคลิปนี้เอง"
         # เป็นตัวยืนยันว่าใช่เพลงเดียวกัน แทนการเทียบความยาวเพลง

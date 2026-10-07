@@ -726,7 +726,12 @@ function lyrInfo(i){
 const chkInfo = i => i.source==='yt' && LYR_CHECK[i.lyrCheck] || null;
 // งานเลือกเนื้อดีที่สุด: เทียบทุกแหล่งกับเสียงร้องจริงหลังได้เนื้อตัวแรก — เนื้ออาจเปลี่ยนเป็นตัวที่ดีกว่า
 const LYR_BEST = T('wait','✨ กำลังเทียบเนื้อ', 'กำลังเทียบเนื้อจากทุกแหล่ง · ถ้าเจอที่ดีกว่าจะเปลี่ยนให้เอง');
-const bestInfo = i => i.source==='yt' && ['queued','working'].includes(i.lyrBest) ? LYR_BEST : null;
+const LYR_BEST_NEW = T('wait','🔎 กำลังหาเนื้อจากแหล่งอื่น', 'กำลังหาจาก YouTube Music / JOOX / NetEase … เจอแล้วขึ้นจอเอง');
+const hhmm = s => new Date(s*1000).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+const bestInfo = i => i.source!=='yt' ? null
+  : ['queued','working'].includes(i.lyrBest) ? (i.lyrLines ? LYR_BEST : LYR_BEST_NEW)
+  : i.lyrBest==='retry' ? T('wait','🔁 จะลองหาเนื้ออีกครั้ง', `แหล่งออนไลน์ไม่ตอบ · ลองใหม่เองตอน ${hhmm(i.lyrBestAt)} น.`)
+  : null;
 
 // ชิปบนการ์ดคิว/กำลังเล่น — "พร้อมเล่น" เป็นสถานะปกติ ไม่ต้องขึ้นให้รก
 function statusChips(i){
