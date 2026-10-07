@@ -1010,8 +1010,10 @@ def _download_video(vid: str) -> None:
     d.mkdir(parents=True, exist_ok=True)
     try:
         # มี audio.m4a แล้วก็ขอแค่ภาพ ไม่ต้องโหลดเสียงซ้ำ
-        fmt = ("bv*[ext=mp4][height<=720]/bv*[height<=720]/b[ext=mp4]/b" if audio.is_file()
-               else "bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/b")
+        # ขอ H.264 (avc1) ก่อน — ไม่ระบุ yt-dlp จะเลือก AV1 ซึ่ง iPad/ทีวีส่วนใหญ่เล่นไม่ได้
+        fmt = ("bv*[vcodec^=avc1][height<=720]/bv*[ext=mp4][height<=720]/bv*[height<=720]/b[ext=mp4]/b"
+               if audio.is_file()
+               else "bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/b")
         with YoutubeDL({**_DL_COMMON, **_yt_auth(),
                         "outtmpl": str(d / "%(id)s.v.%(ext)s"),
                         "format": fmt,
@@ -1138,6 +1140,38 @@ _DL_AUTO_MAX = 3                   # ลองใหม่อัตโนมั�
 _dl_fails: dict[str, int] = {}     # videoId -> โหลดพังมาแล้วกี่รอบ (ล้างเมื่อสำเร็จ/กดซ่อม)
 
 
+_h264_lock = threading.Lock()      # แปลงทีละเพลง (ถอด AV1 กิน CPU ~2 คอร์)
+_h264_busy: set[str] = set()
+
+
+def _h264_bg(vid: str) -> None:
+    """video.mp4 ที่เป็น AV1 -> H.264 เบื้องหลัง (scripts/to_h264.py ข้ามเองถ้าไม่ใช่ AV1)
+    ข้ามเพลงที่กำลังเล่น: แทนที่ไฟล์กลางเพลง จอที่โหลดเป็นช่วงๆ จะได้ไบต์ของไฟล์ใหม่ปนมา"""
+    if vid in _h264_busy or (room.current or {}).get("videoId") == vid:
+        return
+    f = _song_dir(vid) / "video.mp4"
+    if not f.is_file():
+        return
+    _h264_busy.add(vid)
+
+    def run():
+        try:
+            with _h264_lock:
+                if (room.current or {}).get("videoId") == vid:
+                    return
+                r = subprocess.run([sys.executable, str(BASE / "scripts" / "to_h264.py"), str(f)],
+                                   capture_output=True, text=True, timeout=1900,
+                                   env={**os.environ, "KARA_PORT": str(PORT)})
+                res = (r.stdout or "").strip() or (r.stderr or "").strip()[-200:]
+                if res != "skip":
+                    print(f"[h264] {vid} {res}")
+        except Exception as exc:
+            print(f"[h264] {vid} {type(exc).__name__}: {exc}")
+        finally:
+            _h264_busy.discard(vid)
+    threading.Thread(target=run, daemon=True).start()
+
+
 async def _download_worker() -> None:
     while True:
         await _dl_pending.wait()
@@ -1150,6 +1184,7 @@ async def _download_worker() -> None:
         d = _song_dir(vid)
         if (d / "video.mp4").is_file() and (d / "audio.m4a").is_file():
             _dl_state.pop(vid, None)
+            _h264_bg(vid)               # เพลงเก่าที่ยังเป็น AV1 -> แปลงก่อนถึงคิว (iPad เล่นได้)
             await _enqueue_sep(vid)     # ไฟล์ครบแล้ว แต่ยังอาจไม่เคยแยกเสียง
             await room.broadcast()
             continue
@@ -1175,6 +1210,7 @@ async def _download_worker() -> None:
                 await room.broadcast()
                 await asyncio.to_thread(_download_video, vid)
                 print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s{_since_add(vid)}")
+                _h264_bg(vid)           # YouTube ไม่มี H.264 ให้ = ได้ AV1 มา -> แปลงเอง
                 # ซับ/metadata เพิ่งมาถึง — ถ้าเคยค้นเนื้อไปแล้วตอนโฟลเดอร์ยังว่าง
                 # ผลนั้นใช้ไม่ได้ ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนจะไปถอดเสียง
                 _lyr_nosrc.discard(vid)

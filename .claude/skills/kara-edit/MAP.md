@@ -226,9 +226,10 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! posNow() ใช้ไม่ได้ตอนเล่นผ่าน YouTube (อ่าน <video> ว่าง = 0) — เนื้อ/ไล่สีใช้ lyrPos(), เวลาบนจอใช้ playPos()
 
 ### จอ error / จอถูกแทนที่ / หลุดการเชื่อมต่อ + websocket ของจอ
-คำค้น: error, เล่นไม่ได้, ปิดการฝัง, คลิปถูกลบ, ข้ามไปเพลงถัดไป, นับถอยหลัง 4 วิ, จอถูกแทนที่, evicted, หลายจอ, ยึดจอกลับ, กำลังเชื่อมต่อ, websocket, hello, /tv/รหัส, TV_KEY, clientlog, log
+คำค้น: error, เล่นไม่ได้, เปิดไฟล์เพลงนี้ไม่ได้, iPad, AV1, เล่นแค่เสียง, ปิดการฝัง, คลิปถูกลบ, ข้ามไปเพลงถัดไป, นับถอยหลัง 4 วิ, จอถูกแทนที่, evicted, หลายจอ, ยึดจอกลับ, กำลังเชื่อมต่อ, websocket, hello, /tv/รหัส, TV_KEY, clientlog, log
 - `static/player.html` `#err{position:absolute` `#conn{position:absolute` `#evicted{position:absolute` — CSS overlay
 - `static/player.html` `function showErr(msg){` `function becomeEvicted(){` `function clog(tag, msg){` — error นับ 4 วิแล้วส่ง ended, ถูกแทนที่ (แตะ = ส่ง hello ยึดกลับ), ส่ง log ขึ้น /api/clientlog
+- `static/player.html` `let audioOnlyFor = null;` — วิดีโอเปิดไม่ได้ (iPad ถอด AV1 ไม่ได้) → สลับ local.src ไป audio.m4a ของเพลงเดียวกัน เล่นต่อจากตำแหน่งเดิม ไม่ข้ามเพลง (ครั้งเดียวต่อใบคิว, clog 'video'); เสียงก็พังอีก = showErr ตามเดิม
 - `static/player.html` `function connect(){` `const TV_KEY = ` `const PLAYER_ID = ` — ws: hello role=player (id + รหัสจาก /tv/{key}), รับ state/added/evicted, ต่อใหม่ทุก 1.5 วิ
 ! ถูกแทนที่ต้องหยุดทุกอย่าง + hideErr() (นับถอยหลังค้างห้ามส่ง ended ไปข้ามเพลงของจอใหม่) · connect() ต้องเรียกท้ายไฟล์ (let ของเครื่องผสมเสียงต้องประกาศครบก่อน)
 
@@ -500,7 +501,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! _preempt_heavy ห้ามมี await เพราะถูกเรียกตอนถือ room.lock และห้ามแคช _prio_map
 
 ### ดาวน์โหลดจาก YouTube ด้วย yt-dlp (download)
-คำค้น: ดาวน์โหลด, โหลดเพลง, download, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment, โหลดไม่ได้, บอท, not a bot, ล็อกอิน, คุกกี้, cookies, Chrome, Keychain, KARA_YT_COOKIES, node, js runtime
+คำค้น: ดาวน์โหลด, โหลดเพลง, download, AV1, H.264, h264, iPad เล่นไม่ได้, แปลงวิดีโอ, codec, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment, โหลดไม่ได้, บอท, not a bot, ล็อกอิน, คุกกี้, cookies, Chrome, Keychain, KARA_YT_COOKIES, node, js runtime
 - `server.py` `async def _download_worker(` `async def _ensure_downloader(` `def _download_audio(` `def _download_video(` — โหลดทีละเพลงตามลำดับคิว: เสียง + metadata ก่อน (สั่งแยกเสียงทันที + ดึงคำบรรยายอัตโนมัติ + เริ่มหาเนื้อทันที) แล้วโหลดภาพมา mux กับ audio.m4a, ลองซ้ำ 2 รอบ
 - `server.py` `def _since_add(` `_added_at: dict` — log ทุกขั้น (dl/lyr/sep/best) บอก "หลังกดเพิ่ม X วิ"
 ! YouTube ตอบ "Sign in to confirm you're not a bot" ได้ (เจอ 2026-10-05) = โหลดเพลงใหม่ไม่ได้เลย — ทดสอบอย่ายิงโหลดซ้ำรัว ๆ ใช้ไฟล์ที่มีในคลังจำลองแทน
@@ -508,6 +509,9 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ทดสอบ/เซิร์ฟเวอร์ทดสอบต้องตั้ง KARA_YT_COOKIES=none — ไม่งั้นอ่านคุกกี้ Chrome จริง (Keychain เด้ง) · _search ไม่ใช้คุกกี้ (ค้นหาไม่โดนบล็อก)
 - `server.py` `def _fetch_auto_caption(` `def _fetch_subs(` `_DL_COMMON = {` `def _dl_scrub(` `_DL_AUTO_MAX = 3` — auto-caption เป็น auto.th.vtt, ซับจริงตามภาษา, ตัวเลือก yt-dlp (โหลด 8 fragment พร้อมกัน), ล้างเศษไฟล์, ลองอัตโนมัติไม่เกิน 3 รอบแล้วรอคนกดซ่อม
 - `server.py` `def _dl_fields(` — เติม dlStatus/localUrl/ชื่อจริงลงการ์ดตอน broadcast (อ่านจากดิสก์)
+- `server.py` `ขอ H.264 (avc1) ก่อน` `def _h264_bg(` `_h264_lock = ` — ภาพขอ H.264 ก่อน (yt-dlp เลือก AV1 ให้เอง iPad/ทีวีเล่นไม่ได้); ได้ AV1 มา / เพลงเก่าเข้าคิว = เธรดเรียก scripts/to_h264.py แปลงทีละเพลง ข้ามเพลงที่กำลังเล่น
+- `scripts/to_h264.py` `def convert(` `def playing_now(` — AV1 → H.264 (h264_videotoolbox, เสียง copy) ลง .h264.part ตรวจ codec+ความยาวแล้วค่อยแทนที่; CLI: ไม่ใส่อะไร = ทั้งคลัง, <video.mp4> = ไฟล์เดียว, --dry = นับ
+! ห้ามแทนที่ video.mp4 ของเพลงที่จอกำลังเล่น (จอโหลดเป็นช่วง ๆ จะได้ไบต์ไฟล์ใหม่ปน) — playing_now() ถาม ws ของ KARA_PORT ก่อนแทนที่ทุกครั้ง
 
 ### แยกเสียงร้อง Demucs (stems / vocals)
 คำค้น: แยกเสียง, แยกเสียงร้อง, stems, demucs, htdemucs, vocals.m4a, no_vocals.m4a, ไกด์ร้อง, ตัดเสียงร้อง, mps, cpu, แยกเสียงใหม่

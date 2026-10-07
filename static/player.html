@@ -263,7 +263,24 @@ const sendWs = o=>{ if(MIRROR && (o.action === 'pos' || o.action === 'ended')) r
   try{ if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(o)); }catch(e){} };
 
 local.addEventListener('ended', ()=>{ if(!stemMode) sendWs({action:'ended', id:curItem}); });
-local.addEventListener('error', ()=> showErr('เปิดไฟล์เพลงนี้ไม่ได้'));
+// วิดีโอเปิดไม่ได้ (เช่น iPad ถอด AV1 ไม่ได้) -> เล่นแค่เสียง audio.m4a ของเพลงเดียวกัน + เนื้อบนจอดำ ไม่ข้ามเพลง
+// curLocal ยังเป็น URL วิดีโอเดิม (apply() เทียบกับ state) — เปลี่ยนแค่ local.src, ลองครั้งเดียวต่อเพลง
+let audioOnlyFor = null;
+local.addEventListener('error', ()=>{
+  const vre = /\/video\.mp4(\?|$)/;
+  if(curLocal && vre.test(local.currentSrc || local.src || '') && audioOnlyFor !== curItem){
+    audioOnlyFor = curItem;
+    clog('video', 'วิดีโอเปิดไม่ได้ (code ' + (local.error && local.error.code) + ') -> เล่นแค่เสียง ' + curLocal);
+    const seek = resumeAt(window._state);
+    attached = !seek;
+    local.src = curLocal.replace(vre, '/audio.m4a$1');
+    if(seek) local.addEventListener('loadedmetadata',
+      ()=>{ try{ local.currentTime = seek; }catch(e){} attached = true; }, {once:true});
+    if(!stemMode && window._state && window._state.playing) tryPlayLocal();
+    return;
+  }
+  showErr('เปิดไฟล์เพลงนี้ไม่ได้');
+});
 
 const tag=document.createElement('script');
 tag.src="https://www.youtube.com/iframe_api";
