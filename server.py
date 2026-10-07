@@ -1140,38 +1140,6 @@ _DL_AUTO_MAX = 3                   # ลองใหม่อัตโนมั�
 _dl_fails: dict[str, int] = {}     # videoId -> โหลดพังมาแล้วกี่รอบ (ล้างเมื่อสำเร็จ/กดซ่อม)
 
 
-_h264_lock = threading.Lock()      # แปลงทีละเพลง (ถอด AV1 กิน CPU ~2 คอร์)
-_h264_busy: set[str] = set()
-
-
-def _h264_bg(vid: str) -> None:
-    """video.mp4 ที่เป็น AV1 -> H.264 เบื้องหลัง (scripts/to_h264.py ข้ามเองถ้าไม่ใช่ AV1)
-    ข้ามเพลงที่กำลังเล่น: แทนที่ไฟล์กลางเพลง จอที่โหลดเป็นช่วงๆ จะได้ไบต์ของไฟล์ใหม่ปนมา"""
-    if vid in _h264_busy or (room.current or {}).get("videoId") == vid:
-        return
-    f = _song_dir(vid) / "video.mp4"
-    if not f.is_file():
-        return
-    _h264_busy.add(vid)
-
-    def run():
-        try:
-            with _h264_lock:
-                if (room.current or {}).get("videoId") == vid:
-                    return
-                r = subprocess.run([sys.executable, str(BASE / "scripts" / "to_h264.py"), str(f)],
-                                   capture_output=True, text=True, timeout=1900,
-                                   env={**os.environ, "KARA_PORT": str(PORT)})
-                res = (r.stdout or "").strip() or (r.stderr or "").strip()[-200:]
-                if res != "skip":
-                    print(f"[h264] {vid} {res}")
-        except Exception as exc:
-            print(f"[h264] {vid} {type(exc).__name__}: {exc}")
-        finally:
-            _h264_busy.discard(vid)
-    threading.Thread(target=run, daemon=True).start()
-
-
 async def _download_worker() -> None:
     while True:
         await _dl_pending.wait()
@@ -1184,7 +1152,6 @@ async def _download_worker() -> None:
         d = _song_dir(vid)
         if (d / "video.mp4").is_file() and (d / "audio.m4a").is_file():
             _dl_state.pop(vid, None)
-            _h264_bg(vid)               # เพลงเก่าที่ยังเป็น AV1 -> แปลงก่อนถึงคิว (iPad เล่นได้)
             await _enqueue_sep(vid)     # ไฟล์ครบแล้ว แต่ยังอาจไม่เคยแยกเสียง
             await room.broadcast()
             continue
@@ -1210,7 +1177,6 @@ async def _download_worker() -> None:
                 await room.broadcast()
                 await asyncio.to_thread(_download_video, vid)
                 print(f"[dl] {vid} OK {time.monotonic() - t0:.0f}s{_since_add(vid)}")
-                _h264_bg(vid)           # YouTube ไม่มี H.264 ให้ = ได้ AV1 มา -> แปลงเอง
                 # ซับ/metadata เพิ่งมาถึง — ถ้าเคยค้นเนื้อไปแล้วตอนโฟลเดอร์ยังว่าง
                 # ผลนั้นใช้ไม่ได้ ต้องให้ลองแหล่งที่ไม่ใช้ GPU ใหม่ก่อนจะไปถอดเสียง
                 _lyr_nosrc.discard(vid)
@@ -3383,14 +3349,6 @@ def tv_player_page(key: str):
     from fastapi.responses import RedirectResponse
     if not _tv_key_ok(key):
         return RedirectResponse("/r", status_code=307)
-    return HTMLResponse((BASE / "static" / "player.html").read_text(encoding="utf-8"),
-                        headers={"Cache-Control": "no-store"})
-
-
-@app.get("/watch", response_class=HTMLResponse)
-def watch_page():
-    """📺 จอที่สอง: เปิดจากเครื่องไหนก็ได้ (ลิงก์อยู่ในตั้งค่ารีโมท) — ดูอย่างเดียว ปิดเสียงเป็นค่าเริ่มต้น
-    ไม่ส่ง hello แบบจอหลัก จึงแย่งจอ/ข้ามเพลง/ทำเวลาเพี้ยนไม่ได้ ไม่ต้องมีรหัสเหมือน /tv/<รหัส>"""
     return HTMLResponse((BASE / "static" / "player.html").read_text(encoding="utf-8"),
                         headers={"Cache-Control": "no-store"})
 
@@ -6132,11 +6090,6 @@ async def ws_endpoint(ws: WebSocket):
                     continue
                 act = msg.get("action")
                 if act == "hello":
-                    if msg.get("role") == "mirror":
-                        # 📺 จอที่สอง (/watch): ดูอย่างเดียว ไม่แย่งจอหลัก — ได้ state เหมือนทุกคน + ตำแหน่งเพลงไว้ซิงก์
-                        ws._is_mirror = True
-                        await _ws_send(ws, json.dumps(room.state()))
-                        continue
                     # เฉพาะเครื่องนี้ หรือเครื่องที่เปิดผ่านลิงก์ /tv/<รหัส> ที่เป็นจอหลักได้ มีได้ทีละตัว ตัวใหม่ชนะ
                     if msg.get("role") != "player":
                         continue
@@ -6159,12 +6112,6 @@ async def ws_endpoint(ws: WebSocket):
                         if t is not None:
                             room.pos = t
                             room.pos_at = time.monotonic()
-                            # ส่งต่อให้จอที่สองไว้ซิงก์ภาพ (ข้อความเล็ก ไม่ broadcast state ทั้งก้อน)
-                            cur_id = (room.current or {}).get("id")
-                            pm = json.dumps({"type": "pos", "t": t, "id": cur_id})
-                            mirrors = [o for o in list(room.clients) if getattr(o, "_is_mirror", False)]
-                            if mirrors:            # พร้อมกันทุกจอ — จอช้า (ผ่าน Cloudflare) ห้ามถ่วงข้อความของจอหลัก
-                                await asyncio.gather(*(_ws_send(o, pm) for o in mirrors))
                     continue
                 if act == "history":
                     await _ws_send(ws, json.dumps({"type": "history", "items": room.history}))

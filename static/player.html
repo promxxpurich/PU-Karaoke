@@ -115,12 +115,6 @@
   #unlock .ic{font-size:66px}
   #unlock .big{font-size:32px;font-weight:600}
   #unlock .sub{font-size:17px;color:var(--dim)}
-  /* 📺 จอที่สอง (/watch): ปุ่มเปิด/ปิดเสียงของจอนี้ — จางลงเองเมื่อไม่ได้ขยับเมาส์/แตะ */
-  #mirsnd{position:absolute;right:18px;top:50%;transform:translateY(-50%);z-index:9;cursor:pointer;
-    padding:10px 16px;border-radius:999px;font:600 15px/1.2 inherit;color:#fff;
-    background:rgba(12,12,22,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);
-    transition:opacity .4s}
-  #mirsnd.idle{opacity:.25}
   #now .gd{flex:none;font-size:14px;color:var(--dim);padding:5px 12px;border-radius:999px;
     background:rgba(255,255,255,.06);border:1px solid var(--line)}
   #lyr{position:absolute;left:0;right:0;bottom:0;z-index:7;pointer-events:none;
@@ -238,7 +232,6 @@
     <div class="sub">เบราว์เซอร์ต้องให้แตะ 1 ครั้งก่อนถึงจะเล่นเสียงได้</div>
   </div>
   <div id="err" class="hide"></div>
-  <button id="mirsnd" class="hide"></button>
 </div>
 <script>
 let player, ready=false, curId=null, lastRestart=null, curLocal=null, ws=null;
@@ -258,9 +251,7 @@ function clog(tag, msg){
 window.addEventListener('error', e=> clog('onerror', e.message + ' @' + e.filename + ':' + e.lineno));
 window.addEventListener('unhandledrejection', e=> clog('unhandled', e.reason));
 
-// 📺 จอที่สองห้ามรายงานตำแหน่ง/จบเพลง (เซิร์ฟเวอร์ก็ไม่รับอยู่แล้ว — กันไว้ทางนี้อีกชั้น)
-const sendWs = o=>{ if(MIRROR && (o.action === 'pos' || o.action === 'ended')) return;
-  try{ if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(o)); }catch(e){} };
+const sendWs = o=>{ try{ if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify(o)); }catch(e){} };
 
 local.addEventListener('ended', ()=>{ if(!stemMode) sendWs({action:'ended', id:curItem}); });
 // วิดีโอเปิดไม่ได้ (เช่น iPad ถอด AV1 ไม่ได้) -> เล่นแค่เสียง audio.m4a ของเพลงเดียวกัน + เนื้อบนจอดำ ไม่ข้ามเพลง
@@ -308,13 +299,11 @@ let lastBaseUrl = null;
 function connect(){
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);   // ผ่าน Cloudflare (https) ต้องเป็น wss
   ws.onopen = ()=>{ $('#conn').classList.remove('show');
-                    if(MIRROR) sendWs({action:'hello', role:'mirror'});
-                    else if(!evicted) sendWs({action:'hello', role:'player', id:PLAYER_ID, tv:TV_KEY}); };
+                    if(!evicted) sendWs({action:'hello', role:'player', id:PLAYER_ID, tv:TV_KEY}); };
   ws.onmessage = ev=>{
     const st = JSON.parse(ev.data);
     if(st.type === 'evicted'){ becomeEvicted(); return; }
     if(st.type === 'added'){ showAdded(st.id); return; }
-    if(st.type === 'pos'){ mirrorSync(st); return; }
     if(st.type && st.type!=='state') return;
     if(evicted) return;                       // ถูกแทนที่แล้ว ไม่ต้องเล่นอะไรอีก
     window._state = st;
@@ -348,10 +337,6 @@ let evicted = false;
 let attached = false;   // ยังไม่ได้ resume ไปตำแหน่งจริง -> ห้ามรายงานทับค่าบนเซิร์ฟเวอร์
 let stemErr='';
 const NOSTEMS = new URLSearchParams(location.search).has('nostems');
-// 📺 จอที่สอง (/watch): ดูอย่างเดียว เปิดได้หลายจอ ไม่แย่งจอหลัก — เงียบเป็นค่าเริ่มต้น (กันเสียงก้อง)
-// ?sound = เปิดเสียงเต็มเหมือนจอหลัก (จออยู่คนละห้อง/คนละบ้าน)
-const MIRROR = location.pathname === '/watch';
-const MIRROR_MUTE = MIRROR && !new URLSearchParams(location.search).has('sound');
 let audioOp = Promise.resolve();
 const withTimeout = (p, ms, label) => Promise.race([
   Promise.resolve(p),
@@ -371,7 +356,7 @@ function resumeAt(st){
 // สเต็มที่ควรเล่นตอนนี้: คีย์ของห้อง ≠ 0 และไฟล์คีย์นั้นพร้อมแล้ว -> ชุดเลื่อนคีย์ ไม่งั้นชุดเดิม
 // tag = เพลง@คีย์ เทียบกับ stemKey ที่โหลดไว้ คีย์เปลี่ยนแล้วจึงโหลดชุดใหม่กลางเพลงได้ (enterStems live)
 function stemsOf(c){
-  if(NOSTEMS || MIRROR_MUTE || !c) return null;   // จอที่สองแบบเงียบไม่ต้องโหลดสเต็ม (ไม่มี AudioContext = ไม่มีจอแตะเปิดเสียง)
+  if(NOSTEMS || !c) return null;
   if(c.source!=='yt' || c.sepStatus!=='ready' || !c.stems) return null;
   const st = window._state, k = (st && st.mix && st.mix.key) || 0;
   if(k && c.stemsKey && c.stemsKey.key === k) return {...c.stemsKey, tag: c.videoId + '@' + k};
@@ -446,7 +431,7 @@ function applyMix(m){
   // ห้ามแตะ local.muted ตรงนี้ apply() เป็นเจ้าของธงนั้น
   rampEl(mas);
   // ทางสำรอง: YouTube iframe
-  if(ready){ try{ player.setVolume(Math.round(mas*100)); if(MIRROR_MUTE) player.mute(); }catch(e){} }
+  if(ready){ try{ player.setVolume(Math.round(mas*100)); }catch(e){} }
 }
 
 // ===== เฟดเปลี่ยนเพลง + โหมด Custom (✂️) ==========================
@@ -898,10 +883,9 @@ function showErr(msg){
   let n=4;
   const paint=()=>{ el.innerHTML = `<div class="big">⚠️ ${esc(msg)}</div>
       <div class="sub">${esc((window._state?.current?.title)||'')}</div>
-      <div class="cd">${MIRROR ? 'จอหลักยังเล่นได้ตามปกติ' : `ข้ามไปเพลงถัดไปใน ${n} วิ…`}</div>`; };
+      <div class="cd">ข้ามไปเพลงถัดไปใน ${n} วิ…</div>`; };
   paint();
   clearInterval(errTimer);
-  if(MIRROR) return;               // 📺 จอที่สองข้ามเพลงไม่ได้ — ขึ้นค้างไว้จนจอหลักเปลี่ยนเพลง
   const myItem = curItem;
   errTimer = setInterval(()=>{
     n--; paint();
@@ -1340,40 +1324,6 @@ setInterval(()=>{
   const t = posNow();
   if(isFinite(t) && t >= 0) sendWs({action:'pos', t:+t.toFixed(2)});
 }, 2000);
-
-// ===== 📺 จอที่สอง (/watch) ==============================================
-// เสียง: ล็อก <video>.muted = true ที่จุดเดียว — โค้ดเดิมตั้ง muted=false หลายที่ (เปลี่ยนเพลง/ปลดล็อก/สเต็ม)
-// ตั้งผ่าน setter จริงครั้งเดียวแล้วบังทับด้วย property ของตัว element เอง ที่เหลือกลายเป็นไม่มีผล
-if(MIRROR_MUTE){
-  Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted').set.call(local, true);
-  Object.defineProperty(local, 'muted', {get: () => true, set: () => {}, configurable: true});
-}
-// ซิงก์ภาพ: จอหลักรายงานตำแหน่งทุก 2 วิ เซิร์ฟเวอร์ส่งต่อมา {type:'pos', t, id}
-// ห่างเกิน 0.6 วิ -> กระโดดไปตรงนั้น (ไม่เกิน 1 ครั้ง / 5 วิ ภาพจะได้ไม่กระตุก)
-// โหมด YouTube ข้าม: ตำแหน่งที่จอหลักรายงานอ่านจาก <video> ซึ่งว่างอยู่ตอนเล่นผ่าน iframe
-const MIRROR_TOL = 0.6, MIRROR_GAP = 5000;
-let mirrorSeekAt = 0;
-function mirrorSync(m){
-  const st = window._state;
-  if(!MIRROR || !st || !st.playing || !attached || m.id !== curItem || curLocal === null) return;
-  if(!isFinite(m.t) || performance.now() - mirrorSeekAt < MIRROR_GAP) return;
-  if(Math.abs(posNow() - m.t) <= MIRROR_TOL) return;
-  mirrorSeekAt = performance.now();
-  const at = Math.max(0, m.t + 0.1);           // + เวลาที่ข้อความเดินทางมาโดยประมาณ
-  if(stemMode) queueOp(async()=>{ startStems(Math.min(dur, at)); }, 'mirrorSync');
-  else { try{ local.currentTime = at; }catch(e){} }
-}
-if(MIRROR){
-  const b = $('#mirsnd');
-  b.textContent = MIRROR_MUTE ? '🔇 เปิดเสียงจอนี้' : '🔊 ปิดเสียงจอนี้';
-  b.classList.remove('hide');
-  b.addEventListener('click', ()=>{ location.href = MIRROR_MUTE ? '/watch?sound=1' : '/watch'; });
-  let idleT = 0;
-  const wake = ()=>{ b.classList.remove('idle'); clearTimeout(idleT); idleT = setTimeout(()=>b.classList.add('idle'), 5000); };
-  ['pointermove', 'pointerdown', 'keydown'].forEach(ev => addEventListener(ev, wake, {passive:true}));
-  wake();
-  document.title = '📺 จอที่สอง · ' + document.title;
-}
 
 connect();   // ท้ายสุด ให้ let ของเครื่องผสมเสียงถูกประกาศครบก่อน
 </script></body></html>

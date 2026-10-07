@@ -138,7 +138,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! key ห้ามชนกัน: เพลงในเครื่อง 'a'+videoId, ผลค้น 'r'+videoId, ประวัติ 'h'+… (addByKey แยกด้วยตัวอักษรแรก) · ห้ามแทน node ด้วย outerHTML (พัง reconcile)
 ! ปุ่มใหม่: ใส่ data-act="ชื่อ" แล้วเพิ่ม key ใน ACTIONS · ห้ามตั้ง b.disabled บนปุ่มในการ์ด (setHTML รอบหน้าล้างทิ้ง) ใช้คลาส .pending แทน
 
-## จอทีวี (static/player.html — หน้า / , /tv/{key} และ /watch)
+## จอทีวี (static/player.html — หน้า / และ /tv/{key})
 
 ### เล่นเพลง: วิดีโอในเครื่อง / YouTube iframe + สลับเพลง / หยุด / เริ่มใหม่ (apply)
 คำค้น: จอทีวี, player, เล่นเพลง, playback, วิดีโอ, video, YouTube, iframe, ไฟล์ในเครื่อง, local, หยุด, เล่นต่อ, เริ่มใหม่, restart, ข้ามเพลง, เพลงจบ, ended, จอดำ, เปลี่ยนเพลง, รีเฟรชแล้วเล่นต่อ, ตำแหน่งเพลง
@@ -147,14 +147,6 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/player.html` `function apply(st){` `function localUrlOf(c){` `function tryPlayLocal(){` `function resumeAt(st){` `function hideYt(){` — ตัวกลางรับ state ทุกครั้ง: เลือกแหล่ง (มีไฟล์ในเครื่อง = <video> ไม่งั้น YouTube), restartToken, เล่น/หยุด, รีเฟรชแล้วเล่นต่อจากตำแหน่งเดิม
 - `static/player.html` `sendWs({action:'pos'` — รายงานตำแหน่งทุก 2 วิ (หลัง attached เท่านั้น)
 ! แก้ไฟล์นี้แล้วแค่รีโหลดจอ — server.py อ่าน static/player.html จากดิสก์ทุกคำขอ (no-store) ไม่ต้องรีสตาร์ท
-
-### 📺 จอที่สอง /watch (ดูอย่างเดียว ภาพออกหลายจอ) + ลิงก์ในตั้งค่ารีโมท
-คำค้น: จอที่สอง, จอสอง, 2 จอ, สองจอ, mirror, watch, /watch, ภาพออกหลายจอ, เปิดจอที่เครื่องอื่น, ลิงก์จอทีวี, ซิงก์ภาพ, เสียงซ้อน, เสียงก้อง, เปิดเสียงจอนี้
-- `server.py` `@app.get("/watch"` `def watch_page():` — เสิร์ฟ player.html ให้ทุกเครื่อง (ไม่ต้องมีรหัส ต่างจาก /tv/<รหัส> ที่เป็นจอหลัก)
-- `server.py` `if msg.get("role") == "mirror":` `mirrors = [o for o in list(room.clients)` — hello role=mirror ตั้ง ws._is_mirror (ไม่ evict ใคร), pos ของจอหลักถูกส่งต่อเป็น {type:'pos', t, id} ให้ทุกจอที่สองพร้อมกัน
-- `static/player.html` `const MIRROR = ` `const MIRROR_MUTE = ` `// ===== 📺 จอที่สอง` `function mirrorSync(m){` `id="mirsnd"` — sendWs ทิ้ง pos/ended, เงียบ = ล็อก local.muted + ไม่ใช้สเต็ม (ไม่มีจอแตะเปิดเสียง), ?sound = เสียงเต็ม, ห่างเกิน 0.6 วิ seek ตาม (≤1 ครั้ง/5 วิ, ข้ามโหมด YouTube), จอ error ไม่นับถอยหลังข้ามเพลง
-- `static/remote.html` `id="watchurl"` `const watchUrl = ` `copywatch:` — ล่างสุดของ ⚙️: ลิงก์ baseUrl/watch (Cloudflare ถ้าเปิดไว้ ไม่งั้นวงแลน) + คัดลอก/เปิด
-! ลิงก์ที่โชว์ให้แขกต้องเป็น /watch เท่านั้น — /tv/<รหัส> ยังเป็นความลับ (จอที่ hello role=player ชนะเสมอ ยึดจอหลักได้) ห้ามใส่ใน state · ปิดจอหลัก = คิวไม่เดิน (จอที่สองไม่ส่ง ended)
 ! ส่ง 'ended' ต้องแนบ id: curItem เสมอ (เซิร์ฟเวอร์ทิ้ง ended ที่ค้าง/ซ้ำ — เพลงเดียวกันต่อกันสองรอบ URL เหมือนเดิม)
 
 ### เฟดเปลี่ยนเพลง (จอดำ + เสียงไล่ระดับ) + จุดจบโหมด Custom/คอมโบ + ⏩ ดำแวบ
@@ -501,7 +493,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! _preempt_heavy ห้ามมี await เพราะถูกเรียกตอนถือ room.lock และห้ามแคช _prio_map
 
 ### ดาวน์โหลดจาก YouTube ด้วย yt-dlp (download)
-คำค้น: ดาวน์โหลด, โหลดเพลง, download, AV1, H.264, h264, iPad เล่นไม่ได้, แปลงวิดีโอ, codec, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment, โหลดไม่ได้, บอท, not a bot, ล็อกอิน, คุกกี้, cookies, Chrome, Keychain, KARA_YT_COOKIES, node, js runtime
+คำค้น: ดาวน์โหลด, โหลดเพลง, download, AV1, H.264, h264, iPad เล่นไม่ได้, codec, yt-dlp, video.mp4, audio.m4a, โหลดไม่สำเร็จ, โหลดใหม่, ซับ YouTube, auto-caption, sub.th.vtt, ลองใหม่, fragment, โหลดไม่ได้, บอท, not a bot, ล็อกอิน, คุกกี้, cookies, Chrome, Keychain, KARA_YT_COOKIES, node, js runtime
 - `server.py` `async def _download_worker(` `async def _ensure_downloader(` `def _download_audio(` `def _download_video(` — โหลดทีละเพลงตามลำดับคิว: เสียง + metadata ก่อน (สั่งแยกเสียงทันที + ดึงคำบรรยายอัตโนมัติ + เริ่มหาเนื้อทันที) แล้วโหลดภาพมา mux กับ audio.m4a, ลองซ้ำ 2 รอบ
 - `server.py` `def _since_add(` `_added_at: dict` — log ทุกขั้น (dl/lyr/sep/best) บอก "หลังกดเพิ่ม X วิ"
 ! YouTube ตอบ "Sign in to confirm you're not a bot" ได้ (เจอ 2026-10-05) = โหลดเพลงใหม่ไม่ได้เลย — ทดสอบอย่ายิงโหลดซ้ำรัว ๆ ใช้ไฟล์ที่มีในคลังจำลองแทน
@@ -509,9 +501,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ทดสอบ/เซิร์ฟเวอร์ทดสอบต้องตั้ง KARA_YT_COOKIES=none — ไม่งั้นอ่านคุกกี้ Chrome จริง (Keychain เด้ง) · _search ไม่ใช้คุกกี้ (ค้นหาไม่โดนบล็อก)
 - `server.py` `def _fetch_auto_caption(` `def _fetch_subs(` `_DL_COMMON = {` `def _dl_scrub(` `_DL_AUTO_MAX = 3` — auto-caption เป็น auto.th.vtt, ซับจริงตามภาษา, ตัวเลือก yt-dlp (โหลด 8 fragment พร้อมกัน), ล้างเศษไฟล์, ลองอัตโนมัติไม่เกิน 3 รอบแล้วรอคนกดซ่อม
 - `server.py` `def _dl_fields(` — เติม dlStatus/localUrl/ชื่อจริงลงการ์ดตอน broadcast (อ่านจากดิสก์)
-- `server.py` `ขอ H.264 (avc1) ก่อน` `def _h264_bg(` `_h264_lock = ` — ภาพขอ H.264 ก่อน (yt-dlp เลือก AV1 ให้เอง iPad/ทีวีเล่นไม่ได้); ได้ AV1 มา / เพลงเก่าเข้าคิว = เธรดเรียก scripts/to_h264.py แปลงทีละเพลง ข้ามเพลงที่กำลังเล่น
-- `scripts/to_h264.py` `def convert(` `def playing_now(` — AV1 → H.264 (h264_videotoolbox, เสียง copy) ลง .h264.part ตรวจ codec+ความยาวแล้วค่อยแทนที่; CLI: ไม่ใส่อะไร = ทั้งคลัง, <video.mp4> = ไฟล์เดียว, --dry = นับ
-! ห้ามแทนที่ video.mp4 ของเพลงที่จอกำลังเล่น (จอโหลดเป็นช่วง ๆ จะได้ไบต์ไฟล์ใหม่ปน) — playing_now() ถาม ws ของ KARA_PORT ก่อนแทนที่ทุกครั้ง
+- `server.py` `ขอ H.264 (avc1) ก่อน` — ภาพขอ H.264 ก่อน (yt-dlp เลือก AV1 ให้เอง iPad/ทีวีส่วนใหญ่เล่นไม่ได้) ไม่มีก็ได้ AV1 ตามเดิม
+! ไม่แปลงวิดีโอในเครื่อง (เครื่องร้อน — ผู้ใช้สั่งเอาออก 2026-10-07) เพลงเก่าที่เป็น AV1 บน iPad = จอเล่นแค่เสียง+เนื้อ (audioOnlyFor ใน player.html)
 
 ### แยกเสียงร้อง Demucs (stems / vocals)
 คำค้น: แยกเสียง, แยกเสียงร้อง, stems, demucs, htdemucs, vocals.m4a, no_vocals.m4a, ไกด์ร้อง, ตัดเสียงร้อง, mps, cpu, แยกเสียงใหม่
