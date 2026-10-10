@@ -601,6 +601,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `@app.post("/api/studio/song/{vid}/refine")` `def _refine_call(` — 🩺 ซ่อมช่วงที่เวลาเพี้ยนผ่าน scripts/lyrics_refine.py คืนเป็นข้อเสนอเท่านั้น ไม่บันทึก
 ! 🩺 refine เป็นทางเดียวที่เนื้อ manual-edit ได้ใช้ตัวซ่อม (งานอัตโนมัติไม่แตะ) และ _refine_call ใช้เฉพาะแคช FA ที่มีอยู่แล้ว ไม่แย่ง GPU นอกคิว
 
+### 🐍 ปุ่มโหมด Python ค้างรอจับเวลาเนื้อ (FA worker keep / idle / off)
+คำค้น: python ค้าง, โหมด python, ปิด python, คืน ram, fa worker, idle, สวิตช์
+- `server.py` `_fa_mode = {` `def _fa_mode_load(` `async def _fa_reaper(` `    def stop(self, only_idle_sec` — โหมด keep/idle/off เก็บใน .studio.json คีย์ faMode, reaper ตรวจทุก 30 วิ, off = request() เสร็จแล้ว kill, ข้าม warmup/preload
+- `server.py` `"faMode" in body or "faStop" in body` — POST /api/studio/settings {faMode, faIdleMin, faStop}; GET settings ส่ง fa (status)
+- `static/studio.html` `id="fabtn"` `async function faMenu(` — ปุ่ม 🐍 บนหัว Studio เมนูเลือกโหมด + ปุ่มปิดตอนนี้
+! stop() ไม่ปิดถ้างานกำลังทำอยู่ (lock ถูกถือ) · เปลี่ยนโหมดมีผลทันทีไม่ต้องรีสตาร์ท
+
 ### ห้องหาเนื้อ 🔎 และ Musixmatch token (sources)
 คำค้น: ห้องหาเนื้อ, 🔎, หาเนื้อจากแหล่งอื่น, sources, ผู้สมัคร, candidates, lrclib, JOOX, NetEase, YouTube Music, Musixmatch, token, OCR, ตัวหนังสือในคลิป, Lyric Video, เพลงซ้ำในคลัง, settings
 - `server.py` `@app.post("/api/studio/song/{vid}/sources")` `def _gather_sources(` `def _score_fa(` `def _score_whisper(` `SRC_TTL = 1800.0` — รวมผู้สมัครทุกแหล่ง (เนื้อปัจจุบัน, เพลงซ้ำในคลัง, ซับ/auto-caption, lrclib/JOOX/NetEase/YT Music/Musixmatch, OCR) ให้คะแนนด้วย FA (ถ้าพังใช้ whisper) + cover (คลุมเสียงร้อง, va โหลดใน thread), pick = ตัวที่งานเลือกเนื้อจะใช้ (ขึ้นก่อน), แคช 30 นาที (ส่ง fresh เพื่อข้ามแคช) · คำค้นท่อนเนื้อไม่ใช้เนื้อที่มีแค่บางช่วง (บทพูด)

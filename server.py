@@ -382,7 +382,8 @@ async def _lifespan(_app: FastAPI):
     # อ่านล็อกอิน YouTube ไว้ตั้งแต่เปิดเซิร์ฟเวอร์ (ไม่รอ) — macOS ถามสิทธิ์ Keychain ตอนคนเพิ่งกดเปิดยังอยู่หน้าเครื่อง
     # ไม่ใช่ตอนแขกกดเพิ่มเพลงใหม่เพลงแรก
     _yt_cookies(wait=0)
-    tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog())]
+    _fa_mode_load()
+    tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog()), asyncio.create_task(_fa_reaper())]
     if WARM:                        # โหลดโมเดลหาเนื้อไว้รอ — เพลงแรกจะได้เร็วเหมือนเพลงหลัง ๆ
         tasks.append(asyncio.create_task(_warmup()))
     yield
@@ -4257,6 +4258,21 @@ FA_WORKER = os.environ.get("KARA_FA_WORKER", "on") != "off"
 _FA_LOGWORTHY = ("Error", "Traceback", 'File "', "Killed")   # stderr ของตัวโหลดค้าง: พิมพ์เฉพาะที่เป็นปัญหาจริง
 
 
+FA_MODES = ("keep", "idle", "off")      # ค้างตลอด / ปิดเองเมื่อว่าง / ไม่ค้าง (โหลดตอนมีงานแล้วปิด)
+_fa_mode = {"mode": "keep", "idleMin": 15}
+
+
+def _fa_mode_load() -> None:
+    try:
+        c = (json.loads(STUDIO_FILE.read_text("utf-8")) if STUDIO_FILE.is_file() else {}).get("faMode") or {}
+    except Exception:
+        c = {}
+    if c.get("mode") in FA_MODES:
+        _fa_mode["mode"] = c["mode"]
+    if isinstance(c.get("idleMin"), (int, float)) and 1 <= c["idleMin"] <= 720:
+        _fa_mode["idleMin"] = int(c["idleMin"])
+
+
 class _FaWorkerDown(Exception):
     """ตัวโหลดค้างตาย/ปิดไป (ไม่ใช่ FA คำนวณพลาด) -> เปิดใหม่หรือถอยไปทางเดิม"""
 
@@ -4356,6 +4372,8 @@ class _FaWorker:
                     continue
                 if not r.get("ok"):
                     raise RuntimeError(str(r.get("error") or "fa ผิดพลาด")[:200])
+                if _fa_mode["mode"] == "off":       # โหมดไม่ค้าง: ทำงานเสร็จแล้วคืน RAM เลย
+                    self._kill()
                 return r["out"]
         raise _FaWorkerDown("ไม่ได้คำตอบ")
 
@@ -4375,8 +4393,25 @@ class _FaWorker:
         finally:
             self.lock.release()
 
+    def stop(self, only_idle_sec: float = 0.0) -> bool:
+        """ปิดตัวโหลดค้างคืน RAM — กำลังทำงานอยู่ไม่ปิด; only_idle_sec > 0 = ปิดเมื่อว่างเกินเท่านี้"""
+        if not self.lock.acquire(blocking=False):
+            return False
+        try:
+            if not self.alive():
+                return False
+            if only_idle_sec and time.monotonic() - self.last < only_idle_sec:
+                return False
+            self._kill()
+            print("[fa] ปิดตัวโหลดค้างแล้ว (คืนหน่วยความจำ)")
+            return True
+        finally:
+            self.lock.release()
+
     def preload_bg(self, vid: str | None = None) -> None:
         """โหลดโมเดลไว้ก่อนระหว่าง demucs แยกเสียง (งานดิสก์/หน่วยความจำ) — vocals เสร็จแล้วคำนวณได้ทันที"""
+        if _fa_mode["mode"] == "off":
+            return
         if not FA_WORKER or not _fa_ok_cached() or (vid and _song_lang(vid)[0] not in LS.FA_LANGS):
             return
         if self.alive() and self.loaded:
@@ -4384,7 +4419,7 @@ class _FaWorker:
         threading.Thread(target=self.load_now, daemon=True).start()
 
     def status(self) -> dict:
-        return {"on": FA_WORKER, "alive": self.alive(), "pid": self.proc.pid if self.alive() else None,
+        return {"on": FA_WORKER, "mode": _fa_mode["mode"], "idleMin": _fa_mode["idleMin"], "alive": self.alive(), "pid": self.proc.pid if self.alive() else None,
                 "loaded": [m.rsplit("/", 1)[-1] for m in self.loaded],
                 "idleSec": round(time.monotonic() - self.last) if self.last else None}
 
@@ -4402,6 +4437,14 @@ WARM_DELAY = 8.0              # วินาทีหลังเปิด — �
 _warm_state: dict = {}        # /api/health -> warm
 
 
+async def _fa_reaper() -> None:
+    """โหมด "ปิดเองเมื่อว่าง": ตัวโหลดค้างไม่มีงานเกิน N นาที -> ปิดคืน RAM (งานถัดไปเปิดใหม่เอง)"""
+    while True:
+        await asyncio.sleep(30)
+        if _fa_mode["mode"] == "idle" and _fa_worker.alive():
+            await asyncio.to_thread(_fa_worker.stop, _fa_mode["idleMin"] * 60.0)
+
+
 async def _warmup() -> None:
     await asyncio.sleep(WARM_DELAY)
     t0 = time.monotonic()
@@ -4415,7 +4458,7 @@ async def _warmup() -> None:
         steps["import"] = round(time.monotonic() - t0, 1)
     except Exception as exc:
         steps["import"] = type(exc).__name__
-    if FA_WORKER and _fa_ok_cached():
+    if FA_WORKER and _fa_ok_cached() and _fa_mode["mode"] != "off":
         dt = await asyncio.to_thread(_fa_worker.load_now)
         steps["FA"] = round(dt, 1) if dt is not None else "ข้าม (กำลังทำงานอยู่)"
     total = time.monotonic() - t0
@@ -4798,7 +4841,7 @@ def studio_settings_get(request: Request):
     _studio_guard(request)
     tok = _mxm_token()
     return {"mxm": {"set": bool(tok), "hint": (tok[:4] + "…" + tok[-3:]) if len(tok) > 10 else ("•••" if tok else ""),
-                    "err": _mxm_state["err"]}}
+                    "err": _mxm_state["err"]}, "fa": _fa_worker.status()}
 
 
 @app.post("/api/studio/settings")
@@ -4806,6 +4849,24 @@ async def studio_settings_set(request: Request):
     """{"mxmToken": "..."} ("" = ลบ) — ทดสอบกับ Musixmatch ก่อนเก็บ ใช้ไม่ได้ก็บอกเลย"""
     _studio_guard(request)
     body = await request.json()
+    if "faMode" in body or "faStop" in body:
+        # 🐍 ตัวโหลดโมเดลจับเวลาที่ค้างรองาน: keep ค้างตลอด / idle ปิดเองเมื่อว่าง N นาที / off ไม่ค้าง
+        if body.get("faMode") in FA_MODES:
+            _fa_mode["mode"] = body["faMode"]
+            try:
+                m = int(body.get("faIdleMin") or _fa_mode["idleMin"])
+            except (TypeError, ValueError):
+                m = _fa_mode["idleMin"]
+            _fa_mode["idleMin"] = min(720, max(1, m))
+            cfg = json.loads(STUDIO_FILE.read_text("utf-8")) if STUDIO_FILE.is_file() else {}
+            cfg["faMode"] = dict(_fa_mode)
+            await asyncio.to_thread(_write_json_atomic, STUDIO_FILE, cfg)
+            if _fa_mode["mode"] == "off":
+                await asyncio.to_thread(_fa_worker.stop)
+        if body.get("faStop"):
+            if _fa_worker.alive() and not await asyncio.to_thread(_fa_worker.stop):
+                return {"ok": False, "why": "กำลังทำงานอยู่ — รอให้งานจบก่อน"}
+        return {"ok": True, **studio_settings_get(request)}
     if "mxmToken" in body:
         tok = "".join(str(body.get("mxmToken") or "").split())[:200]
         err = ""

@@ -489,6 +489,7 @@
       <button data-view="cut">✂️ ตัดต่อ<span class="lg"> &amp; คอมโบ</span></button>
     </nav>
     <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
+    <button class="ghost" id="fabtn" title="Python ที่ค้างรอจับเวลาเนื้อเพลง (กิน RAM ~2.6 GB)">🐍</button>
     <button class="ghost" id="helpbtn" title="คีย์ลัด">⌨️</button>
   </header>
 
@@ -1470,6 +1471,32 @@ async function mxmRow(){
     catch(e){ toast('⚠️ ' + e.message); }
   };
 }
+// 🐍 Python ที่ค้างรอจับเวลาเนื้อ (FA): ค้างตลอด / ปิดเองเมื่อว่าง N นาที / ไม่ค้าง — ใช้ได้ทันที ไม่ต้องรีสตาร์ท
+async function faMenu(){
+  let box = $('#famenu');
+  if(box){ box.remove(); return; }
+  let fa; try{ fa = (await api('/api/studio/settings')).fa; }catch(e){ toast('⚠️ ' + e.message); return; }
+  box = document.createElement('div'); box.id = 'famenu';
+  box.style.cssText = 'position:fixed;top:54px;right:12px;z-index:60;background:var(--panel,#1c1c24);color:inherit;border:1px solid #555;border-radius:10px;padding:12px;width:290px;box-shadow:0 8px 28px #0008;font-size:13px;line-height:1.5';
+  const set = async (b) => {
+    try{ const r = await api('/api/studio/settings', {method:'POST', body:JSON.stringify(b)});
+         if(!r.ok) toast('⚠️ ' + (r.why || 'ไม่สำเร็จ'), 4000); else toast('✓ บันทึกแล้ว');
+         box.remove(); faMenu(); }catch(e){ toast('⚠️ ' + e.message); }
+  };
+  const opt = (m, t, d) => `<label style="display:block;margin:6px 0;cursor:pointer"><input type="radio" name="famode" value="${m}" ${fa.mode === m ? 'checked' : ''}> <b>${t}</b><br><span style="opacity:.7">${d}</span></label>`;
+  box.innerHTML = `<b>🐍 Python รอจับเวลาเนื้อ</b>
+    <div style="margin:4px 0 8px;opacity:.8">ตอนนี้: ${fa.alive ? `<b>เปิดอยู่</b> (โมเดล ${(fa.loaded || []).length} ตัว${fa.idleSec != null ? ` · ว่าง ${Math.round(fa.idleSec / 60)} นาที` : ''})` : '<b>ปิดอยู่</b>'}</div>
+    ${opt('keep', 'ค้างตลอด', 'เพลงแรกเร็ว · กิน RAM ~2.6 GB ตลอด')}
+    ${opt('idle', 'ปิดเองเมื่อว่าง', `ว่างเกิน <input id="faidle" type="number" min="1" max="720" value="${fa.idleMin}" style="width:56px"> นาที แล้วปิด`)}
+    ${opt('off', 'ไม่ค้างเลย', 'เปิดตอนมีงาน เสร็จแล้วปิด · งานแรกช้าลง ~10–15 วิ')}
+    <div style="margin-top:8px;display:flex;gap:6px"><button class="mini" id="fastop" ${fa.alive ? '' : 'disabled'}>⏹ ปิดตอนนี้</button><button class="mini" id="faclose">ปิดเมนู</button></div>`;
+  document.body.appendChild(box);
+  box.querySelectorAll('input[name=famode]').forEach(i => i.onchange = () => set({faMode:i.value, faIdleMin:+$('#faidle').value || fa.idleMin}));
+  $('#faidle').onchange = () => { if(fa.mode === 'idle') set({faMode:'idle', faIdleMin:+$('#faidle').value}); };
+  $('#fastop').onclick = () => set({faStop:true});
+  $('#faclose').onclick = () => box.remove();
+}
+$('#fabtn').onclick = faMenu;
 function renderSources(){
   const L = S.srcCands;
   if(!L.length){ $('#srclist').innerHTML = '<div class="empty">ไม่เจอเนื้อจากแหล่งไหนเลย — ลองพิมพ์ชื่อเพลง/ศิลปินแล้วกดค้นใหม่</div>'; return; }
