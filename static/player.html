@@ -44,6 +44,10 @@
 
   /* ---------- idle ---------- */
   /* เฟดเปลี่ยนเพลง: ทับแค่วิดีโอ — ชื่อเพลง/ซับ/♪●●● ยังเห็นบนจอดำ */
+  /* 🎬 MV จากเนื้อเพลง: ทับวิดีโอ (เสียงยังมาจากวิดีโอ/สเต็มเดิม) ใต้ม่านเฟด — เปิดแล้วซ่อนเนื้อแบบเดิมเพราะ MV วาดเนื้อเอง */
+  #mvc{position:absolute;inset:0;width:100%;height:100%;z-index:2;display:none;object-fit:contain;background:#000}
+  body.mv-on #mvc{display:block}
+  body.mv-on #lyr{display:none!important}
   #blackout{position:absolute;inset:0;z-index:3;background:#000;opacity:0;pointer-events:none;transition:opacity 0s linear}
   #blackout.on{opacity:1}
   #idle{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
@@ -198,6 +202,7 @@
 <div id="stage">
   <div id="yt"></div>
   <video id="local" class="hide" playsinline preload="metadata"></video>
+  <canvas id="mvc" width="1920" height="1080"></canvas>
   <div id="blackout"></div>
 
   <div id="idle">
@@ -730,6 +735,39 @@ function tryPlayLocal(){
 
 function hideYt(){ curId=null; try{ player.stopVideo(); }catch(e){} }
 
+// ===== 🎬 MV จากเนื้อเพลง (static/mv เสิร์ฟที่ /mv/) =====
+// เปิดเมื่อ tv.mv (Studio 📺 / รีโมท ⚙️) และเพลงมี mv.json (c.mvUrl) — โหลดสคริปต์ครั้งแรกที่ใช้เท่านั้น
+// นาฬิกา = เวลาเดียวกับเนื้อบนจอ (lyrPos − offset ประจำเพลง − ?lyroffset=) จึงกรอ/พัก/เริ่มใหม่ตามวิดีโอเอง
+let mvKey = null, mvLib = null;
+function mvLoadLib(){
+  if(mvLib) return mvLib;
+  const fl = document.createElement('link'); fl.rel = 'stylesheet';
+  fl.href = 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Charm:wght@400;700&family=Chonburi&family=Kanit:wght@400;600;800;900&family=Sriracha&display=swap';
+  document.head.appendChild(fl);
+  return mvLib = ['engine.js', 'scenes-core.js', 'scenes-phone.js', 'scenes-classic.js', 'scenes-general.js'].reduce((p, f) => p.then(() =>
+    new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/mv/' + f; sc.onload = res; sc.onerror = () => rej(new Error(f)); document.head.appendChild(sc); })), Promise.resolve())
+    .catch(e => { mvLib = null; throw e; });
+}
+function mvSync(st){
+  const c = st && st.current;
+  const on = !!(st && st.tv && st.tv.mv && c && c.mvUrl && lyHasOf(c));
+  const key = on ? [c.id, c.mvUrl, c.lyricsUrl, c.lyrOffset || 0].join('|') : null;
+  if(key === mvKey) return;
+  mvKey = key;
+  document.body.classList.toggle('mv-on', !!key);
+  if(!key){ if(typeof MV !== 'undefined') MV.stop(); return; }
+  const base = '/song/' + c.videoId + '/';
+  mvLoadLib().then(() => fetch(c.mvUrl, {cache: 'no-store'})).then(r => r.json()).then(mv => {
+    if(mvKey !== key) return;
+    return MV.start({ canvas: $('#mvc'), base, offset: songOff(), fonts: MVScenes.FONT_FILES,
+      clock: () => lyrPos() - songOff() - LYR_OFFSET,
+      setup: M => MVScenes.build(M, mv, base, '/mv/') });
+  }).catch(e => {
+    clog('mv', 'เปิด MV ไม่ได้ -> ใช้วิดีโอ+เนื้อแบบเดิม: ' + (e && e.message || e));
+    if(mvKey === key) document.body.classList.remove('mv-on');
+  });
+}
+
 function apply(st){
   if(!st) return;
   const c = st.current;
@@ -748,6 +786,7 @@ function apply(st){
   const wu = (lyHas && c.wordsUrl) || null;          // เวลารายตัวอักษร (มีเฉพาะเพลงที่ทำแล้ว)
   if(wu !== kwUrl) loadWords(wu);
   lyVis(st);
+  mvSync(st);
   if(!c) resetFade();
   // เซิร์ฟเวอร์เริ่มเฟดออกก่อนเปลี่ยนเพลง (กดข้าม/เล่นเลย) / ยกเลิก (กดเริ่มใหม่ระหว่างเฟด) = สว่างกลับ
   if(c && st.fading && st.fading === curItem && c.id === curItem && fadedOutFor !== curItem)

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MV จากเนื้อเพลง</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Charm:wght@400;700&family=Chonburi&family=Kanit:wght@400;600;800;900&family=Sriracha&display=swap" rel="stylesheet">
+</head>
+<body>
+<!-- หน้าเดี่ยวเล่น MV ของเพลง: ?base=<โฟลเดอร์เพลง ลงท้าย /> (มี lyrics.json, lyrics.words.json, audio.m4a, mv.json)
+     ?still=วินาที = ภาพนิ่ง (ไว้แคปจอ) · ?sheet=10,20,30 = ตารางภาพย่อ · ?t=วินาที = เริ่มกลางเพลง -->
+<script src="engine.js"></script>
+<script src="scenes-core.js"></script>
+<script src="scenes-phone.js"></script>
+<script src="scenes-classic.js"></script>
+<script src="scenes-general.js"></script>
+<script>
+(async () => {
+  const qs = new URLSearchParams(location.search);
+  const base = qs.get('base') || './';
+  const lib = new URL('.', location.href).href;   // static/mv/ -> lib/...
+  const mv = await fetch(base + (qs.get('mv') || 'mv.json')).then(r => r.json());
+  document.title = 'MV · ' + (mv.title || '');
+  MV.start({
+    base, title: (mv.title || '') + (mv.artist ? ' — ' + mv.artist : ''),
+    fonts: MVScenes.FONT_FILES,
+    setup: M => MVScenes.build(M, mv, base, lib),
+  });
+})();
+</script>
+</body>
+</html>

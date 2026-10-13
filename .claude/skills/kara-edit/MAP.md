@@ -734,6 +734,36 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ไม่เปลี่ยนเนื้อ manual-edit และเนื้อที่ระบบเลือกแล้ว (มี best) — วัดให้ดูอย่างเดียว; ห้ามใช้ไม้บรรทัดจากแหล่งเดียวกับเวลา (คะแนนสูงเทียม)
 ! ปุ่ม 🔍 ใน Studio วัดด้วย FA (lyrics_refine.check_timing ผ่าน server) ไม่ใช่สคริปต์นี้; server ใช้ measure/shifted ในโปรเซส
 
+## 🎬 MV จากเนื้อเพลง (static/mv + scripts/mv_*)
+
+### เครื่องยนต์ MV + คลังฉาก + หน้าเดี่ยว
+คำค้น: MV, เอ็มวี, วิดีโอจากเนื้อเพลง, คลังฉาก, ฉาก, scene, mv.json, บท, เม็ดสกรีน, halftone, ลายเส้น, กลิตช์, engine, canvas, ภาพแทนวิดีโอ
+- `static/mv/engine.js` `async function start(o){` `function buildLine(` `function karaRows(` `function halftone(` `function beat(` — เวลา/คำ (Intl.Segmenter)/ไล่สีคาราโอเกะ/เม็ดสกรีน/ลายเส้น/เปลี่ยนฉาก; o.canvas + o.clock = ฝังในจอทีวี, ไม่ใส่ = หน้าเดี่ยวมีเสียง+แถบเล่น
+- `static/mv/scenes-core.js` `async function build(` `function helpers(` `const TH0 = {` — อ่านบท mv.json -> รายการฉาก (บรรทัดที่ไม่มีบท = kinetic, ช่วงดนตรี > 7 วิ / อินโทร > 16 วิ = interlude อัตโนมัติ), แคชรูปที่แปลงแล้ว fx()
+- `static/mv/scenes-phone.js` `def('chat', {` `def('camcorder', {` — ตระกูลมือถือ/ความทรงจำ (ต้นแบบ ไม่รักดีกว่า)
+- `static/mv/scenes-classic.js` `def('bees', {` `def('sunburst', {` — ตระกูลภาพเก่า/งานพิมพ์/ไทย-อีสาน (ต้นแบบ เจ้าดอกจำปา)
+- `static/mv/scenes-general.js` `def('kinetic', {` `def('confetti', {` — ทั่วไป + บรรยากาศ (ฝน ถนน ทะเล ดาว ปาร์ตี้ บีต)
+- `static/mv/mv.html` `MVScenes.build(M, mv, base, lib)` — หน้าเดี่ยว ?base=<โฟลเดอร์เพลง/> ?still= ?sheet= ?t=
+- `static/mv/CATALOG.md` `## รายการฉาก` — คู่มือเขียนบท (สร้างอัตโนมัติ ห้ามแก้มือ)
+! เพิ่ม/แก้ฉากแล้วรัน node scripts/mv_catalog.js ใหม่ทุกครั้ง · ห้ามสร้าง gradient/canvas ใหม่ทุกเฟรม (แคชไว้ — vignette เคยกิน 25ms/เฟรม) · engine อุ่นทุกฉากตอนโหลดกันกระตุก
+
+### MV บนจอทีวี + สวิตช์ 🎬 (tv.mv)
+คำค้น: สวิตช์ MV, เปิด MV, ปิด MV, mvUrl, mv-on, ภาพนิ่งจากคลิป, frames
+- `server.py` `"mv": (bool, False),` `_MV_FRAME = re.compile(` `@app.get("/song/{vid}/frames/{name}")` `@app.get("/mv/{name:path}")` — ค่าตั้งปิดเป็นค่าเริ่มต้น, ภาพนิ่ง <เพลง>/frames/fSSS.jpg, ไฟล์ static/mv (js/html no-store)
+- `server.py` `_mvf = _song_dir(vid) / "mv.json"` `elif act == "mv":` — ใส่ mvUrl ในใบคิวเมื่อเพลงมีบท + รีโมทเปิด/ปิด
+- `static/player.html` `function mvSync(st){` `function mvLoadLib(){` `#mvc{position:absolute` — canvas ทับวิดีโอใต้ม่านเฟด, นาฬิกา = lyrPos − songOff − LYR_OFFSET, เปิดแล้วซ่อน #lyr
+- `static/studio.html` `<legend>🎬 MV จากเนื้อเพลง</legend>` — ปุ่มใน Studio 📺
+- `static/remote.html` `id="mvrow"` `send({action:'mv', on});` — ปุ่มในรีโมท ⚙️
+! ปิดสวิตช์ / เพลงไม่มี mv.json / โหลดสคริปต์ไม่ได้ = จอเดิมทุกอย่าง · ทดสอบ: .venv/bin/python scripts/test_tv_mv.py --src <โฟลเดอร์ทดสอบที่มี mv.json>
+
+### เตรียมวัตถุดิบ + ตรวจบท MV
+คำค้น: mv_prep, ภาพนิ่ง, จังหวะ, บีต, beats, bpm, mv_check, ตรวจบท, catalog
+- `scripts/mv_prep.py` `def grab_frames(` `def beats_of(` `def crop_box(` — ภาพนิ่ง 30 ภาพทั้งเพลง (ข้ามมืด/ซ้ำ ตัดขอบดำ) + sheet.jpg + mv_beats.json จาก no_vocals.m4a (--out = โฟลเดอร์ทดสอบ)
+- `scripts/mv_check.js` `const IMG_KEYS = ` — ตรวจบท: ฉากมีจริง/เลขบรรทัด/รูปมีไฟล์/regex คำเจอในบรรทัด
+- `scripts/mv_catalog.js` `const FAM = {` — สร้าง CATALOG.md จากฉากที่ลงทะเบียนจริง (--json ให้ mv_check)
+- `scripts/test_tv_mv.py` `async def scenarios(` — จอทีวีจริงใน Chrome ไม่มีหน้าต่าง 11 ข้อ (ปิด/เปิด/กรอ/เพลงไม่มีบท/Studio/รีโมท)
+! mv_prep ใช้ ffmpeg กระโดดอ่าน + nice เบา ๆ ทีละเพลง (เครื่องไม่ร้อน) · ไม่แตะ lyrics*.json
+
 ## ข้อมูล / ตั้งค่า
 
 ### รูปแบบไฟล์เนื้อ lyrics.json + lyrics-in/<vid>.json (เนื้อที่แก้เองใน Studio)

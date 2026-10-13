@@ -53,7 +53,9 @@ _SONG_FILES = frozenset({"video.mp4", "audio.m4a", "vocals.m4a",
                          "no_vocals.m4a", "cover.jpg", "info.json",
                          "lyrics.json", "sub.th.vtt", "sub.en.vtt",
                          "auto.th.vtt",        # auto-caption ของ YouTube
-                         "lyrics.words.json"})  # เวลารายตัวอักษร (โหมดคาราโอเกะไล่สี)
+                         "lyrics.words.json",  # เวลารายตัวอักษร (โหมดคาราโอเกะไล่สี)
+                         "mv.json", "mv_beats.json"})  # 🎬 บท MV จากเนื้อเพลง + จังหวะกลอง (static/mv)
+_MV_FRAME = re.compile(r"^(f\d{3,4}|sheet)\.jpg$")    # ภาพนิ่งจากคลิปของ MV (scripts/mv_prep.py -> <เพลง>/frames/)
 
 
 def _safe_name(title: str, vid: str, max_bytes: int = 180) -> str:
@@ -240,6 +242,7 @@ TV_SCHEMA: dict[str, tuple] = {
     "customAud": (int, 0, 0, 5),     # โหมด Custom: เฟดเสียงออกกี่วิ (0 = ตัดเสียงทันที ภาพยังเฟด)
     "skipBtn": (bool, True),         # ⏩ ปุ่มข้ามอินโทรบนรีโมท
     "skipMin": (int, 15, 5, 60),     # อินโทรยาวเกินกี่วิถึงโผล่ปุ่ม
+    "mv": (bool, False),             # 🎬 MV จากเนื้อเพลงแทนวิดีโอ (เฉพาะเพลงที่มี mv.json) — ปิด = จอเหมือนเดิม
 }
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -1739,7 +1742,7 @@ def _lyr_fields(item: dict) -> None:
     vid = item.get("videoId")
     for k in ("lyricsUrl", "lyrLines", "lyrWarn", "lyrSrc", "lyrCheck", "lyrError",
               "lyrConf", "lyrConfWhy", "lyrKind", "lyrOffset", "wordsUrl", "wordsStatus", "lyrBest", "lyrBestAt",
-              "lyrFrom", "lyrLang"):
+              "lyrFrom", "lyrLang", "mvUrl"):
         item.pop(k, None)
     if item.get("source") != "yt" or not vid:
         item["lyrStatus"] = "na"
@@ -1774,6 +1777,12 @@ def _lyr_fields(item: dict) -> None:
         wm = _words_meta(vid)
         if wm["ok"] and wm["nk"]:
             item["wordsUrl"] = f"/song/{vid}/lyrics.words.json?v={int(wm['mt'] * 1000)}"
+        try:   # 🎬 มีบท MV ของเพลงนี้ (จอเปิดใช้เมื่อสวิตช์ tv.mv เปิด)
+            _mvf = _song_dir(vid) / "mv.json"
+            if _mvf.is_file():
+                item["mvUrl"] = f"/song/{vid}/mv.json?v={int(_mvf.stat().st_mtime * 1000)}"
+        except OSError:
+            pass
         item["wordsStatus"] = _words_status(vid)     # รีโมทบอกได้ว่า "กำลังทำ" หรือ "ไม่มี"
         # ป้ายความมั่นใจ: คำนวณสดจาก "ที่มา + ผลวัดล่าสุด" จะได้เปลี่ยนเกณฑ์
         # โดยไม่ต้องสร้าง lyrics.json ใหม่ทั้งคลัง
@@ -3371,6 +3380,33 @@ def song_file(vid: str, name: str):
     if not f.is_relative_to(DL_DIR.resolve()) or not f.is_file():
         return JSONResponse({"error": "not found"}, 404)
     return FileResponse(f)
+
+
+@app.get("/song/{vid}/frames/{name}")
+def song_frame(vid: str, name: str):
+    """🎬 ภาพนิ่งจากคลิปที่ MV ใช้ (สร้างด้วย scripts/mv_prep.py)"""
+    from fastapi.responses import FileResponse
+    if not _vid_ok(vid) or not _MV_FRAME.match(name):
+        return JSONResponse({"error": "not found"}, 404)
+    f = (_song_dir(vid) / "frames" / name).resolve()
+    if not f.is_relative_to(DL_DIR.resolve()) or not f.is_file():
+        return JSONResponse({"error": "not found"}, 404)
+    return FileResponse(f)
+
+
+_MV_DIR = BASE / "static" / "mv"
+_MV_TYPES = {".js": "text/javascript", ".html": "text/html", ".jpg": "image/jpeg", ".json": "application/json", ".md": "text/markdown"}
+
+
+@app.get("/mv/{name:path}")
+def mv_static(name: str):
+    """🎬 เครื่องยนต์ MV + คลังฉาก + คลังรูปสาธารณะ (static/mv) — js/html อ่านจากดิสก์ทุกครั้ง แก้แล้วรีโหลดจอก็เห็น"""
+    from fastapi.responses import FileResponse
+    f = (_MV_DIR / name).resolve()
+    if not f.is_relative_to(_MV_DIR.resolve()) or not f.is_file() or f.suffix not in _MV_TYPES:
+        return JSONResponse({"error": "not found"}, 404)
+    nocache = f.suffix in (".js", ".html")
+    return FileResponse(f, media_type=_MV_TYPES[f.suffix], headers={"Cache-Control": "no-store"} if nocache else None)
 
 
 @app.get("/media/yt/{vid}/{name}")
@@ -6370,6 +6406,9 @@ async def ws_endpoint(ws: WebSocket):
                             room.lyr_mode = msg["mode"]
                     elif act == "voices":                  # 👥 แยกเสียงร้อง/คอรัส เปิด-ปิดจากรีโมท (ค่าเดียวกับ Studio)
                         room.tv = _clean_tv({"voices": bool(msg.get("on"))}, room.tv)
+                        await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
+                    elif act == "mv":                      # 🎬 MV จากเนื้อเพลง เปิด-ปิดจากรีโมท (ค่าเดียวกับ Studio)
+                        room.tv = _clean_tv({"mv": bool(msg.get("on"))}, room.tv)
                         await asyncio.to_thread(_write_json_atomic, TV_FILE, room.tv)
                     elif act == "ended":
                         # ต้องมาจากจอหลักเท่านั้น: จอที่ถูกไล่ไปแล้วยังนับถอยหลัง error แล้วส่ง ended ได้

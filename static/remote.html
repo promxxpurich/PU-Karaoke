@@ -491,6 +491,13 @@
       </div>
     </div>
     <div class="fld">
+      <div class="fl">🎬 MV จากเนื้อเพลงแทนวิดีโอ <small>(เฉพาะเพลงที่มีบท)</small></div>
+      <div class="mixpre" id="mvrow">
+        <button data-act="mv" data-v="1">เปิด</button>
+        <button data-act="mv" data-v="0">ปิด</button>
+      </div>
+    </div>
+    <div class="fld">
       <div class="fl">🔀 คิวหมดแล้วสุ่มเพลงต่อ</div>
       <div class="mixpre" id="autorow">
         <button data-act="auto" data-v="1">เปิด</button>
@@ -1350,6 +1357,8 @@ const ACTIONS = {
   lyr:     (_k,b) => send({action:'lyrmode', mode:b.dataset.v}),
   voices:  (_k,b) => { const on = b.dataset.v === '1'; send({action:'voices', on});
                        toast(on ? '👥 แยกเสียงร้อง: คนที่ 2 คนละสี / คอรัสตัวเล็ก' : 'ปิดแยกเสียงร้อง — จอแสดงแบบเดิม'); },
+  mv:      (_k,b) => { const on = b.dataset.v === '1'; send({action:'mv', on});
+                       toast(on ? '🎬 เปิด MV จากเนื้อเพลง (เพลงที่มีบท)' : 'ปิด MV — กลับไปเล่นวิดีโอแบบเดิม'); },
   auto:    (_k,b) => { const on = b.dataset.v === '1'; send({action:'autoplay', on});
                        toast(on ? '🔀 คิวหมดแล้วจะสุ่มเพลงต่อให้' : 'ปิดสุ่มเพลงอัตโนมัติแล้ว'); },
   rep:     () => openReport(),
@@ -1453,6 +1462,8 @@ function renderMix(st){
   $('#lyrmode').querySelectorAll('button').forEach(b => setCls(b,'on', b.dataset.v === lm));
   const vo = !(st.tv && st.tv.voices === false);
   $('#voicerow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === vo));
+  const mvOn = !!(st.tv && st.tv.mv);
+  $('#mvrow').querySelectorAll('button').forEach(b => setCls(b,'on', (b.dataset.v === '1') === mvOn));
   // คาราโอเกะไล่สีได้เฉพาะเพลงที่ทำเวลารายคำเสร็จแล้ว — เพลงอื่นขึ้นแบบ 2 บรรทัดไปก่อน บอกให้รู้
   const ln = lm !== 'karaoke' ? ''
     : !c || c.lyrStatus !== 'ready' || c.wordsUrl ? ''

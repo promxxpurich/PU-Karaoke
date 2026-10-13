@@ -2963,6 +2963,10 @@ function renderTvForm(){
         `<label class="tog"><input type="checkbox" data-chip="${k}"> ${lb}</label>`).join('')}</span></div>
       <div class="hint">คำเตือนของระบบ (เช่น แตะจอเพื่อเปิดเสียง / กำลังเตรียมเสียง) ขึ้นเสมอ</div>
     </fieldset>
+    <fieldset><legend>🎬 MV จากเนื้อเพลง</legend>
+      <div class="fr">${tog('mv', '🎬 เปิด MV แทนวิดีโอ (เฉพาะเพลงที่มีบท mv.json · เสียงยังมาจากวิดีโอเดิม)')}</div>
+      <div class="hint">ปิด = จอเหมือนเดิมทุกอย่าง · เพลงที่ยังไม่มีบทจะเล่นวิดีโอ + เนื้อแบบเดิม · แขกสลับเองได้ในรีโมท ⚙️</div>
+    </fieldset>
     <fieldset><legend>เนื้อเพลง</legend>
       ${rng('lyrScale', 'ขนาดตัวอักษร', 60, 160, 5, '%')}
       <div class="hint">เกิน 100% บรรทัดยาว ๆ จะขึ้นเป็น 2 บรรทัด (ตัวใหญ่อ่านง่ายขึ้น แต่กินพื้นที่จอมากขึ้น)</div>
