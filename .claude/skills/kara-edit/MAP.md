@@ -734,6 +734,17 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ไม่เปลี่ยนเนื้อ manual-edit และเนื้อที่ระบบเลือกแล้ว (มี best) — วัดให้ดูอย่างเดียว; ห้ามใช้ไม้บรรทัดจากแหล่งเดียวกับเวลา (คะแนนสูงเทียม)
 ! ปุ่ม 🔍 ใน Studio วัดด้วย FA (lyrics_refine.check_timing ผ่าน server) ไม่ใช่สคริปต์นี้; server ใช้ measure/shifted ในโปรเซส
 
+### ตรวจ "เนื้อถูกเพลงไหม" ด้วย API ออนไลน์ฟรี (Gemini / Typhoon ASR)
+คำค้น: api, API ฟรี, gemini, typhoon, ตรวจเนื้อออนไลน์, เนื้อผิดเพลง, ผิดเวอร์ชัน, เนื้อถูกเพลงไหม, apicheck, lyrics.apicheck.json, โควตา, quota, geminiKey, typhoonKey
+- `scripts/api_check.py` `def check_song(` `def check_lines(` `def main() -> None:` — CLI <vid…> --provider gemini|typhoon --fresh --dry-run, แคชตาม hash เนื้อใน <เพลง>/lyrics.apicheck.json, exit 2 ไม่มี key / 5 โควตาหมด, JSON บรรทัดสุดท้าย
+- `scripts/api_check.py` `def check_gemini(` `PROMPT = ` `SCHEMA = ` — ส่ง vocals.m4a + เนื้อมีเลข/เวลา ให้ Gemini ตอบ same_song / bad_lines (heard) / missing แบบ structured output
+- `scripts/api_check.py` `def check_typhoon(` `def line_scores(` — ถอดเสียงไทยด้วย Typhoon ASR แล้วเทียบตัวอักษร (LS.similarity) ต่อบรรทัด + cover (สิ่งที่ร้องเจอในเนื้อแค่ไหน)
+- `scripts/api_check.py` `def verdict(` `SAME_CONF = ` `def _post(` `def quota_left(` — เกณฑ์ ok/some-wrong/wrong-song (ยังไม่คาลิเบรต), จำกัดรายนาที/รายวัน (lyrics-preview/_api/quota.json)
+- `scripts/eval_lyrics.py` `def cmd_content(` `def _content_variants(` `CONTENT_FA_MAX, CONTENT_HIT_MIN = ` — วัดบน gold/silver: เนื้อจริง vs เนื้อเพลงอื่น / ครึ่งหลังเพลงอื่น / 10% บรรทัดเพลงอื่น, แคช _eval/content/
+- `scripts/test_api_check.py` `def main():` — ทดสอบบนคลังปลอม TEST* + mock HTTP
+! เฟส 1: ยังไม่ต่อเข้า server/ป้าย ✅⚠️ — ต้องผ่านเกณฑ์ eval_lyrics.py content ก่อน (เตือนผิด ≤ 5%, จับเนื้อเพลงอื่น ≥ 90%)
+! key อยู่ใน env KARA_GEMINI_KEY/KARA_TYPHOON_KEY หรือ .studio.json (ห้ามใส่ใน URL/log) · Gemini ฟรี = ข้อมูลถูกเอาไปเทรน (ผู้ใช้ยอมแล้ว) · ห้ามแก้เนื้อจากผล API อัตโนมัติ
+
 ## 🎬 MV จากเนื้อเพลง (static/mv + scripts/mv_*)
 
 ### เครื่องยนต์ MV + คลังฉาก + หน้าเดี่ยว

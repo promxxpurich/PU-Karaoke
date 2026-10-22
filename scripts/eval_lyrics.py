@@ -21,6 +21,10 @@
   refine-synth                 ทำเวลาเสียเองบนซับที่คนทำ แล้วดูว่าตัวซ่อม (lyrics_refine) กู้คืนได้แค่ไหน
   check [--nosynth]            ป้าย ✅/⚠️: ตรวจเวลา v1 vs v2 — เตือนผิดในเพลงจริง vs จับเพลงที่ทำเสียเองได้
   sparse [--set ...]           กติกาเนื้อแค่บางช่วง: เนื้อเต็มต้องไม่ติดธง / เนื้อที่ตัดเหลือบางช่วงต้องเปลี่ยนไปตัวที่ครบ
+  content [--provider gemini|typhoon] [--n 20] [--lang th] [--kinds orig,swap,half,typo] [--seed 1] [--dry]
+                               "เนื้อถูกเพลงไหม" ด้วย API ออนไลน์ (scripts/api_check.py) บนไม้บรรทัด gold/silver:
+                               เนื้อจริง (ต้องไม่เตือน) vs เนื้อเพลงอื่น / ครึ่งหลังเพลงอื่น / 10% บรรทัดเพลงอื่น (ต้องจับได้)
+                               ยิง API จริง 1 ครั้งต่อเพลงต่อแบบ แคชใน _eval/content/ (โควตาหมดรันพรุ่งนี้ต่อจากเดิม)
 ตัวแปรแวดล้อม: KARA_SONGS_DIR / KARA_FA_CACHE / KARA_EVAL_DIR (ค่าเริ่มต้น = ของโปรเจกต์นี้)
 """
 import difflib
@@ -606,7 +610,7 @@ def main():
     cmd = sys.argv[1]
     {"gold": cmd_gold, "fa": cmd_fa, "display": cmd_display, "freeze": cmd_freeze, "best": cmd_best,
      "core": cmd_core, "refine-synth": cmd_refine_synth, "check": cmd_check,
-     "sparse": cmd_sparse}.get(cmd, lambda: print(__doc__))()
+     "sparse": cmd_sparse, "content": cmd_content}.get(cmd, lambda: print(__doc__))()
 
 
 
@@ -672,6 +676,124 @@ def cmd_refine_synth():
         print(f"{kind:9s} เพลง {tot['songs']:3d} เปลี่ยน {tot['changed']:3d} | บรรทัดที่ทำเสีย {tot['n_hit']:4d}: "
               f"ตรง≤0.5 ก่อนซ่อม {100 * tot['hit_before'] / nh:5.1f}% หลัง {100 * tot['hit_after'] / nh:5.1f}% | "
               f"บรรทัดดี {tot['n_other']:5d}: ก่อน {100 * tot['other_before'] / no:5.1f}% หลัง {100 * tot['other_after'] / no:5.1f}%", flush=True)
+
+
+
+# --- "เนื้อถูกเพลงไหม" ด้วย API ออนไลน์ (scripts/api_check.py) --------------------------------------
+# เดิม anchorPct แยกไม่ออก (เนื้อเพลงอื่น 56.5% vs เพลงถูก 66.8%) — ต้องผ่านเกณฑ์นี้ก่อนเอาไปต่อป้าย
+CONTENT_FA_MAX, CONTENT_HIT_MIN = 5.0, 90.0       # เตือนผิดในเนื้อจริง ≤ 5% / จับเนื้อเพลงอื่นได้ ≥ 90%
+
+
+def _content_variants(r: dict, others: list[dict], R) -> dict:
+    """{แบบ: (เนื้อ, ดัชนีบรรทัดที่ผิด)} — เนื้อเพลงอื่นภาษาเดียวกัน ทำให้ผิดได้สามระดับ"""
+    L = [{"t": l["t"], "d": l.get("d") or 3.0, "x": l["x"]} for l in r["lines"]]
+    o = R.choice(others)
+    ox = [l["x"] for l in o["lines"]]
+    n = len(L)
+    out = {"orig": (L, set()),
+           "swap": ([{"t": l["t"], "d": l.get("d") or 3.0, "x": l["x"]} for l in o["lines"]], set(range(len(ox))))}
+    h = n // 2                                        # ผิดเวอร์ชัน: ครึ่งหลังเป็นเนื้อเพลงอื่น (เวลาเดิม)
+    out["half"] = ([dict(l, x=ox[(i - h) % len(ox)]) if i >= h else dict(l) for i, l in enumerate(L)], set(range(h, n)))
+    k = max(2, round(0.1 * n))                        # พิมพ์ผิด/ผิดท่อน: 10% ของบรรทัดเป็นบรรทัดเพลงอื่น
+    idx = set(R.sample(range(n), min(k, n)))
+    out["typo"] = ([dict(l, x=R.choice(ox)) if i in idx else dict(l) for i, l in enumerate(L)], idx)
+    return out
+
+
+def cmd_content():
+    import random
+    import api_check as A
+    prov = arg("--provider", "gemini")
+    kinds = str(arg("--kinds", "orig,swap,half,typo")).split(",")
+    R = random.Random(int(arg("--seed", 1)))
+    want_lang = arg("--lang")
+    key = A.api_key(prov)
+    if not key and not arg("--dry"):
+        print(f"ไม่มี key ของ {prov}: ตั้ง {A.PROVIDERS[prov]['key_env']} หรือ \"{A.PROVIDERS[prov]['cfg']}\" ใน .studio.json")
+        return
+    refs = []
+    for r in refsets("all"):
+        audio = A.audio_of(r["dir"])
+        lang = (jload(r["dir"] / "lang.json") or {}).get("lang") or "th"
+        if audio and len(r["lines"]) >= 8 and (not want_lang or lang == want_lang):
+            refs.append({**r, "audio": audio, "lang": lang})
+    R.shuffle(refs)
+    picked = refs[:int(arg("--n", 20))]
+    print(f"ไม้บรรทัดที่มีเสียง {len(refs)} เพลง ใช้ {len(picked)} · แบบ {kinds} · {prov} "
+          f"(ต้องยิง ≤ {len(picked) * len(kinds)} ครั้ง เหลือโควตาวันนี้ {A.quota_left(prov)})")
+    if arg("--dry"):
+        return
+    cdir = EVAL / "content" / prov
+    rows: dict = {k: [] for k in kinds}
+    stopped = False
+    for r in picked:
+        others = [o for o in refs if o["vid"] != r["vid"] and o["lang"] == r["lang"]] or \
+                 [o for o in refsets("all") if o["vid"] != r["vid"] and len(o["lines"]) >= 8]
+        variants = _content_variants(r, others, random.Random(f"{r['vid']}-{arg('--seed', 1)}"))
+        for kind in kinds:
+            lines, wrong = variants[kind]
+            f = cdir / f"{r['vid']}-{kind}-{A.lyr_hash(lines)}.json"
+            res = jload(f)
+            if not res:
+                try:
+                    res = A.check_lines(prov, lines, r["audio"], r["lang"], key)
+                except A.QuotaOut:
+                    print("โควตาฟรีวันนี้หมด — สรุปเท่าที่ได้ รันคำสั่งเดิมพรุ่งนี้จะต่อจากแคช")
+                    stopped = True
+                    break
+                if res.get("verdict") not in ("error", "skip"):
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_text(json.dumps(res, ensure_ascii=False), "utf-8")
+            if res.get("verdict") in ("error", "skip"):
+                print(f"  {r['vid']} {kind}: {res.get('verdict')} {res.get('note') or ''}")
+                continue
+            flagged = {b["i"] for b in res.get("bad") or []}
+            rows[kind].append({"vid": r["vid"], "v": res["verdict"], "n": len(lines), "wrong": wrong,
+                               "flag": flagged, "same": res.get("sameSong"), "conf": res.get("conf"),
+                               "cover": res.get("cover"), "ok": res.get("okPct")})
+            if arg("--v"):
+                print(f"  {r['vid']} {kind:5s} {res['verdict']:10s} ok {res.get('okPct')}% "
+                      f"flag {len(flagged)}/{len(lines)} wrong {len(wrong)}"
+                      + (f" same={res.get('sameSong')}({res.get('conf')})" if prov == "gemini" else f" cover={res.get('cover')}"))
+        if stopped:
+            break
+
+    def pct(xs, f):
+        return 100 * sum(1 for x in xs if f(x)) / max(1, len(xs))
+
+    def pq(xs, key):
+        v = sorted(x[key] for x in xs if x.get(key) is not None)
+        return " ".join(f"p{q} {v[min(len(v) - 1, int(q / 100 * len(v)))]:.2f}" for q in (10, 50, 90)) if v else "-"
+
+    print(f"== {prov}: ป้ายผิดเพลง (wrong-song) / ควรเช็ก (some-wrong)")
+    for kind in kinds:
+        xs = rows[kind]
+        if not xs:
+            continue
+        tp = sum(len(x["flag"] & x["wrong"]) for x in xs)
+        nw = sum(len(x["wrong"]) for x in xs)
+        nf = sum(len(x["flag"]) for x in xs)
+        good_lines = sum(x["n"] - len(x["wrong"]) for x in xs)
+        line = (f"  {kind:5s} n={len(xs):3d}  wrong-song {pct(xs, lambda x: x['v'] == 'wrong-song'):5.1f}%  "
+                f"some-wrong {pct(xs, lambda x: x['v'] == 'some-wrong'):5.1f}%  ok {pct(xs, lambda x: x['v'] == 'ok'):5.1f}%  | ")
+        if kind == "orig":
+            line += f"บรรทัดถูกที่โดนธง {100 * nf / max(1, good_lines):4.1f}%"
+        else:
+            line += (f"จับบรรทัดผิดได้ {100 * tp / max(1, nw):5.1f}%  ธงที่ถูก {100 * tp / max(1, nf):5.1f}%  "
+                     f"ธงในบรรทัดดี {100 * (nf - tp) / max(1, good_lines):4.1f}%")
+        print(line)
+        print(f"        okPct {pq(xs, 'ok')}" + (f" · cover {pq(xs, 'cover')}" if prov == "typhoon"
+                                                 else f" · conf {pq(xs, 'conf')}"))
+    o, w = rows.get("orig") or [], rows.get("swap") or []
+    if o and w:
+        fa = pct(o, lambda x: x["v"] == "wrong-song")
+        hit = pct(w, lambda x: x["v"] == "wrong-song")
+        print(f"== เกณฑ์ไปต่อ: เตือนผิดในเนื้อจริง {fa:.1f}% (≤ {CONTENT_FA_MAX:.0f}) · จับเนื้อเพลงอื่น {hit:.1f}% "
+              f"(≥ {CONTENT_HIT_MIN:.0f}) -> {'ผ่าน' if fa <= CONTENT_FA_MAX and hit >= CONTENT_HIT_MIN else 'ไม่ผ่าน'}")
+        key2 = "cover" if prov == "typhoon" else "ok"
+        print(f"   ลองเกณฑ์ {key2} (ต่ำกว่า = ผิดเพลง):", "  ".join(
+            f"<{th}: เตือนผิด {pct(o, lambda x: (x[key2] or 0) < th):.0f}% จับได้ {pct(w, lambda x: (x[key2] or 0) < th):.0f}%"
+            for th in ((0.15, 0.25, 0.35, 0.5) if key2 == "cover" else (30, 50, 70))))
 
 
 if __name__ == "__main__":
