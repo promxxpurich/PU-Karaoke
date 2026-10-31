@@ -117,8 +117,13 @@ msg = press(h=720, dur=9)
 check("ความยาวต่าง: ไม่เปลี่ยน", "ยาวไม่เท่า" in msg and sha(D / "video.mp4") == before, msg)
 K.room.current = {"videoId": VID}
 msg = press(h=720)
-check("เพลงกำลังเล่น: ไม่เริ่มโหลด", "กำลังเล่น" in msg and sha(D / "video.mp4") == before, msg)
+check("เพลงกำลังเล่น: โหลดเก็บไว้ ยังไม่เปลี่ยนไฟล์", "ตอนเพลงนี้จบ" in msg and sha(D / "video.mp4") == before, msg)
+K._revideo_apply()
+check("เพลงยังเล่นอยู่: ยังไม่เปลี่ยน", sha(D / "video.mp4") == before)
 K.room.current = None
+K._revideo_apply()
+check("เพลงจบแล้ว: เปลี่ยนเป็นคลิปใหม่", K._probe_video(D / "video.mp4")["height"] == 720 and not (D / K.REVIDEO_READY).exists())
+reset(); before = sha(D / "video.mp4")
 
 audio_before = subprocess.run([FF, "-v", "error", "-i", str(D / "video.mp4"), "-map", "0:a:0", "-f", "md5", "-"], capture_output=True, text=True).stdout
 msg = press(h=720)

@@ -357,6 +357,7 @@
  .ctv.b video#ctvv2{opacity:1}
  .chint .tc{display:none}
  /* ---------- 📺 หน้าจอหลัก ---------- */
+ body.embed header{display:none}
  #vtv{height:100%}
  #tvsetframe{display:block;width:100%;height:100%;min-height:calc(100vh - 120px);border:0}
  .fr{display:flex;align-items:center;gap:10px;min-height:36px;flex-wrap:wrap}
@@ -2257,7 +2258,7 @@ function setView(v){
   if(!VIEWS.includes(v)) v = 'songs';
   document.body.dataset.view = v;
   $('#tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  try{ localStorage.setItem('studioView', v); }catch(e){}
+  if(!document.body.classList.contains('embed')) try{ localStorage.setItem('studioView', v); }catch(e){}
   if(v !== 'songs' && typeof media !== 'undefined' && !media.paused) media.pause();   // ไม่ให้พรีวิวเล่นค้างหลังแท็บ
   if(v === 'queue') renderQueue();
   if(v === 'tv') loadTv();
@@ -2925,5 +2926,9 @@ function connect(){
 }
 
 loadSongs(); connect(); requestAnimationFrame(tick);
-try{ setView(localStorage.getItem('studioView') || 'songs'); }catch(e){ setView('songs'); }
+// หน้าใหม่ฝังแท็บตัดต่อจากหน้านี้: ?view=cut&embed=1 ซ่อนหัวหน้าเดิม
+const QV = new URLSearchParams(location.search);
+if(QV.get('embed')) document.body.classList.add('embed');
+if(QV.get('view')) setView(QV.get('view'));
+else try{ setView(localStorage.getItem('studioView') || 'songs'); }catch(e){ setView('songs'); }
 </script></body></html>

@@ -880,3 +880,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 คำค้น: KARA_APP_MODE, โหมดแอป, app mode, ด่าน, gate, api/app/serve, api/app/state, KARA_PORT
 - `server.py` `APP_MODE = ` `class _AppGate:` `def _app_guard(` `@app.get("/api/app/state")` `@app.post("/api/app/serve")` `async def app_parent_watch(` — ก่อนกดเปิด: กันเครื่องอื่น งานอัตโนมัติรอ · ควบคุมด้วย token · แอปตาย = Python ปิดตาม
 ! ไม่ตั้ง KARA_APP_MODE (เช่น ./run.sh) ต้องทำงานเหมือนเดิมทุกอย่าง
+
+## Studio ใหม่ (static/studio/ — หน้า /studio)
+
+### Studio ใหม่: กำลังเล่น / คลังเพลง / เปลี่ยนแหล่งเนื้อ / แก้ข้อความ
+คำค้น: Studio ใหม่, เพลงที่กำลังเล่น, แหล่งเนื้อ, เปลี่ยนเนื้อ, ใช้เลย, ลองฟัง, คลังเพลง, ต้องแก้, โหลดวิดีโอใหม่, ย้อนฉบับก่อน, studio/old
+- `static/studio/studio.js` `const ACT = ` `function sourcesHtml(` `function editorHtml(` `function drawNow()` `function drawLib()` `function loadSources(` — หน้าเดียวใช้ส่วนแก้เพลงร่วมกัน แหล่งเนื้อกดใช้แล้วบันทึกทันที
+- `static/studio/studio.css` `.songhead{` — หน้าตา
+- `server.py` `@app.get("/studio/old", response_class=HTMLResponse)` `@app.get("/studio/{name}")` `async def _sources_result(` `def _src_warm_tick(` `def _revideo_apply(` — หน้าเก่าสำรอง, เตรียมแหล่งเนื้อล่วงหน้าจาก watchdog, เปลี่ยนคลิปตอนเพลงจบ
+- `scripts/test_studio_new.py` `def fake_sources(` — ทดสอบหน้าใหม่บนเพลงปลอมโดยไม่ต่อเน็ต
+! หัวข้อ "Studio (static/studio.html)" ทั้งหมดคือหน้าเก่าที่ /studio/old · แท็บตัดต่อของหน้าใหม่ฝังจาก /studio/old จึงต้องแยกออกก่อนลบหน้าเก่า

@@ -10,7 +10,7 @@
 
 ## หาโค้ดด้วยแผนที่ (สำคัญที่สุด)
 
-`server.py` ~6,500 บรรทัด, `studio.html` ~2,400, `remote.html` ~1,200, `player.html` ~1,100, `scripts/` ~5,000
+`server.py` ~6,500 บรรทัด, `studio.html` (หน้าเก่า /studio/old) ~2,400, `remote.html` ~1,200, `player.html` ~1,100, `scripts/` ~5,000
 **อย่าอ่านทั้งไฟล์** ใช้แผนที่โค้ดแทน:
 
 ```bash
@@ -61,6 +61,11 @@ python3 .claude/skills/kara-edit/kmap.py check               # หลังแ�
 - **เปิดแอปแล้วมันปิดเซิร์ฟเวอร์ตัวเก่าที่พอร์ต 8080 ให้อัตโนมัติ** ห้ามเปิดแอปเพื่อทดสอบบนพอร์ตนี้ ใช้ `node desktop/scripts/test_app.mjs <python>` (พอร์ต 8765 เพลงปลอม `TEST*` ต้องรันจาก worktree)
 - หน้าตั้งค่าจอทีวีอยู่ที่ `static/tvset/` ใช้ร่วมกันทั้งแอปและ Studio 📺 ต้นฉบับธีมและฟอนต์อยู่ที่นี่ แอปคัดลอกตอน `npm start` / `npm run pack`
 - สร้างแอป: `cd desktop && npm install && npm run pack`
+
+## Studio
+
+- `/studio` คือหน้าใหม่ใน `static/studio/` มีแค่เครื่องมือหลัก เจ้าของเลือกเอาเครื่องมือจับเวลาด้วยมือออก อย่าใส่กลับโดยไม่ถาม
+- `/studio/old` คือหน้าเก่า เก็บสำรองช่วงทดลอง แท็บตัดต่อยังใช้จากหน้านี้
 
 ## Git
 

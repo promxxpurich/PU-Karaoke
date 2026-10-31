@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Purich Karaoke Studio</title>
+<link rel="stylesheet" href="/tvset/themes.css">
+<link rel="stylesheet" href="/studio/studio.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><b>Purich Karaoke</b> <small>Studio</small></div>
+  <nav id="tabs" role="tablist" aria-label="หน้าใน Studio"></nav>
+  <div class="grow"></div>
+  <span class="conn" id="conn" role="status">กำลังเชื่อมต่อ…</span>
+</header>
+<main id="now" class="view"></main>
+<main id="lib" class="view" hidden>
+  <aside class="side">
+    <input id="q" type="search" placeholder="ค้นหาเพลงหรือศิลปิน" aria-label="ค้นหาเพลง">
+    <div id="filters" class="pills" role="group" aria-label="ตัวกรองเพลง"></div>
+    <div id="songs" class="songs"></div>
+  </aside>
+  <section id="libedit" class="detail"></section>
+</main>
+<main id="cut" class="view frame" hidden></main>
+<main id="screen" class="view frame" hidden></main>
+<dialog id="pin">
+  <form method="dialog" id="pinform">
+    <h2>ใส่ PIN ของ Studio</h2>
+    <input id="pinin" type="password" inputmode="numeric" autocomplete="off" aria-label="PIN">
+    <p id="pinerr" class="bad" role="alert"></p>
+    <button class="btn primary" type="submit">เข้าใช้งาน</button>
+  </form>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/tvset/icons.js"></script>
+<script src="/studio/studio.js"></script>
+</body>
+</html>

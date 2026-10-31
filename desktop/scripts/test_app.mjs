@@ -130,6 +130,9 @@ async function mainRun() {
   check('Studio จริงโหลดในแอป', !!studio && await until(() => studio.ev(`document.body.innerText.includes('TEST app song')`), 20000));
   await shot(m, '02-studio-off');
 
+  await m.ev(`document.querySelector('[data-tab=now]').click()`); await sleep(400);
+  check('แท็บกำลังเล่น: เปิดได้ก่อนเปิดเซิร์ฟเวอร์', await m.ev(`!!document.querySelector('iframe[data-frame=now]')`));
+  await shot(m, '02b-now-off');
   await m.ev(`document.querySelector('[data-tab=settings]').click()`);
   const tvset = await pageOf((u) => u.includes(`:${PORT}/tvset`));
   check('หน้าตั้งค่าจอทีวีโหลดในแอป', !!tvset && await until(() => tvset.ev(`!!document.querySelector('#f-lyrScale')`), 15000));
@@ -237,6 +240,7 @@ async function mainRun() {
 async function tunnelRun() {
   const URL_ = 'https://test-link.trycloudflare.com';
   const cfLog = path.join(TMP, 'cf.log');
+  fs.rmSync(cfLog, { force: true });
   fs.writeFileSync(path.join(TMP, 'fake-cf.sh'), `#!/bin/bash
 echo "$@" >> "${cfLog}"
 url=""; [ "$1" = "--quick" ] && url="${URL_}"

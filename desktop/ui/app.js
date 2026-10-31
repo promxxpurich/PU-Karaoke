@@ -57,7 +57,9 @@ function syncFrames() {
   const box = $('#frames');
   let show = null;
   if (S.ready && !blocked()) {
-    if (ui.tab === 'studio') show = frame('studio', `${S.base}/studio`, 'Studio');
+    const theme = document.documentElement.dataset.theme;
+    if (ui.tab === 'now') show = frame('now', `${S.base}/studio?view=now&embed=1&theme=${theme}`, 'เพลงที่กำลังเล่น');
+    if (ui.tab === 'studio') show = frame('studio', `${S.base}/studio?view=lib&theme=${theme}`, 'Studio');
     if (ui.tab === 'remote' && S.server === 'on') show = frame('remote', `${S.base}/r`, 'รีโมท');
     if (ui.tab === 'settings' && ui.setSection === 'tv') show = frame('tvset', `${S.base}/tvset?theme=${document.documentElement.dataset.theme}`, 'ตั้งค่าจอทีวี');
   }
@@ -127,7 +129,7 @@ function homeHtml() {
   return `<div class="home">
     <section class="card hero"><div class="grow"><h1>${esc(hero[0])}</h1><p>${esc(hero[1])}</p></div><button class="power" id="heropower"></button></section>
     <section class="card"><h2>ตอนนี้ใช้อะไรได้บ้าง</h2><div class="caps">
-      ${cap(S.ready, 'Studio', S.ready ? 'แก้เนื้อและงานที่กดสั่งเอง' : 'รอระบบพร้อม')}
+      ${cap(S.ready, 'Studio', S.ready ? 'เปลี่ยนแหล่งเนื้อและแก้เนื้อ' : 'รอระบบพร้อม')}
       ${cap(S.ready, 'ตั้งค่า', S.ready ? 'ปรับได้ทุกค่า' : 'รอระบบพร้อม')}
       ${cap(on, 'รีโมทในแอป', on ? 'สั่งเพลงได้' : 'รอกดเปิดเซิร์ฟเวอร์')}
       ${cap(on, 'จอทีวี', S.tv.open ? 'เปิดอยู่' : on ? 'ปิดอยู่' : 'รอกดเปิดเซิร์ฟเวอร์')}
@@ -238,7 +240,7 @@ function bindSettings() {
   for (const b of $$('[data-theme-id]')) {
     b.onclick = () => {
       applyTheme(b.dataset.themeId);
-      ui.frames.tvset?.contentWindow.postMessage({ type: 'kara-theme', theme: b.dataset.themeId }, S.base);
+      for (const f of Object.values(ui.frames)) f.contentWindow.postMessage({ type: 'kara-theme', theme: b.dataset.themeId }, S.base);
       renderPage(true);
     };
   }
@@ -272,6 +274,7 @@ function bindSettings() {
 const PAGE_KEYS = {
   home: () => [S.server, S.ready, S.tunnel, S.tunnelBusy, S.displayId, S.displays, S.targetDisplayId, S.tv, S.urls, S.sleepBlocked, blocked()],
   studio: () => [S.ready, blocked()],
+  now: () => [S.ready, blocked()],
   remote: () => [S.server, S.ready, blocked()],
   tv: () => [S.server, S.tv, S.displayId, S.displays, S.urls],
   settings: () => (ui.setSection === 'system' ? [S.ready, S.project] : [S.tunnel, S.tunnelBusy, S.urls, S.ready, blocked(), ui.setSection]),
@@ -282,7 +285,7 @@ function renderPage(force = false) {
   ui.pageKey = key;
   if (ui.tab === 'home') { page.innerHTML = homeHtml(); bindHome(); return; }
   if (ui.tab === 'settings') { page.innerHTML = settingsHtml(); bindSettings(); return; }
-  if (ui.tab === 'studio') { page.innerHTML = S.ready && !blocked() ? '' : waitingHtml('รอระบบพร้อม'); return; }
+  if (ui.tab === 'studio' || ui.tab === 'now') { page.innerHTML = S.ready && !blocked() ? '' : waitingHtml('รอระบบพร้อม'); return; }
   if (S.server !== 'on') { page.innerHTML = lockedHtml(ui.tab === 'remote' ? 'รีโมท' : 'จอทีวี'); bindLocked(); return; }
   if (ui.tab === 'remote') { page.innerHTML = ''; return; }
   page.innerHTML = tvHtml();

@@ -389,6 +389,8 @@ async def _lifespan(_app: FastAPI):
                     if await _autoplay_fill():     # จอว่างแต่เปิดสุ่มไว้ (เช่น เปิดไว้ก่อนจอหลักต่อเข้ามา)
                         await room.broadcast()
                     await _lyr_watch()             # เนื้อเพลงที่เล่นอยู่ถูกแก้จากข้างนอก -> ส่งให้จอ
+                    _revideo_apply()               # คลิปใหม่ที่รอเพลงจบ
+                _src_warm_tick()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1122,11 +1124,31 @@ def _song_on_screen(vid: str) -> bool:
     return (room.current or {}).get("videoId") == vid
 
 
+REVIDEO_READY = "_revideo.ready.mp4"
+_revideo_wait: set[str] = set()
+
+
+def _revideo_apply() -> None:
+    """เปลี่ยนคลิปที่โหลดไว้ระหว่างเพลงเล่น เมื่อเพลงนั้นไม่อยู่บนจอแล้ว"""
+    for vid in list(_revideo_wait):
+        if _song_on_screen(vid):
+            continue
+        _revideo_wait.discard(vid)
+        d = _song_dir(vid)
+        ready = d / REVIDEO_READY
+        if ready.is_file():
+            ready.replace(d / "video.mp4")
+            print(f"[studio] {vid} เปลี่ยนเป็นคลิปใหม่แล้ว")
+
+
 def _revideo(vid: str, d: Path) -> str:
     """🎞 โหลดคลิปใหม่ให้ชัดขึ้น: โหลดภาพใหม่แยกไว้ก่อน แล้วสลับเมื่อดีกว่าจริงเท่านั้น
     เสียงในไฟล์ใช้ของเดิมและไม่แตะ audio/สเต็ม/เนื้อ เวลาซับจึงยังตรง โหลดพลาดไฟล์เดิมยังอยู่ครบ
     ขอเฉพาะ H.264 เพราะ AV1 เล่นบน iPad/ทีวีไม่ได้ และห้ามเข้ารหัสใหม่ (เครื่องร้อน)"""
     video = d / "video.mp4"
+    ready = d / REVIDEO_READY
+    _revideo_wait.discard(vid)
+    ready.unlink(missing_ok=True)
     old = _probe_video(video) if video.is_file() else None
     if not old:
         return "เพลงนี้ไม่มีไฟล์วิดีโอที่เปิดได้ ใช้ปุ่มลบแล้วโหลดใหม่แทน"
@@ -1160,7 +1182,10 @@ def _revideo(vid: str, d: Path) -> str:
         if not _has_audio_stream(out) or not _probe_video(out):
             return "รวมภาพกับเสียงไม่สำเร็จ ไฟล์เดิมยังอยู่"
         if _song_on_screen(vid):
-            return "เพลงนี้เริ่มเล่นระหว่างโหลด จึงยังไม่เปลี่ยน กดใหม่อีกครั้งเมื่อเพลงจบ"
+            # สลับไฟล์ระหว่างเล่นไม่ได้ จอที่อ่านไฟล์เป็นช่วง ๆ จะพัง จึงเก็บไว้เปลี่ยนตอนเพลงจบ
+            out.replace(ready)
+            _revideo_wait.add(vid)
+            return f"โหลดแล้ว จะเปลี่ยนให้ตอนเพลงนี้จบ (เดิม {was} → ใหม่ {got})"
         out.replace(video)               # atomic: จอที่เปิดเพลงนี้ทีหลังได้ไฟล์ครบเสมอ
         return f"เปลี่ยนคลิปแล้ว: เดิม {was} → ใหม่ {got}"
     finally:
@@ -3360,7 +3385,7 @@ def _song_meta(vid: str) -> dict:
 
 
 @app.get("/api/archive")
-def api_archive(q: str = "", limit: int = 200):
+def api_archive(q: str = "", limit: int = 0):
     """เพลงที่โหลดเก็บไว้แล้ว + จำนวนครั้งที่ถูกสั่ง — เรียงตามความถี่
     ทุกเพลงในนี้กดแล้วเล่นได้ทันที ไม่ต้องรอโหลดหรือแยกเสียง"""
     plays: dict[str, int] = {}
@@ -3391,7 +3416,7 @@ def api_archive(q: str = "", limit: int = 200):
             "lyrKind": LC.kind(lyr_src, lyr_tsrc) if lyr_n else "",
         })
     out.sort(key=lambda r: (-r["plays"], -(r["lastAt"] or 0), r["title"]))
-    return {"results": out[:limit], "total": len(out)}
+    return {"results": out[:limit] if limit > 0 else out, "total": len(out)}
 
 
 # ===== 🃏 Purich Match (ปัดหาเพลงบนรีโมท) =============================================
@@ -4013,10 +4038,30 @@ def _autotime(vid: str, texts: list[str]) -> dict:
     return best
 
 
+_STUDIO_DIR = BASE / "static" / "studio"
+_STUDIO_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
+
 @app.get("/studio", response_class=HTMLResponse)
 def studio_page():
+    return HTMLResponse((_STUDIO_DIR / "index.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/studio/old", response_class=HTMLResponse)
+def studio_old_page():
+    """Studio รุ่นละเอียดเดิม: เก็บไว้สำรองช่วงทดลอง แท็บตัดต่อของหน้าใหม่ยังใช้จากหน้านี้"""
     return HTMLResponse((BASE / "static" / "studio.html").read_text(encoding="utf-8"),
                         headers={"Cache-Control": "no-store"})
+
+
+@app.get("/studio/{name}")
+def studio_static(name: str):
+    from fastapi.responses import FileResponse
+    f = (_STUDIO_DIR / name).resolve()
+    if not f.is_relative_to(_STUDIO_DIR.resolve()) or not f.is_file() or f.suffix not in _STUDIO_TYPES:
+        return JSONResponse({"error": "not found"}, 404)
+    return FileResponse(f, media_type=_STUDIO_TYPES[f.suffix], headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/studio/login")
@@ -5424,29 +5469,40 @@ async def studio_sources(vid: str, request: Request):
     body = await request.json()
     track = " ".join(str(body.get("track") or "").split())
     artist = " ".join(str(body.get("artist") or "").split())
+    return await _sources_result(vid, track, artist, bool(body.get("fresh")))
+
+
+_src_locks: dict[tuple, asyncio.Lock] = {}
+SRC_PARTIAL_TTL = 600.0       # มีแหล่งที่พังตอนค้น: จำผลที่ได้แค่ช่วงสั้น ๆ แล้วลองแหล่งนั้นใหม่
+
+
+async def _sources_result(vid: str, track: str, artist: str, fresh: bool = False) -> dict:
+    """ผู้สมัครทุกแหล่ง + คะแนน: ใช้แคชถ้ามี และรอตัวที่กำลังคำนวณเพลงเดียวกันอยู่แทนการคำนวณซ้ำ"""
     key = (vid, track, artist)
-    hit = _src_cache.get(key)
-    if hit and not body.get("fresh") and time.time() - hit[0] < SRC_TTL:
-        cands, used = hit[1]
-    else:
-        if not track:
-            await asyncio.to_thread(_ocr_ensure, vid)
-        errs: list = []
-        cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist, errs)
-        engine_fa = _fa_ready() and _audio_for(vid)
-        if engine_fa and cands:
-            try:
-                sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
-                va = asyncio.create_task(asyncio.to_thread(_va_for, vid))   # แผนที่เสียงร้อง (ffmpeg) ซ้อนกับ FA
-                r = await _fa(vid, {"sets": sets, "duration": _song_meta(vid)["duration"] or 0})
-                _score_fa(cands, r.get("results") or [], va=await va, off=_lyr_offset(vid))
-            except Exception as exc:
-                print(f"[sources] {vid} FA ให้คะแนนไม่ได้ ({exc}) -> ใช้ whisper")
-                await asyncio.to_thread(_score_whisper, vid, cands)
+    async with _src_locks.setdefault(key, asyncio.Lock()):
+        hit = _src_cache.get(key)
+        if hit and not fresh and time.time() - hit[0] < SRC_TTL:
+            cands, used = hit[1]
         else:
-            await asyncio.to_thread(_score_whisper, vid, cands)
-        if not errs and any(c["provider"] in ONLINE_PROVIDERS for c in cands):
-            _src_cache[key] = (time.time(), (cands, used))   # แหล่งพัง/ไม่เจออะไรเลย = ไม่จำ เปิดใหม่ค้นใหม่
+            if not track:
+                await asyncio.to_thread(_ocr_ensure, vid)
+            errs: list = []
+            cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist, errs)
+            engine_fa = _fa_ready() and _audio_for(vid)
+            if engine_fa and cands:
+                try:
+                    sets = [(c["texts"] if not c["synced"] else [l["x"] for l in c["lines"]]) for c in cands]
+                    va = asyncio.create_task(asyncio.to_thread(_va_for, vid))   # แผนที่เสียงร้อง (ffmpeg) ซ้อนกับ FA
+                    r = await _fa(vid, {"sets": sets, "duration": _song_meta(vid)["duration"] or 0})
+                    _score_fa(cands, r.get("results") or [], va=await va, off=_lyr_offset(vid))
+                except Exception as exc:
+                    print(f"[sources] {vid} FA ให้คะแนนไม่ได้ ({exc}) -> ใช้ whisper")
+                    await asyncio.to_thread(_score_whisper, vid, cands)
+            else:
+                await asyncio.to_thread(_score_whisper, vid, cands)
+            if any(c["provider"] in ONLINE_PROVIDERS for c in cands):
+                at = time.time() - (SRC_TTL - SRC_PARTIAL_TTL) if errs else time.time()
+                _src_cache[key] = (at, (cands, used))
     # ตัวที่งานเลือกเนื้ออัตโนมัติจะใช้ขึ้นก่อน (เดิมเรียงตาม match ล้วน -> บทพูด 9 บรรทัด 81% ขึ้นที่หนึ่ง)
     # แล้วตัวที่ครบทั้งเพลงตาม match / ตัวที่มีแค่บางช่วงไว้ท้าย
     pick = None
@@ -5461,6 +5517,37 @@ async def studio_sources(vid: str, request: Request):
                                           -(c.get("match") or 0), -(c.get("timingAfter") or 0)))
     return {"candidates": ranked, "queries": used, "pick": pick,
             "fa": {"ready": _fa_ready(), "cached": _fa_cached(vid)}}
+
+
+# เตรียมแหล่งเนื้อไว้ก่อนสำหรับเพลงที่เล่นอยู่ + 2 เพลงถัดไป Studio จึงเปลี่ยนแหล่งได้ทันทีไม่ต้องรอค้น
+SRC_WARM_AHEAD = 2
+SRC_WARM_RETRY = 600.0
+_src_warm_task: asyncio.Task | None = None
+_src_warm_at: dict[str, float] = {}
+
+
+def _src_warm_tick() -> None:
+    """เรียกจาก watchdog: ทำทีละเพลง เว้นเพลงที่เพิ่งลอง (ค้นไม่เจอ/แหล่งพัง จะได้ไม่ยิงซ้ำทุกรอบ)"""
+    global _src_warm_task
+    if _src_warm_task and not _src_warm_task.done():
+        return
+    now = time.time()
+    for it in [room.current] + room.queue[:SRC_WARM_AHEAD]:
+        vid = (it or {}).get("videoId")
+        if not vid or not _vid_ok(vid) or not _song_dir(vid).is_dir() or not _audio_for(vid):
+            continue
+        hit = _src_cache.get((vid, "", ""))
+        if (hit and now - hit[0] < SRC_TTL) or now - _src_warm_at.get(vid, 0.0) < SRC_WARM_RETRY:
+            continue
+        _src_warm_at[vid] = now
+
+        async def run(v: str = vid) -> None:
+            try:
+                await _sources_result(v, "", "")
+            except Exception as exc:
+                print(f"[sources] {v} เตรียมล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
+        _src_warm_task = asyncio.create_task(run())
+        return
 
 
 # ===== เลือกเนื้อดีที่สุดจากทุกแหล่ง (งานเบื้องหลัง "best") =====
@@ -6177,12 +6264,9 @@ async def studio_action(vid: str, request: Request):
             else:
                 msg = "ไม่เจอขั้นที่พังค้าง — เลือกปุ่มซ่อมเฉพาะขั้นได้"
         elif do == "revideo":
-            if _song_on_screen(vid):
-                msg = "เพลงนี้กำลังเล่นอยู่ กดอีกครั้งเมื่อเพลงจบ"
-            else:
-                msg = await asyncio.to_thread(_revideo, vid, d)
-                room.archive_rev += 1
-                await room.broadcast()
+            msg = await asyncio.to_thread(_revideo, vid, d)
+            room.archive_rev += 1
+            await room.broadcast()
         elif do == "redl":
             for name in ("video.mp4", "audio.m4a"):
                 (d / name).unlink(missing_ok=True)

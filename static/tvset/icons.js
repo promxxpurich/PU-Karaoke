@@ -16,6 +16,7 @@ const ICON_PATHS = {
   cut: '<circle cx="6.500" cy="7" r="2.500"/><circle cx="6.500" cy="17" r="2.500"/><path d="M8.500 8.500L19 18M8.500 15.500L19 6"/>',
   list: '<path d="M5 6h14M5 12h14M5 18h14"/>',
   spark: '<path d="M12 4l1.800 5.200L19 11l-5.200 1.800L12 18l-1.800-5.200L5 11l5.200-1.800z"/>',
+  film: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v14M16 5v14M3 10h5M3 14h5M16 10h5M16 14h5"/>',
   wave: '<path d="M3 12h3l2-6 4 13 3-9 1.500 2H21"/>',
   save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
 };
