@@ -86,7 +86,7 @@ function renderChrome() {
   }
   const box = $('#notice');
   if (S.projectError) {
-    box.innerHTML = `<div class="notice bad"><div class="grow"><b>${esc(S.projectError)}</b><span>เลือกโฟลเดอร์ PU KARAOKE ที่ถูกต้อง</span></div><button class="btn" id="pickproject">เลือกโฟลเดอร์</button></div>`;
+    box.innerHTML = `<div class="notice bad"><div class="grow"><b>${esc(S.projectError)}</b><span>เลือกโฟลเดอร์ Purich Karaoke ที่ถูกต้อง</span></div><button class="btn" id="pickproject">เลือกโฟลเดอร์</button></div>`;
     $('#pickproject').onclick = () => act('project:choose');
   } else if (S.portBlockedBy) {
     box.innerHTML = `<div class="notice bad"><div class="grow"><b>พอร์ต ${S.port} ถูกโปรแกรมอื่นใช้อยู่: ${esc(S.portBlockedBy)}</b><span>แอปจะไม่ปิดโปรแกรมนั้นให้ ปิดโปรแกรมนั้นเองแล้วกดลองใหม่</span></div><button class="btn" id="retry">ลองใหม่</button></div>`;

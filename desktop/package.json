@@ -2,7 +2,7 @@
   "name": "purich-karaoke-desktop",
   "productName": "Purich Karaoke",
   "version": "1.0.0",
-  "description": "แอป Mac ของ PU KARAOKE: เปิดเซิร์ฟเวอร์ Studio รีโมท และจอทีวีในโปรแกรมเดียว",
+  "description": "แอป Mac ของ Purich Karaoke: เปิดเซิร์ฟเวอร์ Studio รีโมท และจอทีวีในโปรแกรมเดียว",
   "private": true,
   "license": "MIT",
   "main": "main.js",

@@ -450,7 +450,7 @@ class _AppGate:
         if scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": 1013})
             return
-        body = "<!doctype html><meta charset=utf-8><title>PU KARAOKE</title><p>เซิร์ฟเวอร์ยังไม่เปิด</p>".encode()
+        body = "<!doctype html><meta charset=utf-8><title>Purich Karaoke</title><p>เซิร์ฟเวอร์ยังไม่เปิด</p>".encode()
         await send({"type": "http.response.start", "status": 503,
                     "headers": [(b"content-type", b"text/html; charset=utf-8"), (b"cache-control", b"no-store")]})
         await send({"type": "http.response.body", "body": body})
@@ -3350,7 +3350,7 @@ def _song_meta(vid: str) -> dict:
             meta = {"title": j.get("title") or "",
                     "duration": j.get("duration"),
                     "uploader": j.get("uploader") or j.get("channel") or "",
-                    "date": str(j.get("upload_date") or "")}   # ปีบนการ์ด PU Match — เก็บแค่ส่วนที่ใช้ ไม่เก็บทั้งก้อน
+                    "date": str(j.get("upload_date") or "")}   # ปีบนการ์ด Purich Match — เก็บแค่ส่วนที่ใช้ ไม่เก็บทั้งก้อน
         except Exception:
             pass
     if not meta["title"]:
@@ -3394,7 +3394,7 @@ def api_archive(q: str = "", limit: int = 200):
     return {"results": out[:limit], "total": len(out)}
 
 
-# ===== 🃏 PU Match (ปัดหาเพลงบนรีโมท) =============================================
+# ===== 🃏 Purich Match (ปัดหาเพลงบนรีโมท) =============================================
 # สุ่มการ์ดจากทุกเพลงในเครื่อง (ถ่วงน้ำหนัก) — ไม่พอค่อยเติมจากผลค้น YouTube คำเดียว (SWIPE_YT_Q)
 def _song_year(m: dict) -> int | None:
     d = m.get("date") or ""
@@ -3468,7 +3468,7 @@ def _swipe_pick(seen: set[str], n: int) -> dict:
 
 @app.post("/api/swipe")
 async def api_swipe(request: Request):
-    """การ์ดชุดถัดไปของ PU Match: body {seen: [videoId...], n}"""
+    """การ์ดชุดถัดไปของ Purich Match: body {seen: [videoId...], n}"""
     if not _same_origin(request.headers):
         return JSONResponse({"error": "คำขอข้ามเว็บ"}, status_code=403)
     try:
@@ -3941,7 +3941,7 @@ def _write_edit(vid: str, d: Path, lines: list[dict], offset: float | None, pick
             old = None
     _backup_lyrics(d, old)
     dur = float((old or {}).get("duration") or _song_meta(vid)["duration"] or 0.0)
-    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "PU KARAOKE Studio",
+    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "Purich Karaoke Studio",
            "src": "manual-edit", "timeSrc": "self", "duration": round(dur, 2),
            "lines": lines, "editedAt": int(time.time())}
     if picked:                          # เลือกแหล่งจากหน้าคิวของ Studio — จำไว้ว่ามาจากไหน
@@ -5881,7 +5881,7 @@ def _best_apply(vid: str, dec: dict, cur: dict | None) -> str:
         raise RuntimeError("เนื้อที่เลือกว่างเปล่า")
     c = dec["cand"]
     dur = float((cur or {}).get("duration") or _song_meta(vid)["duration"] or 0.0)
-    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "PU KARAOKE auto-best",
+    out = {"v": 1, "videoId": vid, "lang": "th", "engine": "Purich Karaoke auto-best",
            "src": dec["src"], "timeSrc": dec["timeSrc"], "duration": round(dur, 2), "lines": lines,
            "best": {"action": dec["action"], "from": (cur or {}).get("src") or "", "label": c.get("label") or "",
                     # NaN จากการให้คะแนนห้ามลงไฟล์: JSON.parse ของทีวีพัง = เนื้อทั้งเพลงหาย (_finite อยู่ท้ายไฟล์)

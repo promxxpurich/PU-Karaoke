@@ -1,6 +1,6 @@
-# คู่มือใช้ PU KARAOKE บน Linux และ Windows
+# คู่มือใช้ Purich Karaoke บน Linux และ Windows
 
-PU KARAOKE สร้างและใช้งานจริงบน **MacBook Apple Silicon** ส่วนใหญ่ของโค้ดเป็น Python/HTML ธรรมดาที่รันได้ทุกระบบ แต่มีบางส่วนผูกกับ Mac คู่มือนี้บอกว่า**ส่วนไหน**ผูกกับ Mac, **ทำไม**, และ**ต้องแก้อย่างไร** ให้คนหรือ AI ที่รับงานต่อทำตามได้ทีละขั้น
+Purich Karaoke สร้างและใช้งานจริงบน **MacBook Apple Silicon** ส่วนใหญ่ของโค้ดเป็น Python/HTML ธรรมดาที่รันได้ทุกระบบ แต่มีบางส่วนผูกกับ Mac คู่มือนี้บอกว่า**ส่วนไหน**ผูกกับ Mac, **ทำไม**, และ**ต้องแก้อย่างไร** ให้คนหรือ AI ที่รับงานต่อทำตามได้ทีละขั้น
 
 > สถานะ: ณ วันที่เขียน (ต.ค. 2026) ยังไม่มีใครรันบน Linux/Windows จริง ทุกอย่างด้านล่างวิเคราะห์จากโค้ด ถ้าทำสำเร็จแล้วช่วยอัปเดตไฟล์นี้ด้วย
 
@@ -187,7 +187,7 @@ KARA_YT_COOKIES=none .venv/bin/python -u server.py
      ```powershell
      $ip = (wsl hostname -I).Split()[0]
      netsh interface portproxy add v4tov4 listenport=8080 listenaddress=0.0.0.0 connectport=8080 connectaddress=$ip
-     New-NetFirewallRule -DisplayName "PU KARAOKE" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
+     New-NetFirewallRule -DisplayName "Purich Karaoke" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow
      ```
      IP ของ WSL เปลี่ยนทุกครั้งที่รีบูต ต้องสั่งใหม่
 6. **QR บนจอชี้ IP ผิด** (ถ้าไม่ได้ใช้ mirrored): ใส่ IP WiFi ของ Windows ลง `.studio.json`

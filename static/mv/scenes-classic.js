@@ -53,7 +53,7 @@
       D.txt(c, D.F('thin', 36), th.light ? th.ink : '#fff', meta.artist, 1420, H / 2 + 20);
       c.font = D.F('thin', 24); const cs = Math.min(1, 860 / Math.max(1, c.measureText(meta.credit || '').width));
       c.save(); c.translate(1420, H / 2 + 110); c.scale(cs, cs); D.txt(c, D.F('thin', 24), th.light ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)', meta.credit || '', 0, 0); c.restore();
-      D.txt(c, D.F('body', 30), th.acc[0], 'PU KARAOKE', 1420, H / 2 + 200);
+      D.txt(c, D.F('body', 30), th.acc[0], 'Purich Karaoke', 1420, H / 2 + 200);
       c.globalAlpha = 1; D.frame(c, th.light ? th.ink : '#ffffff55', 46, X.flower);
     },
   });

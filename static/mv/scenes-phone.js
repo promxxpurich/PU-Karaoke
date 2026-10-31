@@ -402,7 +402,7 @@
       c.globalAlpha = ease.out(clamp((d - 1.6) / 1.2));
       D.glitch(c, D.F('big', 170), meta.title, W / 2, H / 2 - 60, Math.exp(-(d - 1.6) * 2) * .6, '#fff', 99);
       D.txt(c, D.F('ui', 48), acc, meta.artist, W / 2, H / 2 + 80);
-      D.txt(c, D.F('thin', 26), 'rgba(255,255,255,.55)', (meta.credit || '') + ' · PU KARAOKE', W / 2, H - 90);
+      D.txt(c, D.F('thin', 26), 'rgba(255,255,255,.55)', (meta.credit || '') + ' · Purich Karaoke', W / 2, H - 90);
       c.globalAlpha = 1;
     },
   });

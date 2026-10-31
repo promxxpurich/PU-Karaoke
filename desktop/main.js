@@ -458,7 +458,7 @@ function showLog() {
     .then(({ response }) => { if (response === 1) shell.showItemInFolder(logPath()); });
 }
 async function chooseProject() {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWin, { title: 'เลือกโฟลเดอร์ PU KARAOKE', properties: ['openDirectory'], defaultPath: state.project });
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWin, { title: 'เลือกโฟลเดอร์ Purich Karaoke', properties: ['openDirectory'], defaultPath: state.project });
   if (canceled || !filePaths[0] || filePaths[0] === state.project) return;
   if (state.server !== 'off' && !state.projectError && !state.portBlockedBy) {
     notify('info', 'ปิดเซิร์ฟเวอร์ก่อนเปลี่ยนโฟลเดอร์', 'กดปิดเซิร์ฟเวอร์แล้วลองอีกครั้ง');

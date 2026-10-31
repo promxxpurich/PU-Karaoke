@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="th"><head>
-<meta charset="utf-8"><title>PU KARAOKE</title>
+<meta charset="utf-8"><title>Purich Karaoke</title>
 <!-- ล็อกซูม: maximum-scale/user-scalable ครอบ Android ส่วน iOS Safari ไม่สน ต้องดัก gesture ใน JS ด้วย -->
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#06060b">
-<meta name="apple-mobile-web-app-title" content="PU KARAOKE">
+<meta name="apple-mobile-web-app-title" content="Purich Karaoke">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -275,7 +275,7 @@
  #skipintro i{position:absolute;left:0;bottom:0;height:3px;width:var(--w,100%);background:rgba(255,255,255,.8);
    transition:width .25s linear}
 
- /* ---------- 🎬 คอมโบ (การ์ดข้าง PU Match + แผ่นรายการ) ---------- */
+ /* ---------- 🎬 คอมโบ (การ์ดข้าง Purich Match + แผ่นรายการ) ---------- */
  .entries{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
  .entries.two{grid-template-columns:1fr 1fr}
  .entries.two .swtx b,.entries.two .swtx small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -291,7 +291,7 @@
  .cmb .songs{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.5}
  .cmb .primary{padding:8px 14px;border-radius:12px}
 
- /* ---------- 🃏 PU Match: ปัดหาเพลง ---------- */
+ /* ---------- 🃏 Purich Match: ปัดหาเพลง ---------- */
  #swipebtn{width:100%;display:flex;align-items:center;gap:12px;padding:10px 12px;text-align:left;
    border-radius:18px;border-color:rgba(124,92,255,.4);
    background:linear-gradient(135deg,rgba(124,92,255,.2),rgba(255,77,141,.12)),var(--panel)}
@@ -388,7 +388,7 @@
 </template>
 
 <header>
-  <div class="logo"><span class="mk">🎤</span><span><b>PU</b> KARAOKE</span></div>
+  <div class="logo"><span class="mk">🎤</span><span><b>Purich</b> Karaoke</span></div>
   <span class="st"><span class="dot"></span><span id="ststr">เชื่อมต่อแล้ว</span></span>
 </header>
 
@@ -398,7 +398,7 @@
   <div class="entries" id="entries">
   <button id="swipebtn" data-act="swopen">
     <span class="swic">🃏</span>
-    <span class="swtx"><b>PU Match</b><small>ปัดหาเพลงที่ใช่</small></span>
+    <span class="swtx"><b>Purich Match</b><small>ปัดหาเพลงที่ใช่</small></span>
     <span class="swlk">❤️ <span id="swlkn">0</span></span>
   </button>
   <button id="combobtn" class="hide" data-act="sheet" data-v="combo">
@@ -562,10 +562,10 @@
   </div>
 </div>
 
-<div id="swipe" class="hide" role="dialog" aria-modal="true" aria-label="PU Match">
+<div id="swipe" class="hide" role="dialog" aria-modal="true" aria-label="Purich Match">
   <div class="swhd">
     <button class="swx" data-act="swclose" aria-label="ปิด">✕</button>
-    <b>PU Match</b>
+    <b>Purich Match</b>
     <button class="swlk" data-act="swliked" aria-label="เพลงที่ถูกใจ">❤️ <span id="swlkc">0</span></button>
   </div>
   <div class="swdeck" id="swdeck"></div>
@@ -1099,7 +1099,7 @@ $('#repsend').onclick = () => {
   toast('✓ ส่งแล้ว คนดูแลจะไปแก้ใน Studio');
 };
 
-// ===== 7c. 🃏 PU Match: ปัดหาเพลง ======================================
+// ===== 7c. 🃏 Purich Match: ปัดหาเพลง ======================================
 // ซ้าย = ข้าม · ขวา = ❤️ เก็บไว้ในเครื่องนี้ · ขึ้น = ★ เข้าคิวเลย · แตะ = ดูสถานะ (หน้าเดียวกับกด ＋)
 // การ์ดมาจาก /api/swipe: สุ่มจากทุกเพลงในเครื่องก่อน ไม่พอค่อยเติมจาก YouTube
 // เก็บใน localStorage (หายได้ ไม่เป็นไร): ❤️ / เพลงที่เห็นแล้ว (กันวนซ้ำ)
@@ -1633,8 +1633,8 @@ function lsSync(st){
   if(c.id !== LS.metaId){
     LS.metaId = c.id;
     const art = artUrl(c);
-    try{ ms.metadata = new MediaMetadata({ title: c.title || 'PU KARAOKE', artist: c.singer ? '🎤 ' + c.singer : 'PU KARAOKE',
-           album: 'PU KARAOKE', artwork: art ? [{src: new URL(art, location.href).href, sizes:'512x512', type:'image/jpeg'}] : [] }); }catch(e){}
+    try{ ms.metadata = new MediaMetadata({ title: c.title || 'Purich Karaoke', artist: c.singer ? '🎤 ' + c.singer : 'Purich Karaoke',
+           album: 'Purich Karaoke', artwork: art ? [{src: new URL(art, location.href).href, sizes:'512x512', type:'image/jpeg'}] : [] }); }catch(e){}
   }
   if(st.playing){ if(lsa.paused) lsPlay(); } else if(!lsa.paused) lsa.pause();
   ms.playbackState = st.playing ? 'playing' : 'paused';

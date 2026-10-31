@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner.svg" alt="PU KARAOKE" width="100%">
+  <img src="docs/images/banner.svg" alt="Purich Karaoke" width="100%">
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@
 | 📝 **หาเนื้อและจับเวลาอัตโนมัติ** | หาเนื้อจาก lrclib, ซับ YouTube, YouTube Music, JOOX, NetEase แล้วถอดเสียงด้วย Whisper และจับเวลาละเอียดด้วย forced alignment (wav2vec2 ภาษาไทย) |
 | ✅ **ป้ายความมั่นใจ** | ตรวจว่าเนื้อตรงจังหวะไหม (✅ / ⚠️) แขกกด 🚩 แจ้งซับไม่ตรงได้ |
 | 🛠 **Studio** (`/studio`) | หน้าแอดมิน: แก้เนื้อ, เลื่อนเวลา, แตะจังหวะ, แผนที่ความคลาด, ซ่อมอัตโนมัติ, ตั้งค่าจอทีวี, ตัดต่อเพลงและทำคอมโบ |
-| 🃏 **PU Match** | ปัดหาเพลงแบบ Tinder จากคลังในเครื่อง |
+| 🃏 **Purich Match** | ปัดหาเพลงแบบ Tinder จากคลังในเครื่อง |
 | 🎬 **เปลี่ยนเพลงสวย ๆ** | เฟดดำ, ข้ามอินโทร ⏩, ตัดจุดเริ่ม-จบรายเพลง ✂️, ต่อหลายเพลงเป็นคอมโบ |
 | 🌐 **เข้าจากนอกบ้าน** | Cloudflare Tunnel ให้ลิงก์ https ฟรี (ไม่บังคับ) |
 
@@ -300,7 +300,7 @@ run.sh / update.sh     เริ่มเซิร์ฟเวอร์ / ซ่
 
 ## 👤 ผู้สร้าง
 
-**Purich Sa** ([@promxxpurich](https://github.com/promxxpurich)) ออกแบบและสร้าง PU KARAOKE ทั้งหมด พัฒนาร่วมกับ AI (Claude Code)
+**Purich Sa** ([@promxxpurich](https://github.com/promxxpurich)) ออกแบบและสร้าง Purich Karaoke ทั้งหมด พัฒนาร่วมกับ AI (Claude Code)
 
 ถ้านำไปพัฒนาต่อ ยินดีมาก ขอให้คงเครดิตผู้สร้างไว้ตามสัญญาอนุญาต
 

@@ -1,4 +1,4 @@
-# AGENTS.md — คู่มือสำหรับ AI ที่ทำงานกับ PU KARAOKE
+# AGENTS.md — คู่มือสำหรับ AI ที่ทำงานกับ Purich Karaoke
 
 ไฟล์นี้สำหรับ AI coding agent ทุกตัว (Claude Code, Codex, Cursor, Copilot ฯลฯ) อ่านก่อนแก้อะไรในโปรเจกต์นี้
 ผู้สร้างโปรเจกต์: **Purich Sa** (@promxxpurich) ภาพรวมสำหรับคนอยู่ใน [README.md](README.md)

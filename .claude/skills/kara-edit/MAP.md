@@ -1,4 +1,4 @@
-# แผนที่โค้ด PU KARAOKE
+# แผนที่โค้ด Purich Karaoke
 
 ใช้คู่กับ `kmap.py` ในโฟลเดอร์เดียวกัน: `find <คำ>` → หัวข้อที่ตรง + ไฟล์:บรรทัดปัจจุบันของทุก anchor
 anchor = ข้อความในบรรทัดเดียวของไฟล์ (ไม่ใส่เลขบรรทัด เพราะเปลี่ยนทุกครั้งที่แก้)
@@ -91,16 +91,16 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/remote.html` `const lm = ['scroll','dual','off']` — ไฮไลต์ปุ่มตาม state + โน้ต #lyrnote ตอนเพลงยังไม่มีเวลารายคำ
 ! โหมดเนื้อ (st.lyrMode) ตั้งได้จากรีโมทเท่านั้น · 👥 คือค่าเดียวกับใน Studio (st.tv.voices) · คาราโอเกะไล่สีได้เฉพาะเพลงที่มี wordsUrl — ไม่มีจอขึ้นแบบ 2 บรรทัดแทน
 
-### 🃏 PU Match — ปัดหาเพลง (กองการ์ดสุ่มจากทุกเพลง / ❤️ ถูกใจ)
-คำค้น: PU Match, ปัดเพลง, ปัดหาเพลง, swipe, tinder, การ์ดสุ่มเพลง, ปัดซ้าย, ปัดขวา, ปัดขึ้น, ถูกใจ, ❤️, liked, สุ่มเพลง, ไม่รู้จะร้องอะไร, ย้อนการปัด
+### 🃏 Purich Match — ปัดหาเพลง (กองการ์ดสุ่มจากทุกเพลง / ❤️ ถูกใจ)
+คำค้น: Purich Match, ปัดเพลง, ปัดหาเพลง, swipe, tinder, การ์ดสุ่มเพลง, ปัดซ้าย, ปัดขวา, ปัดขึ้น, ถูกใจ, ❤️, liked, สุ่มเพลง, ไม่รู้จะร้องอะไร, ย้อนการปัด
 - `static/remote.html` `id="swipebtn"` `id="swipe"` `id="swdeck"` `id="swliked"` — HTML: การ์ดทางเข้าใต้ "กำลังเล่น", overlay เต็มจอ, แผงถูกใจ (เลื่อนจากขวา)
 - `static/remote.html` ` #swipebtn{width:100%` ` #swipe{position:fixed` ` .swcard{position:absolute` ` .swdeck{position:relative` — CSS (overlay z 35: ทับแถบล่าง แต่ต่ำกว่า toast/หน้าสถานะ #addov)
-- `static/remote.html` `// ===== 7c. 🃏 PU Match` `const SW_KEYS =` `function swOpen(){` `async function swFill(){` `function swRender(){` `function swCommit(c, dir){` `function swFling(dir){` `function swUndo(){` `function swDragEnd(e){` — POST /api/swipe เติมการ์ดเมื่อเหลือ ≤3 ใบ, ลาก (pointer) เกิน 28% กว้าง = ซ้าย/ขวา, ขึ้นเกิน 18% สูง = ★ addItem เข้าคิว, แตะ = openPreview
+- `static/remote.html` `// ===== 7c. 🃏 Purich Match` `const SW_KEYS =` `function swOpen(){` `async function swFill(){` `function swRender(){` `function swCommit(c, dir){` `function swFling(dir){` `function swUndo(){` `function swDragEnd(e){` — POST /api/swipe เติมการ์ดเมื่อเหลือ ≤3 ใบ, ลาก (pointer) เกิน 28% กว้าง = ซ้าย/ขวา, ขึ้นเกิน 18% สูง = ★ addItem เข้าคิว, แตะ = openPreview
 - `static/remote.html` `function swRenderLiked(){` `function swAddAll(){` `function swOnAdded(vid){` — รายการ ❤️ (key w+videoId ใน addByKey), ＋ เปิดหน้าสถานะ เพิ่มแล้วเอาออกจากรายการเอง
 ! ไม่มีแนวเพลงแล้ว (ลบออก 2026-10-06) — การ์ดสุ่มจากทุกเพลงในเครื่อง · ❤️ / เพลงที่เห็นแล้ว เก็บใน localStorage ของมือถือเครื่องนั้นเท่านั้น (swipeLiked ≤100, swipeSeen ≤300) · ไม่มีปุ่มเปิด/ปิดใน tv.json เพราะไม่ได้แสดงบนจอทีวี
 ! swRender ห้ามถอด/ใส่การ์ดที่อยู่ถูกที่แล้ว (transition หาย ใบถัดไปกระตุก) · .swdeck ต้องมี z-index ไม่งั้นการ์ดลอยทับแผงถูกใจ
 
-### ⏩ ข้ามอินโทร + 🎬 คอมโบ (การ์ดข้าง PU Match / แผ่นรายการคอมโบ)
+### ⏩ ข้ามอินโทร + 🎬 คอมโบ (การ์ดข้าง Purich Match / แผ่นรายการคอมโบ)
 คำค้น: ข้ามอินโทร, skip intro, อินโทรยาว, ปุ่มลอย, คอมโบ, combo, เพลย์ลิสต์, playlist, ชุดเพลง, เพิ่มทั้งชุด, addcombo
 - `static/remote.html` ` /* ---------- ⏩ ข้ามอินโทร` ` #skipintro{position:fixed` `id="skipintro"` `function renderSkip(){` — ปุ่มลอยกลางเหนือแถบล่าง (z 22 ใต้ scrim/แผ่น) โผล่เมื่อ current.introEnd มี + ยังไม่พ้น (livePos) + ไม่ fading, แถบนับถอยหลัง --w, กดแล้วส่ง action skipintro
 - `static/remote.html` ` /* ---------- 🎬 คอมโบ` ` .entries{display:grid` ` #combobtn{display:flex` `id="combobtn"` `id="sh-combo"` — การ์ด 🎬 ข้าง 🃏 (2 คอลัมน์เมื่อ st.combos > 0) + แผ่นรายการ
@@ -467,7 +467,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 คำค้น: ค้นหา, search, ค้นเพลง, YouTube, yt-dlp, ผลค้นหา, ฝังได้, embeddable, embed, oEmbed, วางลิงก์, ชื่อเพลงจริง, ช่อง, channel, กรอง, ไม่ใช่เพลง, ซ่อน, ออกกำลังกาย, แอโรบิค, ตลก, รีแอค, สัมภาษณ์, ไลฟ์สด, 10 นาที, filter
 - `server.py` `@app.get("/api/search")` `def _search(` `def _annotate(` — ค้นด้วย yt-dlp (ดึงแค่ metadata) เผื่อ 2 เท่า (ytsearch24) กรองแล้วเหลือ 12, ส่ง hidden = จำนวนที่ซ่อน, แล้วเช็คว่าฝังได้ไหมแบบขนาน 8 เธรด เรียงคลิปที่ฝังได้ขึ้นก่อน
 - `server.py` `SEARCH_MAX_SEC = ` `_NOT_SONG_RE = re.compile(` `def _is_song_clip(` — ซ่อนคลิปที่ไม่ใช่เพลง: ยาวเกิน 10 นาที (= SEP_MAX_SEC), ไลฟ์ที่ยังออกอากาศ, ชื่อคลิป/ช่องมีคำออกกำลังกาย/ตลก/รีแอค/สอนร้อง-เล่น/สัมภาษณ์/เบื้องหลัง · รีโมทผลว่างแต่ hidden > 0 ขึ้น "ไม่พบเพลง — ซ่อน N คลิป" (ใน static/remote.html ฟังก์ชัน search)
-! ซ่อนเสมอแม้แขกพิมพ์คำนั้นเอง (ผู้ใช้เลือก) · คำไทยห้ามสั้นจนชนชื่อเพลง ("ฮา", "สอน", "แกล้ง") · _swipe_yt (PU Match) ใช้ _search จึงโดนกรองด้วย · วางลิงก์ (/api/embeddable) ไม่กรอง
+! ซ่อนเสมอแม้แขกพิมพ์คำนั้นเอง (ผู้ใช้เลือก) · คำไทยห้ามสั้นจนชนชื่อเพลง ("ฮา", "สอน", "แกล้ง") · _swipe_yt (Purich Match) ใช้ _search จึงโดนกรองด้วย · วางลิงก์ (/api/embeddable) ไม่กรอง
 - `server.py` `@app.get("/api/embeddable")` `def _oembed(` `def _embeddable(` `def _yt_info(` — ตอนวางลิงก์: เช็คว่าเจ้าของปิดการฝังไหม (oEmbed ตอบ 401/403) และดึงชื่อจริง/ช่อง, แคช 1 ชม.
 
 ### คลังเพลงในเครื่องและสถานะเพลงก่อนเพิ่ม (archive / songinfo / library)
@@ -475,9 +475,9 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `@app.get("/api/archive")` `def _song_meta(` — ทุกเพลงที่มี video.mp4 เรียงตามจำนวนครั้งที่ถูกสั่ง (นับจากประวัติ) พร้อม stems/จำนวนบรรทัด/ชนิดเนื้อ, ชื่อและความยาวอ่านจาก info.json (แคชด้วย mtime)
 - `server.py` `@app.get("/api/songinfo")` `@app.get("/api/library")` — สถานะเพลงก่อนกดเพิ่ม (ใช้ตัวเติมฟิลด์ชุดเดียวกับคิว, เพลงที่ยังไม่เข้าไปป์ไลน์จะได้ "new") / ไฟล์สื่อที่วางเองใน songs/ (ไม่รวม yt/)
 
-### 🃏 PU Match ฝั่ง server (swipe)
-คำค้น: PU Match, swipe, ปัดเพลง, การ์ดสุ่ม, คำค้น YouTube, สุ่มเพลง
-- `server.py` `# ===== 🃏 PU Match` `@app.post("/api/swipe")` `def _swipe_pick(` `def _swipe_yt(` `SWIPE_YT_Q = ` — การ์ด PU Match: ทุกเพลงในเครื่อง (ตัด seen/คิว, สุ่มถ่วงน้ำหนัก plays/เนื้อ/ไกด์) ไม่พอเติมจาก YouTube ด้วยคำค้นเดียว SWIPE_YT_Q (แคช 30 นาที, ตัดคลิปปิดฝัง)
+### 🃏 Purich Match ฝั่ง server (swipe)
+คำค้น: Purich Match, swipe, ปัดเพลง, การ์ดสุ่ม, คำค้น YouTube, สุ่มเพลง
+- `server.py` `# ===== 🃏 Purich Match` `@app.post("/api/swipe")` `def _swipe_pick(` `def _swipe_yt(` `SWIPE_YT_Q = ` — การ์ด Purich Match: ทุกเพลงในเครื่อง (ตัด seen/คิว, สุ่มถ่วงน้ำหนัก plays/เนื้อ/ไกด์) ไม่พอเติมจาก YouTube ด้วยคำค้นเดียว SWIPE_YT_Q (แคช 30 นาที, ตัดคลิปปิดฝัง)
 ! _song_meta ห้ามเก็บ info.json ทั้งก้อน (ไฟล์ละหลายร้อย KB) · แนวเพลง (genres.json, แท็บ 🗂 ใน Studio) ถูกลบออกแล้ว 2026-10-06
 
 ### สุขภาพระบบและ log จากจอ (health / clientlog)

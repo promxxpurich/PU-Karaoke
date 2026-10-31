@@ -860,7 +860,7 @@ def process(vid: str, no_asr: bool = False) -> bool:
     # ---- 0) เนื้อที่แก้ใน Studio (lyrics-in/<vid>.json) — ชนะทุกแหล่ง ------
     lines = from_edit(vid)
     if lines:
-        write_out(folder, vid, lines, duration, "manual-edit", "PU KARAOKE Studio",
+        write_out(folder, vid, lines, duration, "manual-edit", "Purich Karaoke Studio",
                   time_src="self")
         return False
 

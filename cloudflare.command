@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# เปิด PU KARAOKE ให้เข้าจากนอกบ้านผ่าน Cloudflare Tunnel (https ฟรี ไม่ต้องเปิดพอร์ตเราเตอร์)
+# เปิด Purich Karaoke ให้เข้าจากนอกบ้านผ่าน Cloudflare Tunnel (https ฟรี ไม่ต้องเปิดพอร์ตเราเตอร์)
 #
 #   ./cloudflare.command --quick              ทดลองทันที ไม่ต้องมีโดเมน/บัญชี (ได้ลิงก์ *.trycloudflare.com สุ่มใหม่ทุกครั้ง)
 #   ./cloudflare.command kara.example.com     ใช้โดเมนของตัวเองที่อยู่บน Cloudflare (ตั้งครั้งเดียว รันเองตอนเปิดเครื่อง)

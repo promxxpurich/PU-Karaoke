@@ -1,11 +1,11 @@
 ---
 name: kara-edit
-description: แผนที่โค้ด PU KARAOKE — ใช้ทุกครั้งก่อนแก้ เพิ่ม ลบ ดีบัก หรือตอบว่าอะไรอยู่ตรงไหนในโปรเจกต์นี้ (รีโมท, จอทีวี, Studio, server.py, คิว, ค้นหา, เนื้อเพลง/ซับ, ป้าย ✅⚠️, คีย์, tv.json, scripts) หาจุดจาก MAP.md ด้วย kmap.py แล้วอ่านแค่ช่วงบรรทัดนั้น ไม่อ่านทั้งไฟล์. Use for ANY change, fix, feature, bug or "where is X" question in the PU KARAOKE karaoke project, before reading any code.
+description: แผนที่โค้ด Purich Karaoke — ใช้ทุกครั้งก่อนแก้ เพิ่ม ลบ ดีบัก หรือตอบว่าอะไรอยู่ตรงไหนในโปรเจกต์นี้ (รีโมท, จอทีวี, Studio, server.py, คิว, ค้นหา, เนื้อเพลง/ซับ, ป้าย ✅⚠️, คีย์, tv.json, scripts) หาจุดจาก MAP.md ด้วย kmap.py แล้วอ่านแค่ช่วงบรรทัดนั้น ไม่อ่านทั้งไฟล์. Use for ANY change, fix, feature, bug or "where is X" question in the Purich Karaoke karaoke project, before reading any code.
 allowed-tools:
   - "Bash(python3 *kmap.py *)"
 ---
 
-# แก้ PU KARAOKE แบบตรงจุด
+# แก้ Purich Karaoke แบบตรงจุด
 
 โปรเจกต์ใหญ่ (server.py ~5.1k บรรทัด, studio.html ~2.4k, remote.html ~1.2k, player.html ~1.1k, scripts ~5k)
 **อย่าไล่อ่านทั้งไฟล์** — `MAP.md` (โฟลเดอร์เดียวกับไฟล์นี้, ~90 หัวข้อ) บอกแล้วว่าแต่ละเรื่องอยู่ไฟล์ไหน ตรงไหน
