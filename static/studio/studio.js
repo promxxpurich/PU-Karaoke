@@ -274,10 +274,12 @@ const editorHost = (e) => (S.view === 'now' && S.nowVid === e.vid ? $('#now') : 
 
 function capture(host) {
   const f = document.activeElement;
-  return { top: host.scrollTop, k: f?.matches?.('.line input') && host.contains(f) ? f.dataset.k : null, pos: f?.selectionStart };
+  return { top: host.scrollTop, linesTop: $('.lines', host)?.scrollTop ?? 0, k: f?.matches?.('.line input') && host.contains(f) ? f.dataset.k : null, pos: f?.selectionStart };
 }
 function restore(host, c) {
   host.scrollTop = c.top;
+  const box = $('.lines', host);
+  if (box) box.scrollTop = c.linesTop;
   if (c.k != null) {
     const i = $(`.line input[data-k="${c.k}"]`, host);
     if (i) { i.focus(); try { i.setSelectionRange(c.pos, c.pos); } catch { /* ช่องชนิดนี้ไม่มี selection */ } }
@@ -338,6 +340,17 @@ function drawSongList() {
 
 /* ===== เวลาเพลงสด ===== */
 const curPos = () => (S.room?.playing ? S.pos + (performance.now() - S.posAt) / 1000 : S.pos);
+// เลื่อนเฉพาะกล่องเนื้อ ให้บรรทัดที่ร้องอยู่ช่วงบนของกล่อง หน้าทั้งหน้าอยู่นิ่ง
+// หยุดตามชั่วคราวตอนผู้ใช้เลื่อนดูเอง หรือกำลังพิมพ์แก้ในกล่องนี้
+let userScrollAt = 0;
+function followLine(row) {
+  const box = row.parentElement;
+  if (Date.now() - userScrollAt < 6000 || box.contains(document.activeElement)) return;
+  box.scrollTo({ top: row.offsetTop - box.clientHeight * 0.3, behavior: 'smooth' });
+}
+for (const ev of ['wheel', 'touchmove']) {
+  $('#now').addEventListener(ev, (e) => { if (e.target.closest('.lines')) userScrollAt = Date.now(); }, { passive: true });
+}
 function markNowLine() {
   if (S.view !== 'now' || S.room?.current?.videoId !== S.nowVid) return;
   const e = ed(S.nowVid);
@@ -346,7 +359,7 @@ function markNowLine() {
   e.lines.forEach((l, k) => { if (l.t != null && l.t <= t) on = k; });
   for (const row of $$('#now .line')) {
     const active = +row.dataset.k === on;
-    if (active && !row.classList.contains('now') && !isDirty(e)) row.scrollIntoView({ block: 'nearest' });
+    if (active && !row.classList.contains('now')) followLine(row);
     row.classList.toggle('now', active);
   }
   const b = $('#now [data-now] ');

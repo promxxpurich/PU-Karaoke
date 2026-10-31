@@ -189,6 +189,15 @@ async def main():
             check("กำลังเล่น: เน้นบรรทัดตามเวลาเพลง", await c.wait("document.querySelector('#now .line.now')?.dataset.k === '1'", 3) is not None)
             check("ไม่มีเครื่องมือจับเวลาเดิม", await c.ev("!document.querySelector('canvas') && !document.body.innerText.includes('แตะ')"))
             await c.shot("01-now")
+            # เพลงยาว: หน้าอยู่นิ่ง กล่องเนื้อเลื่อนเอง (ทดลองในหน้าเท่านั้น ไม่บันทึก)
+            await c.ev("(()=>{const e=ed(S.nowVid);e._keep=[e.lines,e.saved];e.lines=Array.from({length:80},(_,i)=>({t:i*2,d:2,x:'บรรทัด '+i}));e.saved=lineKey(e.lines);drawNow();S.room.playing=false;S.pos=120;markNowLine()})()")
+            moved = await c.wait("document.querySelector('#now .lines').scrollTop > 200", 3)
+            check("เพลงยาว: กล่องเนื้อเลื่อนตามบรรทัดที่ร้อง", moved is not None)
+            check("เพลงยาว: หน้าทั้งหน้าไม่เลื่อน", await c.ev("document.querySelector('#now').scrollTop === 0 && document.documentElement.scrollTop === 0"))
+            check("เพลงยาว: บรรทัดที่ร้องอยู่ในกล่อง", await c.wait("(()=>{const b=document.querySelector('#now .lines').getBoundingClientRect(),r=document.querySelector('#now .line.now').getBoundingClientRect();return r.top>=b.top&&r.bottom<=b.bottom})()", 3) is not None)
+            await asyncio.sleep(0.5)
+            await c.shot("01b-now-long")
+            await c.ev("(()=>{const e=ed(S.nowVid);[e.lines,e.saved]=e._keep;delete e._keep;S.room.playing=true;S.pos=4.2;S.posAt=performance.now();drawNow()})()")
 
             # ใช้แหล่งเนื้อ
             await c.ev("document.querySelector('#now [data-a=useSrc][data-v=\"0\"]').click()")
