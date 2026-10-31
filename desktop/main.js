@@ -60,6 +60,8 @@ function readConfig() {
 function writeConfig(patch) {
   fs.writeFileSync(configPath(), JSON.stringify({ ...readConfig(), ...patch }, null, 1));
 }
+// ลิงก์นอกบ้านเปิดพร้อมเซิร์ฟเวอร์เป็นค่าเริ่มต้น ปิดสวิตช์แล้วแอปจำไว้
+const tunnelPref = () => readConfig().tunnel ?? true;
 const logPath = () => path.join(app.getPath('logs'), 'server.log');
 const pythonPath = () => ENV.KARA_APP_PYTHON || path.join(state.project, '.venv', 'bin', 'python');
 const studioFile = () => path.join(state.project, '.studio.json');
@@ -272,11 +274,17 @@ function onCrash(me) {
   state.ready = false;
   if (state.crashes <= MAX_AUTO_RESTART) {
     const prev = wantServing ? 'on' : 'off';
+    // Python ตัวใหม่ล้างลิงก์ทดลองในไฟล์ตอนเริ่ม แต่อุโมงค์ยังรันอยู่ จึงต้องเขียนกลับ ไม่งั้น QR เปลี่ยนเป็นลิงก์ในบ้าน
+    const liveLink = state.urls.publicUrl;
     state.server = 'restarting';
     notify('bad', 'เซิร์ฟเวอร์ล่ม', `กำลังเปิดใหม่อัตโนมัติ (ครั้งที่ ${state.crashes}/${MAX_AUTO_RESTART})`);
     broadcast();
     bringUp().then((ok) => {
       if (!ok) return;
+      if (liveLink) {
+        writeStudio({ publicUrl: liveLink });
+        state.urls.publicUrl = liveLink;
+      }
       state.server = prev;
       notify('ok', 'เซิร์ฟเวอร์กลับมาแล้ว', prev === 'on' ? 'เพลงที่เล่นอยู่อาจสะดุด จอทีวีต่อกลับเอง' : 'ใช้งานต่อได้');
       broadcast();
@@ -351,6 +359,7 @@ async function stopServer() {
   closeTv();
   broadcast();
   await stopTunnel();
+  state.tunnel = tunnelPref();
   await stopPython();
   if (await bringUp()) {
     state.server = 'off';
@@ -369,12 +378,17 @@ async function startTunnel() {
   if (err) {
     state.tunnel = false;
     notify('bad', 'เปิดลิงก์นอกบ้านไม่ได้', 'ในบ้านยังเข้าผ่าน Wi-Fi ได้ตามปกติ ดูบันทึกเพื่อหาสาเหตุ', { log: true });
+  } else if (state.server !== 'on' || !state.tunnel) {
+    // ระหว่างรอลิงก์ ผู้ใช้ปิดเซิร์ฟเวอร์หรือปิดสวิตช์ไปแล้ว: อย่าปล่อยอุโมงค์ค้าง
+    await run(cloudflareCmd(), ['--stop'], { cwd: state.project, timeout: 15000 });
+  } else {
+    // จอทีวีโหลด QR ใหม่เมื่อได้รับสถานะ จึงต้องสั่ง broadcast ด้วยการบันทึกค่าเดิม
+    await studioApi('/api/studio/tv', {}).catch((e) => addLog(`[แอป] แจ้งจอทีวีเรื่องลิงก์ไม่สำเร็จ: ${e.message}\n`));
   }
   await refreshUrls();
   broadcast();
 }
 async function stopTunnel() {
-  state.tunnel = false;
   state.tunnelBusy = false;
   const { stdout, stderr } = await run(cloudflareCmd(), ['--stop'], { cwd: state.project, timeout: 15000 });
   addLog(stdout + stderr);
@@ -488,6 +502,7 @@ const ACTIONS = {
   'tv:display': (id) => { state.displayId = String(id); moveTv(); },
   'tunnel:set': async (on) => {
     state.tunnel = !!on;
+    writeConfig({ tunnel: state.tunnel });
     if (state.server !== 'on') return;
     if (on) startTunnel(); else await stopTunnel();
   },
@@ -569,6 +584,7 @@ app.whenReady().then(() => {
   app.dock?.setIcon(path.join(__dirname, 'assets', 'icon.png'));
   fs.mkdirSync(app.getPath('logs'), { recursive: true });
   state.project = ENV.KARA_APP_PROJECT || readConfig().project || path.join(os.homedir(), 'Documents', 'kara');
+  state.tunnel = tunnelPref();
   buildMenu();
   createMain();
   for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, broadcast);

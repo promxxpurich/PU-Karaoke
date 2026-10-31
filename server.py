@@ -1097,6 +1097,9 @@ def _subs_sig(vid: str) -> frozenset:
         return frozenset()
 
 
+VIDEO_MAX_H = 1080       # ความละเอียดสูงสุดของเพลงที่โหลดใหม่ (ไม่กระทบไฟล์ที่มีอยู่แล้ว)
+
+
 def _download_video(vid: str) -> None:
     """วิดีโอ — โหลดเฉพาะภาพแล้ว mux กับ audio.m4a ที่มีอยู่แล้วด้วย -c copy
     ห้ามได้ไฟล์ที่ไม่มีเสียงเด็ดขาด: ตอนสเต็มยังไม่พร้อม จอเล่นเสียงจาก video.mp4
@@ -1116,9 +1119,10 @@ def _download_video(vid: str) -> None:
     try:
         # มี audio.m4a แล้วก็ขอแค่ภาพ ไม่ต้องโหลดเสียงซ้ำ
         # ขอ H.264 (avc1) ก่อน — ไม่ระบุ yt-dlp จะเลือก AV1 ซึ่ง iPad/ทีวีส่วนใหญ่เล่นไม่ได้
-        fmt = ("bv*[vcodec^=avc1][height<=720]/bv*[ext=mp4][height<=720]/bv*[height<=720]/b[ext=mp4]/b"
+        h = f"[height<={VIDEO_MAX_H}]"
+        fmt = (f"bv*[vcodec^=avc1]{h}/bv*[ext=mp4]{h}/bv*{h}/b[ext=mp4]/b"
                if audio.is_file()
-               else "bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/b")
+               else f"bv*[vcodec^=avc1]{h}+ba[ext=m4a]/bv*[ext=mp4]{h}+ba[ext=m4a]/b[ext=mp4]/b")
         with YoutubeDL({**_DL_COMMON, **_yt_auth(),
                         "outtmpl": str(d / "%(id)s.v.%(ext)s"),
                         "format": fmt,

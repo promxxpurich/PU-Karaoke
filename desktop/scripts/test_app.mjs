@@ -209,13 +209,8 @@ async function mainRun() {
   await m.ev(`document.querySelector('[data-tab=studio]').click()`);
   check('Studio เดิมต่อกลับเอง', await until(() => studio.ev(`document.body.innerText.includes('TEST app song') && !document.body.classList.contains('off')`), 15000));
 
-  // ลิงก์นอกบ้าน (สคริปต์ปลอม)
-  await m.ev(`document.querySelector('[data-tab=home]').click()`); await sleep(120);
-  await m.ev(`document.querySelector('#tunnel').click()`); await sleep(120);
-  check('เปิดสวิตช์ลิงก์ตอนปิดอยู่: ยังไม่เรียก --quick', !fs.existsSync(path.join(TMP, 'cf.log')) || !fs.readFileSync(path.join(TMP, 'cf.log'), 'utf8').includes('--quick'));
   await m.ev(`document.querySelector('#power').click()`);
   await until(async () => (await S()).server === 'on', 15000);
-  check('เปิดเซิร์ฟเวอร์แล้วเรียก --quick', await until(() => fs.readFileSync(path.join(TMP, 'cf.log'), 'utf8').includes('--quick'), 5000));
 
   // ล่ม 3 ครั้ง
   const kill9 = () => process.kill(pyPid(), 'SIGKILL');
@@ -226,7 +221,7 @@ async function mainRun() {
   await until(async () => (await S()).notice?.text.includes('2/2'), 5000);
   check('ล่มครั้ง 2: เปิดใหม่เอง', await until(async () => (await S()).server === 'on', 40000));
   kill9();
-  check('ล่มครั้ง 3: หยุด ปิดจอทีวี ปิดลิงก์', await until(async () => { const x = await S(); return x.server === 'crashed' && !x.tv.open && !x.tunnel; }, 8000));
+  check('ล่มครั้ง 3: หยุด ปิดจอทีวี', await until(async () => { const x = await S(); return x.server === 'crashed' && !x.tv.open; }, 8000));
   await sleep(1000);
   check('ล่มครั้ง 3: ไม่เปิด Python เองอีก', pyPid() === 0);
   await m.ev(`document.querySelector('#showlog').click()`); await sleep(200);
@@ -235,6 +230,50 @@ async function mainRun() {
   check('เปิดอีกครั้งได้', await until(async () => { const x = await S(); return x.server === 'on' && x.crashes === 0; }, 40000));
   await until(async () => (await S()).tv.fullscreen, 8000);
   check('หน้าหลักไม่มี error', m.errors.length === 0, m.errors.join(' | ').slice(0, 300));
+  await quitApp(proc, true);
+}
+
+// ลิงก์นอกบ้าน: ค่าเริ่มต้นเปิดพร้อมเซิร์ฟเวอร์ (สคริปต์ปลอม ไม่เปิดอุโมงค์จริง)
+async function tunnelRun() {
+  const URL_ = 'https://test-link.trycloudflare.com';
+  const cfLog = path.join(TMP, 'cf.log');
+  fs.writeFileSync(path.join(TMP, 'fake-cf.sh'), `#!/bin/bash
+echo "$@" >> "${cfLog}"
+url=""; [ "$1" = "--quick" ] && url="${URL_}"
+python3 - "$url" <<'PY'
+import json,sys,pathlib
+p=pathlib.Path('.studio.json'); c=json.loads(p.read_text()) if p.exists() else {}
+c['publicUrl']=sys.argv[1]; p.write_text(json.dumps(c))
+PY
+`, { mode: 0o755 });
+  const cf = () => (fs.existsSync(cfLog) ? fs.readFileSync(cfLog, 'utf8') : '');
+  const proc = launch(appEnv({ KARA_APP_TEST_ANSWERS: '0,0,0' }));
+  const m = await pageOf((u) => u.endsWith('ui/index.html'));
+  const S = () => m.ev('S');
+  await until(async () => (await S())?.server === 'off', 90000);
+  check('ลิงก์: ค่าเริ่มต้นเปิด', (await S()).tunnel === true);
+  check('ลิงก์: ก่อนเปิดเซิร์ฟเวอร์ยังไม่เรียก --quick', !cf().includes('--quick'));
+  await m.ev(`document.querySelector('#power').click()`);
+  check('ลิงก์: กดเปิดเซิร์ฟเวอร์แล้วเปิดเอง', await until(async () => (await S()).urls.publicUrl === URL_, 20000));
+  const tv = await pageOf((u) => u === `${BASE}/`);
+  check('ลิงก์: จอทีวีเปลี่ยน QR เป็นลิงก์นี้เอง', await until(() => tv.ev(`document.querySelector('.qcard img').src.includes(encodeURIComponent('${URL_}'))`), 10000));
+  await m.ev(`document.querySelector('[data-tab=home]').click()`); await sleep(300);
+  await shot(m, '20-home-tunnel');
+  process.kill(pyPid(), 'SIGKILL');
+  await until(async () => (await S()).server === 'restarting', 5000);
+  check('ลิงก์: เซิร์ฟเวอร์ล่มแล้วเปิดใหม่ ลิงก์เดิมยังอยู่', await until(async () => { const x = await S(); return x.server === 'on' && x.urls.publicUrl === URL_; }, 40000));
+  await m.ev(`document.querySelector('#power').click()`);
+  await until(async () => (await S()).server === 'off', 40000);
+  check('ลิงก์: ปิดเซิร์ฟเวอร์แล้วปิดอุโมงค์', cf().includes('--stop') && !(await S()).urls.publicUrl);
+  check('ลิงก์: สวิตช์ยังเป็นค่าเดิมสำหรับรอบหน้า', (await S()).tunnel === true);
+  await m.ev(`document.querySelector('#tunnel').click()`); await sleep(200);
+  const quicks = cf().split('--quick').length;
+  await m.ev(`document.querySelector('#power').click()`);
+  await until(async () => (await S()).server === 'on', 15000);
+  await sleep(800);
+  check('ลิงก์: ปิดสวิตช์แล้วไม่เปิดอุโมงค์', cf().split('--quick').length === quicks);
+  check('ลิงก์: แอปจำค่าที่ปิดไว้', JSON.parse(fs.readFileSync(path.join(TMP, 'profile', 'app-config.json'), 'utf8')).tunnel === false);
+  check('ลิงก์: ไม่มี error', m.errors.length === 0, m.errors.join(' | ').slice(0, 200));
   await quitApp(proc, true);
 }
 
@@ -290,6 +329,7 @@ try {
   makeFixtures();
   const which = process.env.TEST_ONLY;
   if (!which || which === 'main') await mainRun();
+  if (!which || which === 'tunnel') await tunnelRun();
   if (!which || which === 'foreign') await foreignRun();
   if (!which || which === 'oldcode') await oldCodeRun();
   if (!which || which === 'old') await oldServerRun();

@@ -217,7 +217,7 @@ function settingsBody() {
       <div class="field"><div class="lbl">เมื่อเซิร์ฟเวอร์ล่ม</div><div class="ctl"><b>เปิดใหม่เองไม่เกิน 2 ครั้ง</b></div></div>
       <div class="field"><div class="lbl">บันทึกเซิร์ฟเวอร์</div><div class="ctl"><button class="btn" id="showlog2">ดูบันทึก</button></div></div></section>`;
   if (ui.setSection === 'network') return `<section class="card"><h2>การเข้าถึง</h2>
-    <div class="field"><div class="lbl"><label for="tunnel2">ลิงก์นอกบ้าน (Cloudflare)</label><small>${esc(tunnelText())} ทุกครั้งที่ปิดเซิร์ฟเวอร์จะกลับเป็นปิด</small></div><div class="ctl"><label class="switch"><input id="tunnel2" type="checkbox" ${S.tunnel ? 'checked' : ''} ${S.tunnelBusy ? 'disabled' : ''}><i></i></label></div></div>
+    <div class="field"><div class="lbl"><label for="tunnel2">ลิงก์นอกบ้าน (Cloudflare)</label><small>${esc(tunnelText())} ค่าเริ่มต้นคือเปิดพร้อมเซิร์ฟเวอร์ ถ้าปิดสวิตช์ แอปจะจำไว้</small></div><div class="ctl"><label class="switch"><input id="tunnel2" type="checkbox" ${S.tunnel ? 'checked' : ''} ${S.tunnelBusy ? 'disabled' : ''}><i></i></label></div></div>
     <div class="field"><div class="lbl">ลิงก์รีโมท</div><div class="ctl"><span class="muted small path">${esc(S.urls.remoteUrl || '-')}</span></div></div>
     <div class="field"><div class="lbl">ลิงก์จอหลักสำหรับ iPad หรือทีวี</div><div class="ctl"><span class="muted small path">${esc(S.urls.tvUrl || '-')}</span></div></div>
     <div class="field"><div class="lbl">ลิงก์นอกบ้าน</div><div class="ctl"><span class="muted small path">${esc(S.urls.publicUrl || 'ปิดอยู่')}</span></div></div></section>`;
