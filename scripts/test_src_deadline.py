@@ -77,5 +77,30 @@ check("แหล่งช้า: ทำต่อเบื้องหลัง�
 SLOW["joox"] = 0.0
 c, _ = K._gather_sources(VID, "", "")
 check("รอบถัดไป: ได้ครบและเลิกนับว่าไม่ครบ", "joox" in {x["provider"] for x in c} and VID not in K._src_late)
+# กฎข้าม OCR
+def lyr_as(src, tsrc, n=30):
+    lines = [{"t": i * 5.0, "d": 4, "x": f"บรรทัด {i}"} for i in range(n)]
+    (d / "lyrics.json").write_text(json.dumps({"v": 1, "src": src, "timeSrc": tsrc, "duration": 60, "lines": lines}), "utf-8")
+    t = time.time() + lyr_as.bump
+    lyr_as.bump += 5
+    os.utime(d / "lyrics.json", (t, t))
+    K._lyr_cache.pop(VID, None)
+
+
+lyr_as.bump = 5
+K._lyr_sparse = lambda vid: ""
+lyr_as("yt-sub", "self")
+check("OCR: ซับที่มีเวลาในตัวและครบ ข้ามได้", K._ocr_worth(VID) is False)
+lyr_as("lrclib", "self")
+check("OCR: LRCLIB มีเวลาในตัว ข้ามได้", K._ocr_worth(VID) is False)
+lyr_as("lrclib-plain", "fa")
+check("OCR: เวลาที่เครื่องจับ ยังอ่าน", K._ocr_worth(VID) is True)
+K._lyr_sparse = lambda vid: "คลุมแค่ 20%"
+lyr_as("yt-sub", "self")
+check("OCR: เนื้อมีแค่บางช่วง ยังอ่าน", K._ocr_worth(VID) is True)
+K._lyr_sparse = lambda vid: ""
+(d / "lyrics.json").unlink()
+K._lyr_cache.pop(VID, None)
+check("OCR: ไม่มีเนื้อ ยังอ่าน", K._ocr_worth(VID) is True)
 print(f"สรุป: ไม่ผ่าน {fails}")
 sys.exit(1 if fails else 0)

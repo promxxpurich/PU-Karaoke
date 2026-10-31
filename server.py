@@ -5263,6 +5263,13 @@ def _ocr_ensure(vid: str, nice: bool = False) -> dict | None:
         return None
 
 
+def _ocr_worth(vid: str) -> bool:
+    """ควรอ่านตัวหนังสือในคลิปไหม (ใช้เวลาราว 35 วิ): วัดจากคลัง 295 เพลง OCR ตัดสินผลแค่ 2 เพลง
+    เนื้อที่มีเวลาในตัวและคลุมครบไม่ต้องอ่าน เหลือเพลงที่ไม่มีเนื้อ เนื้อบางช่วง และเวลาที่เครื่องเดา"""
+    _mt, n, _w, _src, tsrc = _lyr_meta(vid)
+    return not n or bool(_lyr_sparse(vid)) or tsrc != "self"
+
+
 def _ocr_cands(vid: str, cands: list[dict], dur: float) -> list[dict]:
     """ผู้สมัครจากตัวหนังสือในคลิป: (1) ข้อความที่อ่านได้ตรง ๆ (2) ข้อความของแหล่งอื่น + "เวลาที่ขึ้นจอในคลิปนี้"
     OCR สะกดเพี้ยนได้ แต่เวลาเป็นของคลิปนี้จริง — ข้อ 2 จึงเป็นตัวหลัก (FA ตัดสินอีกทีว่าเวลาใช้ได้ไหม)"""
@@ -5547,7 +5554,7 @@ async def _sources_result(vid: str, track: str, artist: str, fresh: bool = False
         if hit and not fresh and time.time() - hit[0] < SRC_TTL:
             cands, used = hit[1]
         else:
-            if not track:
+            if not track and (fresh or _ocr_worth(vid)):     # กดค้นใหม่เอง = อยากได้ครบทุกแหล่ง
                 await asyncio.to_thread(_ocr_ensure, vid)
             errs: list = []
             cands, used = await asyncio.to_thread(_gather_sources, vid, track, artist, errs)
@@ -5717,7 +5724,8 @@ def _prefetch_best(vid: str | None) -> None:
     async def run() -> None:
         t0 = time.monotonic()
         try:
-            await asyncio.to_thread(_ocr_ensure, vid, True)       # ซ้อนกับ demucs -> CPU ลำดับต่ำ (nice)
+            if _ocr_worth(vid):
+                await asyncio.to_thread(_ocr_ensure, vid, True)   # ซ้อนกับ demucs -> CPU ลำดับต่ำ (nice)
             t_ocr = time.monotonic() - t0
             cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
             _best_pre[vid] = (time.time(), h, lang, cands, used)
@@ -5743,7 +5751,8 @@ async def _best_sources(vid: str, base: str) -> tuple[list, dict, bool]:
     pre = _best_pre.pop(vid, None)
     if pre and pre[1:3] == (base, _song_lang(vid)[0]) and time.time() - pre[0] < BEST_PRE_TTL:
         return pre[3], pre[4], True               # ดึงล่วงหน้าทำ OCR ก่อนดึงแหล่ง ลำดับเดียวกับข้างล่าง
-    await asyncio.to_thread(_ocr_ensure, vid)          # 📷 Lyric Video: เวลาที่ตัวหนังสือขึ้นในคลิปนี้
+    if _ocr_worth(vid):
+        await asyncio.to_thread(_ocr_ensure, vid)      # 📷 Lyric Video: เวลาที่ตัวหนังสือขึ้นในคลิปนี้
     # ดึงเนื้อออนไลน์ก่อน (นอกช่อง GPU — รอเน็ตไม่ควรกันงานอื่น)
     cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
     return cands, used, False

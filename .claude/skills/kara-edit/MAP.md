@@ -893,7 +893,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### demucs-mlx: ตัวแยกเสียงเร็วบน Mac + เส้นตายแหล่งเนื้อ
 คำค้น: demucs-mlx, mlx, .venv-sep, แยกเสียงเร็ว, KARA_SEP_MLX, eval_sep, เส้นตาย, แหล่งเนื้อช้า, SRC_ONLINE_DEADLINE
-- `server.py` `SEP_MLX_PYTHON = ` `def _sep_merge_music(` `SRC_ONLINE_DEADLINE = ` `_src_late: dict` — ลอง mlx ก่อนแล้วตกไป demucs เดิม, รอแหล่งออนไลน์รวมไม่เกิน 15 วิ
+- `server.py` `SEP_MLX_PYTHON = ` `def _sep_merge_music(` `SRC_ONLINE_DEADLINE = ` `_src_late: dict` `def _ocr_worth(` — ลอง mlx ก่อนแล้วตกไป demucs เดิม, รอแหล่งออนไลน์รวมไม่เกิน 15 วิ, ข้าม OCR เมื่อเนื้อมีเวลาในตัวและครบ
 - `requirements-sep.txt` — รุ่นที่ตรึงไว้ของ .venv-sep
 - `scripts/eval_sep.py` `def fa_times(` — วัดเทียบ demucs เดิม
 - `scripts/test_sep_mlx.py` `def make_audio(` — ทดสอบการสลับตัวแยกเสียง
