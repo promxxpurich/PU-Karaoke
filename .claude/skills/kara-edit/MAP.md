@@ -890,3 +890,11 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `@app.get("/studio/old", response_class=HTMLResponse)` `@app.get("/studio/{name}")` `async def _sources_result(` `def _src_warm_tick(` `def _revideo_apply(` — หน้าเก่าสำรอง, เตรียมแหล่งเนื้อล่วงหน้าจาก watchdog, เปลี่ยนคลิปตอนเพลงจบ
 - `scripts/test_studio_new.py` `def fake_sources(` — ทดสอบหน้าใหม่บนเพลงปลอมโดยไม่ต่อเน็ต
 ! หัวข้อ "Studio (static/studio.html)" ทั้งหมดคือหน้าเก่าที่ /studio/old · แท็บตัดต่อของหน้าใหม่ฝังจาก /studio/old จึงต้องแยกออกก่อนลบหน้าเก่า
+
+### demucs-mlx: ตัวแยกเสียงเร็วบน Mac + เส้นตายแหล่งเนื้อ
+คำค้น: demucs-mlx, mlx, .venv-sep, แยกเสียงเร็ว, KARA_SEP_MLX, eval_sep, เส้นตาย, แหล่งเนื้อช้า, SRC_ONLINE_DEADLINE
+- `server.py` `SEP_MLX_PYTHON = ` `def _sep_merge_music(` `SRC_ONLINE_DEADLINE = ` `_src_late: dict` — ลอง mlx ก่อนแล้วตกไป demucs เดิม, รอแหล่งออนไลน์รวมไม่เกิน 15 วิ
+- `requirements-sep.txt` — รุ่นที่ตรึงไว้ของ .venv-sep
+- `scripts/eval_sep.py` `def fa_times(` — วัดเทียบ demucs เดิม
+- `scripts/test_sep_mlx.py` `def make_audio(` — ทดสอบการสลับตัวแยกเสียง
+- `scripts/test_src_deadline.py` `def fake_joox(` — ทดสอบเส้นตาย

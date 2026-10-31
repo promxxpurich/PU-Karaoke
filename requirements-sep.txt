@@ -1,0 +1,11 @@
+# ตัวแยกเสียงเร็วบน Apple Silicon: ติดตั้งแยกจาก .venv เพราะต้องใช้ mlx คนละรุ่น (ดู AGENTS.md)
+# uv venv --python 3.12 .venv-sep && uv pip install --python .venv-sep/bin/python -r requirements-sep.txt
+
+demucs-mlx==1.6.1
+mlx==0.32.4
+mlx-audio-io==1.3.24
+mlx-metal==0.32.4
+mlx-spectro==0.9.10
+numpy==2.5.4
+packaging==26.3
+tqdm==4.70.1

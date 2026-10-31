@@ -74,6 +74,11 @@ python3 .claude/skills/kara-edit/kmap.py check               # หลังแ�
 - งานเสร็จแล้วแต่ยังไม่ได้ merge เข้าโฟลเดอร์ที่เซิร์ฟเวอร์รันอยู่ ให้บอกชัด ๆ ว่า "ยังไม่ขึ้นเซิร์ฟเวอร์จริง" แล้วถามว่าจะ merge ไหม
 - ไฟล์ที่ห้ามเข้า git (มีใน `.gitignore` แล้ว): `songs/`, `.cache/`, `.venv/`, `.studio.json`, `history.json`, `combos.json`, `.chrome-player/`
 
+## ตัวแยกเสียง
+
+- บน Mac ใช้ `demucs-mlx` จาก `.venv-sep` (แยกจาก `.venv` เพราะใช้ mlx คนละรุ่น ติดตั้งตามหัวไฟล์ `requirements-sep.txt`) ไม่มีโฟลเดอร์นี้หรือพังซ้ำจะกลับไปใช้ demucs เดิมเอง ปิดได้ด้วย `KARA_SEP_MLX=off`
+- เปลี่ยนรุ่นต้องวัดใหม่ด้วย `scripts/eval_sep.py`
+
 ## แพลตฟอร์ม
 
 พัฒนาบน macOS Apple Silicon ใช้ `mlx-whisper` และ GPU ผ่าน `mps` ถ้าต้องทำให้รันบน Linux/Windows ดู [docs/PORTING.md](docs/PORTING.md) ห้ามทำให้ทางของ Mac ช้าลงหรือพัง (เลือกตามระบบด้วย `sys.platform` / `torch.cuda.is_available()`)

@@ -5,6 +5,7 @@ songs/
 .cache/
 # สร้างใหม่ได้จาก requirements.txt (run.sh ทำให้เอง)
 .venv/
+.venv-sep/
 # แคชถอดเสียง / FA
 lyrics-preview/
 __pycache__/

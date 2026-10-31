@@ -1422,6 +1422,11 @@ DEMUCS_MODEL = "htdemucs"
 _sep_task: asyncio.Task | None = None
 _sep_state: dict[str, dict] = {}                   # videoId -> {"status","error"}
 _sep_device: str | None = None                     # จำ device ที่ใช้ได้ไว้ ไม่ต้องลองใหม่ทุกเพลง
+# demucs-mlx ติดตั้งแยกที่ .venv-sep: เร็วกว่าราว 2 เท่าและกินแรมน้อยกว่ามาก ผลตรงกับ demucs เดิมเท่าที่ demucs เดิมตรงกับตัวเอง
+# (วัดด้วย scripts/eval_sep.py) ไม่มีโฟลเดอร์นี้ / KARA_SEP_MLX=off / พังซ้ำ = ใช้ demucs เดิม
+SEP_MLX_PYTHON = BASE / ".venv-sep" / "bin" / "python"
+SEP_MLX_MAX_FAILS = 2
+_sep_mlx_fails = 0
 _NEVER = 1 << 30                                   # อันดับ "ไม่มีใครรออยู่"
 _VERIFY_RANK = _BACKLOG << 1                       # ตรวจเนื้อยอมให้ทุกอย่างแซงเสมอ
 
@@ -2107,10 +2112,28 @@ def _purge_audio_caches(vid: str) -> None:
         print(f"[sep] {vid} ล้างแคชเสียงไม่ได้: {exc}")
 
 
+def _sep_merge_music(root: Path) -> None:
+    """demucs-mlx แยก 4 สเต็มเสมอ -> รวมเป็น no_vocals.wav แบบเดียวกับ demucs --two-stems
+    (ลดความดังเฉพาะตอนที่รวมแล้วจะแตก ตามสูตร rescale ของ demucs)"""
+    import wave
+    import numpy as np
+    folder = next(root.rglob("vocals.wav")).parent
+    total, params = None, None
+    for name in ("drums", "bass", "other"):
+        with wave.open(str(folder / f"{name}.wav"), "rb") as w:
+            params = w.getparams()
+            data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+        total = data if total is None else total + data
+    total = total / max(1.01 * float(np.abs(total).max()), 1.0)
+    with wave.open(str(folder / "no_vocals.wav"), "wb") as w:
+        w.setparams(params)
+        w.writeframes((total * 32767.0).astype(np.int16).tobytes())
+
+
 def _separate_one(vid: str) -> None:
     """แยก 1 เพลง -> songs/yt/<vid>/{vocals,no_vocals}.m4a
     รันเป็น subprocess: torch ไม่ค้างใน process หลัก และ kill ได้"""
-    global _sep_device
+    global _sep_device, _sep_mlx_fails
     d = _song_dir(vid)
     audio = d / "audio.m4a"
     if not audio.is_file():
@@ -2123,13 +2146,20 @@ def _separate_one(vid: str) -> None:
     tmp.mkdir(parents=True, exist_ok=True)
     try:
         err = ""
-        devs = [_sep_device] if _sep_device else ["mps", "cpu"]
+        devs = [_sep_device] if _sep_device == "mps" else ["mps", "cpu"]
         if "cpu" not in devs:
             devs.append("cpu")   # จำ mps ได้แล้วก็ยังต้องมีทางลง ไม่งั้นเพลงที่ OOM ตายถาวร
+        if SEP_MLX_PYTHON.is_file() and os.environ.get("KARA_SEP_MLX") != "off" and _sep_mlx_fails < SEP_MLX_MAX_FAILS:
+            devs.insert(0, "mlx")
         for dev in devs:
-            cmd = [sys.executable, "-m", "demucs", "-n", DEMUCS_MODEL,
-                   "--two-stems", "vocals", "-d", dev,
-                   "-o", str(tmp), str(audio)]
+            shutil.rmtree(tmp, ignore_errors=True)     # ตัวก่อนหน้าพังกลางทาง: ห้ามหยิบไฟล์ครึ่ง ๆ ของมันมาใช้
+            tmp.mkdir(parents=True, exist_ok=True)
+            if dev == "mlx":
+                cmd = [str(SEP_MLX_PYTHON), "-m", "demucs_mlx", "-n", DEMUCS_MODEL, "-o", str(tmp), str(audio)]
+            else:
+                cmd = [sys.executable, "-m", "demucs", "-n", DEMUCS_MODEL,
+                       "--two-stems", "vocals", "-d", dev,
+                       "-o", str(tmp), str(audio)]
             env = os.environ.copy()
             if dev == "cpu":
                 # cpu = ทางสำรองที่ร้อนมาก: ใช้แค่ครึ่งหนึ่งของ core + nice เหลือเครื่องไว้ให้เพลงที่กำลังเล่น
@@ -2143,14 +2173,23 @@ def _separate_one(vid: str) -> None:
             if vid in _preempt_kill:
                 _preempt_kill.discard(vid)
                 raise _Preempted()   # ห้ามตกไป dev ถัดไป ไม่งั้นโดนฆ่าแล้วไปเปิด demucs ตัวใหม่บน cpu
+            if rc == 0 and dev == "mlx":
+                try:
+                    _sep_merge_music(tmp)
+                except Exception as exc:
+                    rc, err = -1, f"รวมสเต็มดนตรีไม่ได้: {type(exc).__name__}: {exc}"
             if rc == 0:
-                if dev == "mps":
-                    _sep_device = dev   # จำแค่ mps — เคยจำ cpu ไว้ แล้วทุกเพลงหลังจากนั้นแยกบน cpu จนรีสตาร์ท
+                if dev == "mlx":
+                    _sep_mlx_fails = 0
+                if dev in ("mlx", "mps"):
+                    _sep_device = dev   # จำแค่ตัวที่ใช้ GPU — เคยจำ cpu ไว้ แล้วทุกเพลงหลังจากนั้นแยกบน cpu จนรีสตาร์ท
                 break
             if vid in _sep_gone or not audio.is_file():
                 # เพลงถูกลบจาก Studio ระหว่างแยก (demucs โดนฆ่า rc=-9) — ไม่ใช่ mps พัง ห้ามตกไป cpu
                 # ธงตั้งก่อนฆ่า: thread ตื่นมาก่อนไฟล์ถูกลบจริงก็ยังรู้
                 raise RuntimeError("เพลงถูกลบระหว่างแยกเสียง")
+            if dev == "mlx":
+                _sep_mlx_fails += 1
             print(f"[sep] {vid} device={dev} rc={rc}\n{(err or '')[-1500:]}")
         else:
             raise RuntimeError(f"demucs ล้มเหลว: {(err or '').strip()[-300:]}")
@@ -5268,12 +5307,16 @@ def _mxm_token() -> str:
 SRC_TTL = 1800.0
 
 
+SRC_ONLINE_DEADLINE = 15.0    # รอแหล่งออนไลน์รวมกันไม่เกินเท่านี้
+_src_late: dict[str, float] = {}   # เพลงที่รอบล่าสุดมีแหล่งตอบไม่ทัน -> งานเลือกเนื้อนับว่าผลไม่ครบ แล้วลองใหม่
+
+
 def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None) -> list[dict]:
     """ผู้สมัครทุกแหล่ง (ยังไม่ให้คะแนน) — แหล่งออนไลน์ยิงพร้อมกัน แต่ละแหล่งพังได้โดยไม่ลากตัวอื่น
     errs: ส่ง list มา = ได้ชื่อแหล่งที่พัง (งานเลือกเนื้ออัตโนมัติใช้ตัดสินว่าผลยังไม่ครบ ต้องลองใหม่)"""
     import gen_lyrics as G
     import lyrics_more as M
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, wait as wait_futures
     d = _song_dir(vid)
     meta = _song_meta(vid)
     dur = float(meta["duration"] or 0)
@@ -5358,7 +5401,10 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
             res.append(("lrclib", lab, ln, None if ln else LS._plain_of(rec), ex))
         return res
 
+    took: dict[str, float] = {}
+
     def wrap(name, fn):
+        t0 = time.monotonic()
         try:
             return fn()
         except Exception as exc:
@@ -5366,6 +5412,8 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
             if errs is not None:
                 errs.append(name)
             return []
+        finally:
+            took[name] = time.monotonic() - t0
     mxm_tok = _mxm_token()
     jobs = {"lrclib": lrclib,
             "joox": lambda: M.from_joox(queries, dur, per=2, max_total=6),
@@ -5382,14 +5430,29 @@ def _gather_sources(vid: str, track: str, artist: str, errs: list | None = None)
                 _mxm_state.update(err=str(exc), at=time.time())
                 raise
         jobs["musixmatch"] = mxm
-    with ThreadPoolExecutor(len(jobs)) as ex:
-        futs = {k: ex.submit(wrap, k, fn) for k, fn in jobs.items()}
-        for k, f in futs.items():
-            for c in f.result():
-                if isinstance(c, tuple):
-                    add(c[0], c[1], lines=c[2], texts=c[3], extra=c[4])
-                else:
-                    add(c["provider"], c["label"], lines=c["lines"], texts=c["texts"], extra=c["meta"])
+    # แหล่งที่ช้าไม่ถ่วงทั้งชุด: ถึงเส้นตายแล้วใช้เท่าที่ได้ ตัวที่ยังทำอยู่ทำต่อเบื้องหลังและเก็บลงแคชเน็ต
+    # รอบที่ลองใหม่ (_best_retry_later) จึงได้ผลของมันทันที
+    ex = ThreadPoolExecutor(len(jobs))
+    futs = {k: ex.submit(wrap, k, fn) for k, fn in jobs.items()}
+    wait_futures(futs.values(), timeout=SRC_ONLINE_DEADLINE)
+    late = [k for k, f in futs.items() if not f.done()]
+    ex.shutdown(wait=False)
+    for k, f in futs.items():
+        if k in late:
+            continue
+        for c in f.result():
+            if isinstance(c, tuple):
+                add(c[0], c[1], lines=c[2], texts=c[3], extra=c[4])
+            else:
+                add(c["provider"], c["label"], lines=c["lines"], texts=c["texts"], extra=c["meta"])
+    if late:
+        _src_late[vid] = time.time()
+        if errs is not None:
+            errs.extend(late)
+    else:
+        _src_late.pop(vid, None)
+    print(f"[sources] {vid} เวลารายแหล่ง " + " ".join(f"{k} {took[k]:.1f}s" for k in jobs if k in took)
+          + (f" | เกินเส้นตาย {SRC_ONLINE_DEADLINE:.0f}s: {' '.join(late)}" if late else ""))
     if not track:
         out.extend(_ocr_cands(vid, out, dur))             # 📷 เนื้อ/เวลาจากตัวหนังสือในคลิป (ถ้าเคยอ่านแล้ว)
     # ตัดซ้ำ (ข้อความเหมือนกันทุกตัวอักษร) เก็บตัวที่มาก่อน
@@ -5655,9 +5718,10 @@ def _prefetch_best(vid: str | None) -> None:
         t0 = time.monotonic()
         try:
             await asyncio.to_thread(_ocr_ensure, vid, True)       # ซ้อนกับ demucs -> CPU ลำดับต่ำ (nice)
+            t_ocr = time.monotonic() - t0
             cands, used = await asyncio.to_thread(_gather_sources, vid, "", "")
             _best_pre[vid] = (time.time(), h, lang, cands, used)
-            print(f"[best] {vid} ดึงแหล่งล่วงหน้า {len(cands)} ผู้สมัคร | {time.monotonic() - t0:.0f}s{_since_add(vid)}")
+            print(f"[best] {vid} ดึงแหล่งล่วงหน้า {len(cands)} ผู้สมัคร | {time.monotonic() - t0:.0f}s (อ่านตัวหนังสือในคลิป {t_ocr:.0f}s){_since_add(vid)}")
         except Exception as exc:
             print(f"[best] {vid} ดึงแหล่งล่วงหน้าไม่ได้: {type(exc).__name__}: {exc}")
         finally:
@@ -6196,7 +6260,7 @@ async def _run_best(vid: str) -> None:
         if dec["action"] != "none":
             await asyncio.to_thread(_check_now, vid, "best")
         lap("ตรวจ", t)
-        partial = online == 0
+        partial = online == 0 or vid in _src_late
         if partial:
             _best_retried.add(vid)
             _best_retry_later(vid)
