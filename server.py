@@ -1100,6 +1100,73 @@ def _subs_sig(vid: str) -> frozenset:
 VIDEO_MAX_H = 1080       # ความละเอียดสูงสุดของเพลงที่โหลดใหม่ (ไม่กระทบไฟล์ที่มีอยู่แล้ว)
 
 
+def _probe_video(f: Path) -> dict | None:
+    """ความละเอียด / บิตเรตภาพ / ความยาว ของไฟล์วิดีโอ (None = เปิดไม่ได้)"""
+    if not FFPROBE:
+        return None
+    try:
+        r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "v:0",
+                            "-show_entries", "stream=height,bit_rate:format=duration,size", "-of", "json", str(f)],
+                           capture_output=True, text=True, timeout=30)
+        j = json.loads(r.stdout or "{}")
+        st = j["streams"][0]
+        dur = float(j["format"]["duration"])
+        # webm ไม่บอกบิตเรตรายแทร็ก ใช้ค่าเฉลี่ยจากขนาดไฟล์แทน
+        kbps = int(st.get("bit_rate") or 0) / 1000 or int(j["format"]["size"]) * 8 / 1000 / dur
+        return {"height": int(st["height"]), "kbps": kbps, "dur": dur}
+    except Exception:
+        return None
+
+
+def _song_on_screen(vid: str) -> bool:
+    return (room.current or {}).get("videoId") == vid
+
+
+def _revideo(vid: str, d: Path) -> str:
+    """🎞 โหลดคลิปใหม่ให้ชัดขึ้น: โหลดภาพใหม่แยกไว้ก่อน แล้วสลับเมื่อดีกว่าจริงเท่านั้น
+    เสียงในไฟล์ใช้ของเดิมและไม่แตะ audio/สเต็ม/เนื้อ เวลาซับจึงยังตรง โหลดพลาดไฟล์เดิมยังอยู่ครบ
+    ขอเฉพาะ H.264 เพราะ AV1 เล่นบน iPad/ทีวีไม่ได้ และห้ามเข้ารหัสใหม่ (เครื่องร้อน)"""
+    video = d / "video.mp4"
+    old = _probe_video(video) if video.is_file() else None
+    if not old:
+        return "เพลงนี้ไม่มีไฟล์วิดีโอที่เปิดได้ ใช้ปุ่มลบแล้วโหลดใหม่แทน"
+    work = d / "_revideo"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    try:
+        try:
+            with YoutubeDL({**_DL_COMMON, **_yt_auth(), "outtmpl": str(work / "v.%(ext)s"),
+                            "format": f"bv*[vcodec^=avc1][height<={VIDEO_MAX_H}]"}) as ydl:
+                ydl.download([f"https://www.youtube.com/watch?v={vid}"])
+        except Exception as exc:
+            if _BOT_RE.search(str(exc)):
+                return "YouTube บล็อกการโหลดอยู่ ไฟล์เดิมยังอยู่ ลองใหม่ภายหลัง"
+            if "Requested format is not available" in str(exc):
+                return "YouTube ไม่มีคลิปแบบ H.264 ที่ใช้ได้ ไฟล์เดิมยังอยู่"
+            return f"โหลดไม่สำเร็จ ไฟล์เดิมยังอยู่: {str(exc)[:120]}"
+        src = next(iter(sorted(work.glob("v.*"))), None)
+        new = _probe_video(src) if src else None
+        if not new:
+            return "ไฟล์ที่โหลดมาเปิดไม่ได้ ไฟล์เดิมยังอยู่"
+        was = f'{old["height"]}p {old["kbps"]:.0f} kbps'
+        got = f'{new["height"]}p {new["kbps"]:.0f} kbps'
+        if not (new["height"] > old["height"] or (new["height"] == old["height"] and new["kbps"] > old["kbps"] * 1.15)):
+            return f"คลิปบน YouTube ไม่ได้ชัดกว่าของเดิม จึงไม่เปลี่ยน (เดิม {was}, ที่โหลดได้ {got})"
+        if abs(new["dur"] - old["dur"]) > 1.5:
+            return f'คลิปบน YouTube ยาวไม่เท่าของเดิม ({old["dur"]:.0f} กับ {new["dur"]:.0f} วิ) อาจทำให้ซับเพี้ยน จึงไม่เปลี่ยน'
+        out = work / "out.mp4"
+        _ffmpeg(["-i", str(src), "-i", str(video), "-map", "0:v:0", "-map", "1:a:0",
+                 "-c", "copy", "-movflags", "+faststart", "-f", "mp4", str(out)])
+        if not _has_audio_stream(out) or not _probe_video(out):
+            return "รวมภาพกับเสียงไม่สำเร็จ ไฟล์เดิมยังอยู่"
+        if _song_on_screen(vid):
+            return "เพลงนี้เริ่มเล่นระหว่างโหลด จึงยังไม่เปลี่ยน กดใหม่อีกครั้งเมื่อเพลงจบ"
+        out.replace(video)               # atomic: จอที่เปิดเพลงนี้ทีหลังได้ไฟล์ครบเสมอ
+        return f"เปลี่ยนคลิปแล้ว: เดิม {was} → ใหม่ {got}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def _download_video(vid: str) -> None:
     """วิดีโอ — โหลดเฉพาะภาพแล้ว mux กับ audio.m4a ที่มีอยู่แล้วด้วย -c copy
     ห้ามได้ไฟล์ที่ไม่มีเสียงเด็ดขาด: ตอนสเต็มยังไม่พร้อม จอเล่นเสียงจาก video.mp4
@@ -6109,6 +6176,13 @@ async def studio_action(vid: str, request: Request):
                 msg = f"สั่งซ่อมขั้น {what}: {why}"
             else:
                 msg = "ไม่เจอขั้นที่พังค้าง — เลือกปุ่มซ่อมเฉพาะขั้นได้"
+        elif do == "revideo":
+            if _song_on_screen(vid):
+                msg = "เพลงนี้กำลังเล่นอยู่ กดอีกครั้งเมื่อเพลงจบ"
+            else:
+                msg = await asyncio.to_thread(_revideo, vid, d)
+                room.archive_rev += 1
+                await room.broadcast()
         elif do == "redl":
             for name in ("video.mp4", "audio.m4a"):
                 (d / name).unlink(missing_ok=True)

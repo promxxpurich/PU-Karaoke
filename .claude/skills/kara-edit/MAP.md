@@ -617,6 +617,8 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### ปุ่มซ่อม / ลองใหม่ / ลบเพลง (Studio action / fix / delete)
 คำค้น: ปุ่มซ่อม, ซ่อม, fix, ลองใหม่, retry, โหลดใหม่, redl, แยกเสียงใหม่, resep, หาเนื้อใหม่, relyr, เลิกใช้เนื้อที่แก้เอง, drop-edit, ตั้งภาษา, ทำทั้งคลัง, best-all, words-all, ลบเพลง, delete, 🗑
+- `server.py` `def _revideo(` `def _probe_video(` `elif do == "revideo":` — 🎞 โหลดคลิปใหม่รายเพลง: โหลดแยกก่อน สลับเมื่อชัดกว่าเท่านั้น ไม่แตะเสียง/สเต็ม/เนื้อ
+- `scripts/test_revideo.py` `class FakeYDL:` — ทดสอบปุ่มนี้โดยไม่ต่อ YouTube
 - `server.py` `@app.post("/api/studio/song/{vid}/action")` `if do == "fix":` `elif do == "drop-edit":` — ปุ่มซ่อมใน Studio ใช้ได้กับทุกเพลงในเครื่อง: fix/redl/resep/relyr/verify/drop-edit/asrtext/words/best/best-all/lang/detect-lang/words-all (ล็อกแยกต่อเพลง ไม่ถือ room.lock)
 - `server.py` `def _fix_target(` `async def _do_fix(` `def _fix_fields(` `elif act == "fix":` — หาขั้นที่พังค้างจริง (dl/audio/sep/lyr/verify) ใช้ร่วมกันทั้งป้ายบนการ์ดและปุ่ม "ลองใหม่" บนรีโมท
 - `server.py` `@app.delete("/api/studio/song/{vid}")` `def _purge_song_files(` — 🗑 ลบโฟลเดอร์เพลงและแคชทุกที่ (ฆ่าโปรเซสลูกก่อน, ห้ามลบเพลงที่กำลังเล่น, ?edits=1 ลบไฟล์ใน lyrics-in ด้วย, ไม่แตะประวัติ)

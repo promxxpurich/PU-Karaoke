@@ -950,7 +950,8 @@ async function openSong(vid, mode){
 // ===== 7. หัวเพลง: สถานะ / คำแนะนำ / ปุ่มซ่อม =========================
 const ACT_INFO = {
   fix:    ['🔧 ซ่อมอัตโนมัติ', 'ให้ระบบเลือกขั้นที่พังแล้วทำใหม่ให้เอง'],
-  redl:   ['⬇️ โหลดใหม่', 'ลบวิดีโอ/เสียงของเพลงนี้แล้วโหลดจาก YouTube ใหม่ (ระหว่างโหลดเพลงนี้จะเล่นไม่ได้)'],
+  revideo: ['🎞 โหลดคลิปใหม่', 'โหลดคลิปจาก YouTube ใหม่ให้ชัดขึ้น สูงสุด 1080p เปลี่ยนเฉพาะเมื่อชัดกว่าของเดิม เสียงและเนื้อเดิมไม่เปลี่ยน ถ้าโหลดไม่สำเร็จ คลิปเดิมยังอยู่'],
+  redl:   ['⬇️ ลบแล้วโหลดใหม่', 'ลบวิดีโอ/เสียงของเพลงนี้ก่อน แล้วโหลดจาก YouTube ใหม่ ใช้เมื่อไฟล์เสีย (ระหว่างโหลดเพลงนี้จะเล่นไม่ได้ และถ้าโหลดไม่ได้เพลงจะหายไป)'],
   resep:  ['🎛 แยกเสียงใหม่', 'ลบไฟล์ไกด์เสียงร้องแล้วแยกใหม่ (ใช้ GPU ราว 2-3 นาที)'],
   relyr:  ['📝 หาเนื้อใหม่', 'ล้างเนื้อปัจจุบันแล้วหาจากทุกแหล่งใหม่ (ถ้ามีเนื้อที่แก้เองไว้ จะได้ฉบับที่แก้เองกลับมา)'],
   verify: ['🔍 ตรวจเวลาเนื้อ', 'เทียบเวลาเนื้อกับเสียงร้องจริง ได้คะแนน % และคำแนะนำเลื่อน (ถ้าเพลงกำลังเล่นจะรอให้จบก่อน)'],
@@ -986,7 +987,7 @@ function renderInfo(){
       + `<button class="primary" data-ed="usesugg" data-v="${sh}">ใช้เลย</button>`;
   if(document.activeElement !== $('#offin')) $('#offin').value = S.offset.toFixed(2);
   const fa = d.fa && d.fa.ready, manual = ['manual-edit','manual-lrc','manual-txt'].includes(i.lyrSrc);
-  const acts = ['fix','redl','resep','relyr','verify'].concat(fa && !manual && (i.lyrLines || i.lyrStatus === 'nolyr') ? ['best'] : [],
+  const acts = ['fix','revideo','redl','resep','relyr','verify'].concat(fa && !manual && (i.lyrLines || i.lyrStatus === 'nolyr') ? ['best'] : [],
                                                           i.lyrLines && fa ? ['words'] : [],
                                                           i.edited ? ['drop-edit'] : [],
                                                           fa ? ['best-all', 'words-all'] : [],
@@ -1029,8 +1030,9 @@ $('#acts').addEventListener('click', async e => {
   if(k === 'delete'){ openDeleteDlg(); return; }
   if(!confirm(`${lb}\n\n${why}\n\nทำเลยไหม?`)) return;
   b.disabled = true;
+  if(k === 'revideo') b.textContent = '⏳ กำลังโหลดคลิป…';
   try{ const r = await api(`/api/studio/song/${S.cur}/action`, {method:'POST', body:JSON.stringify({do:k})});
-       toast('✓ ' + (r.msg || 'สั่งแล้ว')); }
+       toast((k === 'revideo' ? '' : '✓ ') + (r.msg || 'สั่งแล้ว'), k === 'revideo' ? 7000 : undefined); }
   catch(err){ toast('⚠️ ' + err.message); }
   b.disabled = false; loadSongs();
 });
