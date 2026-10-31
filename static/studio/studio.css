@@ -66,6 +66,8 @@ body.embed #top{display:none}
 .searchrow{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 .searchrow input{flex:1;min-width:110px;height:32px;padding:0 10px;border:1px solid rgba(var(--w),.16);border-radius:10px;background:var(--field)}
 .wait{padding:22px 8px;text-align:center;color:var(--dim)}
+.srcfrom{margin:-4px 0 9px;font-size:13px;color:var(--dim)}
+.srcfrom b{color:var(--fg);font-weight:600}
 .toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px}
 .shift{display:inline-flex;align-items:center;gap:6px}
 .lines{position:relative;display:flex;flex-direction:column;gap:2px}

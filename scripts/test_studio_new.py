@@ -66,6 +66,8 @@ def fake_sources(vid, track, artist, errs=None):
         {"id": "b", "provider": "lrclib", "label": "LRCLIB", "synced": True, "match": 40, "cover": 50, "shift": 0,
          "lines": [{"t": 2, "d": 2, "x": "เนื้อจาก LRCLIB"}]},
         {"id": "c", "provider": "web/description", "label": "คำอธิบาย", "synced": False, "match": 30, "texts": ["เนื้อเปล่าบรรทัดเดียว"]},
+        {"id": "d", "provider": "current", "label": "เนื้อที่ใช้อยู่ตอนนี้ · LRCLIB", "synced": True, "match": 60, "shift": 0,
+         "lines": [{"t": 0.5, "d": 3, "x": "เนื้อเดิมบรรทัดหนึ่ง"}, {"t": 4, "d": 3, "x": "เนื้อเดิมบรรทัดสอง"}]},
     ], {"title": ["TEST"], "lyric": []})
 
 
@@ -207,6 +209,10 @@ async def main():
             check("ใช้เลย: บอกที่มา", "JOOX" in (j.get("picked") or ""))
             check("ใช้เลย: มีไฟล์สำรองเนื้อเดิม", any(next(K.DL_DIR.glob(f"*{VIDS[0]}*")).joinpath("lyrics.edits").glob("*.json")))
             check("ใช้เลย: ขึ้นว่าใช้อยู่", await c.wait("document.querySelector('#now .src.active')?.innerText.includes('JOOX')", 3) is not None)
+            check("ใช้เลย: บอกว่าเนื้อมาจาก JOOX", await c.wait("document.querySelector('#now .srcfrom')?.innerText.includes('เลือกเองจาก') && document.querySelector('#now .srcfrom').innerText.includes('JOOX')", 3) is not None)
+            check("เนื้อเดิม: ไม่ขึ้นว่าใช้อยู่แล้ว และมีปุ่มใช้เลย", await c.ev("(()=>{const r=[...document.querySelectorAll('#now .src')].find(x=>x.innerText.includes('เนื้อเดิม'));return !!r&&!r.classList.contains('active')&&!!r.querySelector('[data-a=useSrc]')})()"))
+            check("มีแถวใช้อยู่แถวเดียว", await c.ev("document.querySelectorAll('#now .src.active').length") == 1)
+            await c.shot("01c-after-switch")
 
             # ย้อนกลับ
             await c.ev("document.querySelector('#now [data-a=undo]').click()")
@@ -236,7 +242,7 @@ async def main():
             # เนื้อเปล่าที่จับเวลาไม่ได้ต้องไม่ทับของเดิม
             before = lyr(VIDS[0])["lines"]
             await c.ev("fetch=(o=>(u,p)=>String(u).endsWith('/autotime')?Promise.resolve(new Response('{\"need\":\"asr\"}',{status:200})):o(u,p))(fetch);0")
-            await c.ev("document.querySelector('#now [data-a=useSrc][data-v=\"2\"]').click()")
+            await c.ev("[...document.querySelectorAll('#now .src')].find(x=>x.innerText.includes('คำอธิบายคลิป')).querySelector('[data-a=useSrc]').click()")
             await c.wait("document.querySelector('#toast').textContent.includes('จับเวลา')", 4)
             check("เนื้อเปล่าจับเวลาไม่ได้: ไม่ทับเนื้อเดิม", lyr(VIDS[0])["lines"] == before)
 

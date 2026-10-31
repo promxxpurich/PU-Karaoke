@@ -101,7 +101,8 @@ async function openEd(vid) {
   drawEditors();
 }
 
-const provName = (c) => (c.provider.startsWith('ocr+') ? `${PROV[c.provider.slice(4)] || c.provider.slice(4)} + เวลาจากคลิป` : PROV[c.provider] || c.label || c.provider);
+// แถว "เนื้อเดิม" คือเนื้อตอนระบบเตรียมแหล่ง หลังเปลี่ยนเนื้อแล้วก็เลือกกลับมาใช้ได้เหมือนแหล่งอื่น
+const provName = (c) => (c.provider === 'current' ? `เนื้อเดิม${String(c.label || '').includes('·') ? ` (${String(c.label).split('·').pop().trim()})` : ''}` : c.provider.startsWith('ocr+') ? `${PROV[c.provider.slice(4)] || c.provider.slice(4)} + เวลาจากคลิป` : PROV[c.provider] || c.label || c.provider);
 
 // ใช้ได้ทันทีเมื่อมีเวลา: เวลา FA จากเสียงร้องจริงก่อน ไม่มีค่อยใช้เวลาของแหล่ง ไม่มีเวลาเลยให้ระบบจับให้
 async function linesFromCand(e, c) {
@@ -209,7 +210,7 @@ function sourcesHtml(e) {
   const cur = lineKeyN(e.detail?.lyrics?.lines);
   return e.cands.map((c, k) => {
     const texts = c.synced ? c.lines.map((l) => l.x) : c.texts;
-    const active = c.provider === 'current' || lineKeyN(texts.map((x) => ({ x }))) === cur;
+    const active = lineKeyN(texts.map((x) => ({ x }))) === cur;
     const tone = (v) => (v >= 45 ? 'ok' : v >= 20 ? 'warn' : 'bad');
     const canTry = c.faLines || c.synced;
     return `<div class="src${active ? ' active' : ''}">
@@ -248,6 +249,7 @@ function editorHtml(e, { preview }) {
         <button class="btn tiny" data-a="researchSrc" ${e.srcBusy ? 'disabled' : ''}>ค้นใหม่</button></div></details>
     </section>
     <section class="card"><h2>เนื้อที่ใช้อยู่ ${lines.length ? `<span class="muted small">${lines.length} บรรทัด</span>` : ''}</h2>
+      <p class="srcfrom">มาจาก: <b>${esc(lyricSource(it))}</b></p>
       <div class="toolbar">
         <button class="btn primary tiny" data-a="save" ${isDirty(e) && !e.busy ? '' : 'disabled'}>${icon('save')}บันทึก</button>
         ${isDirty(e) ? '<button class="btn tiny" data-a="discard">ทิ้งที่แก้</button>' : ''}
@@ -261,6 +263,14 @@ function editorHtml(e, { preview }) {
         <input value="${esc(l.x)}" data-k="${k}" aria-label="บรรทัด ${k + 1}"><button class="x" data-a="delLine" data-v="${k}" aria-label="ลบบรรทัด ${k + 1}">✕</button></div>`).join('') || '<div class="wait">เพลงนี้ยังไม่มีเนื้อ เลือกจากแหล่งเนื้อได้เลย</div>'}</div>
       <button class="btn tiny" data-a="addLine" style="margin-top:8px">＋ เพิ่มบรรทัด</button>
     </section></div>`;
+}
+// เนื้อที่ใช้อยู่มาจากไหน: ใช้ข้อมูลชุดเดียวกับป้ายในคิว
+function lyricSource(it) {
+  if (!it.lyrLines) return 'ยังไม่มีเนื้อ';
+  const f = it.lyrFrom;
+  if (f?.kind === 'picked') return `เลือกเองจาก ${String(f.label).replace(/^เนื้อ(จาก)?/, '').trim()}`;
+  if (f?.kind === 'best') return `ระบบเลือกจาก ${String(f.label).replace(/^เนื้อที่ใช้อยู่ตอนนี้ · /, '')}`;
+  return it.lyrKind || it.lyrSrc || 'ไม่ทราบที่มา';
 }
 function headHtml(e) {
   const it = e.detail?.item;
