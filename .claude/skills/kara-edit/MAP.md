@@ -365,12 +365,13 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `static/studio.html` `// ===== 16c.` `function fromText(i){` `function bestLine(i){` `function qHead(i, pos){` `function renderQueue(){` `$('#qlist').addEventListener` `function updateQCount(){` — ข้อมูลสดจาก ws (S.room), การ์ดไม่สร้างใหม่ (กันกระพริบ), ✨ POST action do:'best', ✏️ เปิดในตัวแก้
 ! เนื้อที่แก้เอง/เลือกเอง (MANUAL_SRC) ระบบไม่เปลี่ยนให้ — ปุ่ม ✨ ถูกปิด
 
-### 📺 แท็บหน้าจอหลัก: ตั้งค่าทีวี + พรีวิวจำลอง + รูปมุมขวาบน
-คำค้น: ตั้งค่าจอ, หน้าจอหลัก, tv settings, 📺, ทีวี, สีซับ, ขนาดซับ, สีคาราโอเกะ, ความสว่าง, พื้นหลังใต้ซับ, เงา, ขอบตัวอักษร, ยกซับ, QR, เวลาเพลง, การ์ดต่อไป, การ์ดเพิ่มเข้าคิว, โลโก้, รูปมุมขวาบน, อัปรูป, ข้อความหน้าจอว่าง, ชิปหลังชื่อเพลง, ซ่อนแถบชื่อ, นับถอยหลัง, แยกเสียงร้อง, คืนค่าเริ่มต้น
-- `static/studio.html` ` .tvgrid{display:grid` ` .tvform fieldset{` ` .tvpv{position:relative` — CSS ฟอร์ม + พรีวิวจำลอง (cqw แทน vw ของทีวี)
-- `static/studio.html` `id="vtv"` `id="tvpv"` — HTML
-- `static/studio.html` `// ===== 16d.` `const TV_CHIP_LB = ` `async function loadTv(){` `function renderTvForm(){` `function fillTvForm(){` `function tvSet(patch){` `function renderTvPreview(){` — GET/POST /api/studio/tv (บันทึกเอง หน่วง 300ms), อัป/ลบรูป PUT/DELETE /api/studio/tv/logo (≤10 MB), คืนค่าเริ่มต้น
-! ค่าใหม่ (data-tv="key") ต้องเพิ่มใน TV_SCHEMA ของ server.py + applyTv ใน static/player.html + renderTvPreview ที่นี่ · ชิปใหม่ต้องตรงกับ TV_CHIPS (server.py) และ CH ใน static/player.html
+### 📺 ตั้งค่าหน้าจอหลัก (หน้า /tvset ใช้ร่วมกันใน Studio และแอป Mac)
+คำค้น: ตั้งค่าจอ, หน้าจอหลัก, tv settings, 📺, ทีวี, สีซับ, ขนาดซับ, สีคาราโอเกะ, ความสว่าง, พื้นหลังใต้ซับ, เงา, ขอบตัวอักษร, ยกซับ, QR, เวลาเพลง, การ์ดต่อไป, การ์ดเพิ่มเข้าคิว, โลโก้, รูปมุมขวาบน, อัปรูป, พรีวิว, tvset, ชี้จุดที่เปลี่ยน
+- `static/studio.html` `/* ---------- 📺 หน้าจอหลัก ---------- */` `id="vtv"` `// ===== 16d.` `function loadTv(){` — แท็บ 📺 ฝัง /tvset ใน iframe, TV.cur จำค่าจาก websocket ให้พรีวิวเนื้อและแท็บตัดต่อ
+- `static/tvset/tvset.js` `const TV_GROUPS = ` `const FIELD_VIEW = ` `function renderTvView(` `function applyField(` `function pointAt(` `function saveLater(` `function bindLogo(` `function connectWs(` — ฟอร์มทุกค่า, ค่าไหนเห็นผลที่ฉาก/ส่วนไหนของจอ, ภาพจอจำลอง, ป้ายชี้จุดที่เปลี่ยน, บันทึก POST /api/studio/tv หน่วง 300ms, รูปมุมขวาบน
+- `static/tvset/tvset.css` `/* ===== ภาพจอจำลอง` — สัดส่วนชุดเดียวกับ player.html (cqw แทน vw)
+- `server.py` `@app.get("/tvset", response_class=HTMLResponse)` `@app.get("/tvset/{name:path}")` — เสิร์ฟหน้าและไฟล์ของหน้าตั้งค่า
+! ค่าใหม่ต้องเพิ่มใน TV_SCHEMA ของ server.py + applyTv ใน static/player.html + TV_GROUPS และ FIELD_VIEW ใน static/tvset/tvset.js + renderTvView ถ้าเห็นบนจอ · ชิปใหม่ต้องตรงกับ TV_CHIPS (server.py) และ CH ใน static/player.html
 
 ### ✂️ แท็บตัดต่อ & คอมโบ (แทร็กสองเพลง + จอทีวีเล็ก + แก้คอมโบ)
 คำค้น: ตัดต่อ, ตัดคลิป, จุดเริ่ม, จุดจบ, trim, เฟดรายเพลง, คอมโบ, combo, เพลย์ลิสต์, ฟังรอยต่อ, จอเล็ก, บันทึกคิวเป็นคอมโบ, โหมด custom, หน้าอินโทร, มือถือ, iPad, จอสัมผัส, touch, ลากด้วยนิ้ว, ซูมแทร็ก, ปุ่มขยับละเอียด, ดูดเข้าท่อน, 🧲
@@ -394,7 +395,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 
 ### พาธไฟล์ ค่าคงที่ และโฟลเดอร์เพลง (config / paths / song folders)
 คำค้น: ตั้งค่า, config, พาธ, path, โฟลเดอร์เพลง, songs/yt, ชื่อโฟลเดอร์, videoId, lyrics-in, .studio.json, พอร์ต, port 8080, env, ตัวแปรแวดล้อม, KARA_ALLOWED_HOSTS, KARA_ASR_MODEL, KARA_STUDIO_PIN, KARA_REFINE, HF_HOME, แคชโมเดล, timeout, ย้ายโฟลเดอร์, migrate
-- `server.py` `BASE = Path(__file__).parent` `DL_DIR = SONGS / "yt"` `LYRICS_IN = BASE / "lyrics-in"` `STUDIO_FILE = BASE / ".studio.json"` `PORT = 8080` — พาธหลัก (songs/, songs/yt/, songs/.thumbs, lyrics-in/, .studio.json) และพอร์ต
+- `server.py` `BASE = Path(__file__).parent` `DL_DIR = SONGS / "yt"` `LYRICS_IN = BASE / "lyrics-in"` `STUDIO_FILE = BASE / ".studio.json"` `PORT = int(os.environ.get("KARA_PORT")` — พาธหลัก (songs/, songs/yt/, songs/.thumbs, lyrics-in/, .studio.json) และพอร์ต
 - `server.py` `os.environ.setdefault("HF_HOME"` `SEG_CACHE = BASE / "lyrics-preview" / "_seg"` `SEP_TIMEOUT = 30 * 60` — แคชโมเดล HF/torch อยู่ใน .cache/ ของโปรเจกต์, แคชผลถอดเสียง, timeout ของงานหนักแต่ละชนิด
 - `server.py` `KARA_ALLOWED_HOSTS` `KARA_ASR_MODEL` `if os.environ.get("KARA_STUDIO_PIN"):` `REFINE_MODE = os.environ.get("KARA_REFINE"` — env ทั้งหมดที่ server.py อ่าน: Host เพิ่มเติมที่นับเป็นเครื่องตัวเอง / ชื่อโมเดล ASR (ที่นี่ใช้แค่แสดงใน /api/health) / PIN ของ Studio ที่ใช้แทนค่าในไฟล์ / โหมดซ่อมเวลา on|dry|off
 - `server.py` `def _safe_name(` `def _song_dir(` `def _rescan_dirs(` `def _migrate_song_dirs(` `def _vid_ok(` — ตั้งชื่อโฟลเดอร์ "<ชื่อเพลง> [<videoId>]", แปลง videoId เป็นโฟลเดอร์จริง (สแกนใหม่ไม่เกินทุก 2 วิ), ตอนบูตเปลี่ยนชื่อโฟลเดอร์แบบเก่า <vid>/
@@ -763,7 +764,7 @@ anchor = ข้อความในบรรทัดเดียวของ�
 - `server.py` `"mv": (bool, False),` `_MV_FRAME = re.compile(` `@app.get("/song/{vid}/frames/{name}")` `@app.get("/mv/{name:path}")` — ค่าตั้งปิดเป็นค่าเริ่มต้น, ภาพนิ่ง <เพลง>/frames/fSSS.jpg, ไฟล์ static/mv (js/html no-store)
 - `server.py` `_mvf = _song_dir(vid) / "mv.json"` `elif act == "mv":` — ใส่ mvUrl ในใบคิวเมื่อเพลงมีบท + รีโมทเปิด/ปิด
 - `static/player.html` `function mvSync(st){` `function mvLoadLib(){` `#mvc{position:absolute` — canvas ทับวิดีโอใต้ม่านเฟด, นาฬิกา = lyrPos − songOff − LYR_OFFSET, เปิดแล้วซ่อน #lyr
-- `static/studio.html` `<legend>🎬 MV จากเนื้อเพลง</legend>` — ปุ่มใน Studio 📺
+- `static/tvset/tvset.js` `{ key: 'mv', type: 'bool'` — สวิตช์ 🎬 ในหน้าตั้งค่าจอทีวี
 - `static/remote.html` `id="mvrow"` `send({action:'mv', on});` — ปุ่มในรีโมท ⚙️
 ! ปิดสวิตช์ / เพลงไม่มี mv.json / โหลดสคริปต์ไม่ได้ = จอเดิมทุกอย่าง · ทดสอบ: .venv/bin/python scripts/test_tv_mv.py --src <โฟลเดอร์ทดสอบที่มี mv.json>
 
@@ -861,3 +862,19 @@ anchor = ข้อความในบรรทัดเดียวของ�
 ! ตั้ง KARA_FA_NO_COMPUTE=1 ระหว่างที่มีคนใช้เครื่อง (ไม่มีแคช FA = raise แทนคำนวณ ไม่แย่ง GPU); eval เขียนได้แค่ _eval/ กับแคช — ห้ามแตะเนื้อจริง
 ! eval เรียกของภายใน server.py ตรง ๆ (_gather_sources, _best_decide, _score_fa, DL_DIR, SEG_CACHE) — เปลี่ยนชื่อใน server ต้องแก้ที่นี่ด้วย
 ! ทดสอบกับคลังจำลอง: KARA_SONGS_DIR (+ KARA_SEG_DIR, KARA_LYRICS_IN ของ gen_lyrics, KARA_VA_CACHE / KARA_OCR_CACHE) ชี้ไปที่อื่นได้หมด
+
+## แอป Mac (desktop/)
+
+### แอป Purich Karaoke: เปิด/ปิดเซิร์ฟเวอร์ จอทีวี ลิงก์นอกบ้าน กันเครื่องหลับ
+คำค้น: แอป, app, desktop, Electron, Purich Karaoke, เปิดเซิร์ฟเวอร์, ปิดเซิร์ฟเวอร์, โหมดเฉพาะเครื่อง, พอร์ตไม่ว่าง, เซิร์ฟเวอร์ล่ม, ไอคอน, ธีม, theme, npm run pack
+- `desktop/main.js` `function boot()` `async function closeOldServer(` `function spawnPython()` `function onCrash(` `async function startServer()` `async function stopServer()` `function openTv()` `async function startTunnel()` `async function requestQuit()` `const ACTIONS = ` — โปรเซสหลัก: คุม Python, ปิดตัวเก่า, เปิดใหม่เมื่อล่ม, จอทีวี, ออกจากแอป
+- `desktop/ui/app.js` `function frame(` `function syncFrames()` `function homeHtml()` `function settingsBody()` — หน้าแอป; Studio รีโมท ตั้งค่าจอทีวี เป็นหน้าจริงใน iframe
+- `desktop/ui/theme.js` `const THEMES = ` — รายการธีม
+- `static/tvset/themes.css` `:root[data-theme=mint]` — สีของทุกธีม (ต้นฉบับอยู่ที่นี่ desktop คัดลอกตอน npm start / npm run pack)
+- `desktop/scripts/test_app.mjs` `async function mainRun()` — ทดสอบแอปจริงบนเพลงปลอม พอร์ต 8765
+! ห้ามทดสอบแอปบนพอร์ต 8080: เปิดแอปแล้วมันปิดเซิร์ฟเวอร์ตัวเก่าให้อัตโนมัติ · ทดสอบต้องตั้ง KARA_APP_PORT และ KARA_APP_NO_KILL=1
+
+### โหมดแอปใน server.py (เฉพาะเครื่องนี้ / เปิดรับเครื่องอื่น)
+คำค้น: KARA_APP_MODE, โหมดแอป, app mode, ด่าน, gate, api/app/serve, api/app/state, KARA_PORT
+- `server.py` `APP_MODE = ` `class _AppGate:` `def _app_guard(` `@app.get("/api/app/state")` `@app.post("/api/app/serve")` `async def app_parent_watch(` — ก่อนกดเปิด: กันเครื่องอื่น งานอัตโนมัติรอ · ควบคุมด้วย token · แอปตาย = Python ปิดตาม
+! ไม่ตั้ง KARA_APP_MODE (เช่น ./run.sh) ต้องทำงานเหมือนเดิมทุกอย่าง

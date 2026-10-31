@@ -1,0 +1,160 @@
+/* สีทั้งหมดมาจากธีมใน themes.css */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.5;overflow:hidden;
+  font-family:"Sukhumvit Set","Noto Sans Thai",-apple-system,system-ui,sans-serif;user-select:none}
+h1,h2,h3,.brand b,.tabs button,.power,.btn,.setnav button,.sub button,.scenes button,.proto-tag{font-family:Mali,"Sukhumvit Set",-apple-system,sans-serif}
+body::before{content:"";position:fixed;inset:0 0 auto;height:280px;z-index:-1;
+  background:var(--glow)}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+input[type=text],input[type=password],select{user-select:text}
+.grow{flex:1}
+h1,h2,h3,p{margin:0}
+
+/* ===== หัวแอป ===== */
+.top{display:flex;align-items:center;gap:14px;height:58px;padding:0 16px 0 86px;-webkit-app-region:drag;flex:none}
+.top button{-webkit-app-region:no-drag}
+.brand{display:flex;align-items:center;gap:9px;font-size:15px;white-space:nowrap}
+.status{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:99px;background:rgba(var(--w),.06);font-size:13px;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--off);flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.dot.wait{background:var(--wait);animation:blink 1s infinite}
+.dot.bad{background:var(--bad)}
+@keyframes blink{50%{opacity:.35}}
+.power{min-width:150px;height:40px;padding:0 20px;border:0;border-radius:99px;font-weight:700;background:var(--grad);color:var(--on-accent);box-shadow:var(--shadow)}
+.power.stop{background:var(--panel2);box-shadow:inset 0 0 0 1.5px var(--bad);color:var(--bad)}
+.power:disabled{opacity:.5;cursor:default}
+
+.tabs{display:flex;gap:4px;padding:0 16px 10px;border-bottom:1px solid var(--line);flex:none}
+.tabs button{padding:6px 15px;border:0;border-radius:99px;background:none;color:var(--dim);font-weight:500}
+.tabs button:hover:not([aria-selected=true]){color:var(--fg);background:var(--accent-soft)}
+.tabs button[aria-selected=true]{color:var(--on-accent);background:var(--accent);font-weight:700}
+.tabs .lock{margin-left:5px;font-size:11px}
+
+#notice:empty{display:none}
+.notice{display:flex;align-items:center;gap:12px;margin:12px 16px 0;padding:10px 14px;border-radius:10px;background:var(--panel2);border-left:3px solid var(--info)}
+.notice.ok{border-color:var(--ok)}
+.notice.bad{border-color:var(--bad)}
+.notice b{display:block}
+.notice span{color:var(--dim);font-size:13px}
+
+main{flex:1;min-height:0;overflow:auto;padding:16px}
+main:focus{outline:none}
+
+/* ===== ส่วนประกอบกลาง ===== */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:var(--shadow)}
+.card h2{font-size:15px;margin-bottom:10px}
+.muted{color:var(--dim)}
+.small{font-size:12.5px}
+.btn{height:34px;padding:0 13px;border:1px solid rgba(var(--w),.14);border-radius:99px;background:var(--panel2);white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.primary{border:0;background:var(--accent);color:var(--on-accent);font-weight:700}
+.btn.primary:hover{background:var(--accent);filter:brightness(1.08)}
+.btn:disabled{opacity:.45;cursor:default}
+select,input[type=text],input[type=password]{height:36px;padding:0 12px;border:1px solid rgba(var(--w),.16);border-radius:12px;background:var(--field)}
+.row{display:flex;align-items:center;gap:10px}
+.switch{display:inline-flex;position:relative;width:42px;height:24px;flex:none}
+.switch input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.switch i{width:100%;height:100%;border-radius:24px;background:var(--off);transition:background .15s}
+.switch i::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
+.switch input:checked + i{background:var(--accent)}
+.switch input:checked + i::after{transform:translateX(18px)}
+.switch input:focus-visible + i{outline:2px solid var(--info);outline-offset:2px}
+
+/* ===== หน้าแรก ===== */
+.home{align-items:start;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:14px;max-width:1160px;margin:0 auto}
+.hero{grid-column:1/-1;display:flex;align-items:center;gap:20px;padding:22px}
+.hero h1{font-size:23px;line-height:1.3}
+.hero p{margin-top:4px;color:var(--dim);max-width:640px}
+.hero .power{height:46px;min-width:190px;font-size:15px;flex:none}
+.caps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px}
+.cap{display:flex;align-items:flex-start;gap:9px;padding:10px;border-radius:10px;background:rgba(var(--w),.035)}
+.cap .dot{margin-top:6px}
+.cap b{display:block;font-size:13.5px}
+.cap span{color:var(--dim);font-size:12.5px}
+.qrbox{display:flex;gap:14px;align-items:center}
+.qrbox .qr{width:118px;flex:none}
+.qrbox .qr img{display:block;width:100%;height:auto;border-radius:10px;background:#fff}
+.qrbox.off .qr{filter:grayscale(1);opacity:.28}
+.link{font-size:13px;overflow-wrap:anywhere;user-select:text}
+.split{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;margin-top:12px;border-top:1px solid var(--line)}
+.stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.warn{padding:9px 11px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg);font-size:12.5px}
+
+/* ===== ล็อก ===== */
+.locked{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:100%;text-align:center}
+.locked .ic{font-size:36px}
+.locked h1{font-size:20px}
+.locked p{color:var(--dim);max-width:420px}
+
+/* ===== จอทีวี ===== */
+.tvpage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;max-width:1160px;margin:0 auto;align-items:start}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+
+/* ===== ตั้งค่า ===== */
+.settings{max-width:1400px;margin:0 auto}
+.setnav{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.setnav button{height:32px;padding:0 13px;border:1px solid var(--line);border-radius:99px;background:none;color:var(--dim)}
+.setnav button:hover{color:var(--fg)}
+.setnav button[aria-pressed=true]{background:var(--panel2);color:var(--fg);border-color:rgba(var(--w),.2)}
+.setbody{display:flex;flex-direction:column;gap:14px;min-width:0}
+.setmain{display:flex;flex-direction:column;gap:14px;min-width:0}
+.field{display:flex;align-items:center;gap:10px;min-height:42px;padding:7px 8px;margin:0 -8px;border-top:1px solid var(--line);border-radius:8px;transition:background .15s}
+.field[data-row]:hover{background:rgba(var(--w),.035)}
+.card h2 + .field{border-top:0}
+.field.wide{flex-wrap:wrap}
+.field.off{opacity:.42}
+.field.flash{animation:rowflash 1.3s ease-out}
+@keyframes rowflash{0%,45%{background:var(--accent-soft)}100%{background:transparent}}
+.field .lbl{flex:1;min-width:0}
+.field .lbl small{display:block;color:var(--dim);font-size:12px}
+.field .ctl{display:flex;align-items:center;gap:9px;flex:none}
+.field input[type=range]{width:118px;accent-color:var(--accent)}
+.field output{min-width:66px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--dim)}
+.field input[type=color]{width:42px;height:30px;padding:1px;border:1px solid rgba(var(--w),.2);border-radius:7px;background:none}
+.field input[type=text]{width:170px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.field.wide .chips{width:100%;order:3}
+.chips label{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--line);border-radius:99px;font-size:12.5px;cursor:pointer}
+.chips label:has(input:checked){background:var(--accent-soft);border-color:var(--accent)}
+.rowreset{width:26px;height:26px;padding:0;border:0;border-radius:6px;background:rgba(var(--w),.08);flex:none}
+.rowreset:hover{background:rgba(var(--w),.18)}
+.rowreset[hidden]{display:none}
+.radio{display:flex;gap:9px;padding:9px 0;border-top:1px solid var(--line);cursor:pointer}
+.radio small{display:block;color:var(--dim)}
+.empty{padding:24px;text-align:center;color:var(--dim)}
+
+#toast{position:fixed;left:50%;bottom:54px;transform:translate(-50%,10px);padding:8px 14px;border-radius:9px;background:var(--toast);color:var(--toast-fg);box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.18s;z-index:20;max-width:80vw}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+@media (prefers-reduced-motion:reduce){.dot.wait{animation:none}.tvv-line.now span::after{animation:none;width:45%}}
+
+/* ===== เลือกธีม ===== */
+.themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.theme{padding:10px;border:2px solid var(--line);border-radius:18px;background:var(--panel);text-align:left}
+.theme:hover{border-color:rgba(var(--w),.28)}
+.theme[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.theme-mock{display:flex;flex-direction:column;gap:6px;height:88px;padding:10px;border-radius:12px;margin-bottom:8px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.theme-mock i{display:block;border-radius:8px;flex:1}
+.theme-mock u{display:block;height:15px;width:62%;border-radius:99px}
+.theme b{display:block;font-family:Mali,sans-serif}
+.theme span{color:var(--dim);font-size:12.5px}
+.theme em{float:right;font-style:normal;color:var(--accent);font-weight:700}
+
+/* ===== ไอคอนเส้น ===== */
+.i{width:1.2em;height:1.2em;flex:none}
+.tabs button,.setnav button,.sub button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.tabs .lock{display:inline-flex;margin-left:0;font-size:12px;opacity:.7}
+.locked .ic .i{width:38px;height:38px;color:var(--dim)}
+
+/* ===== หน้าจริงจากเซิร์ฟเวอร์ ===== */
+body{position:relative}
+#frames{display:none;position:fixed;left:0;right:0;bottom:0;background:var(--bg);z-index:3}
+#frames.active{display:block}
+#frames.below-nav{left:16px;right:16px;bottom:12px;background:transparent}
+#frames iframe{display:block;width:100%;height:100%;border:0;background:transparent}
+#frames iframe[hidden]{display:none}
+.field .path{max-width:330px;overflow-wrap:anywhere;user-select:text;text-align:right}
+.field input[type=password],.field input#pin{width:120px}

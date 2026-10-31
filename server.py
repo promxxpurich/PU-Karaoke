@@ -3,7 +3,7 @@ Player:  http://<host>:8080/
 Remote:  http://<host>:8080/r   (scan QR on the player screen)
 """
 from contextlib import asynccontextmanager
-import asyncio, json, math, random, re, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
+import asyncio, json, math, random, re, signal, socket, sys, unicodedata, uuid, io, os, time, shutil, subprocess
 import hashlib, hmac, secrets, threading, queue
 from pathlib import Path
 from typing import Any
@@ -301,15 +301,26 @@ MIX_DEFAULT = {"vocal": 100, "music": 100, "master": 80, "key": 0}
 DEFAULT_SINGER = "noname"              # คนที่ไม่ได้กรอกชื่อในตั้งค่าละเอียดของรีโมท
 LYR_MODES = ("scroll", "dual", "karaoke", "off")   # เลื่อนขึ้นแบบเดิม / 2 บรรทัดคงที่ / 2 บรรทัด+ไล่สีตามเสียงร้อง / ไม่ขึ้นเนื้อ
 MEDIA_EXT = {".mp4", ".m4v", ".mkv", ".webm", ".mp3", ".m4a", ".wav", ".flac", ".ogg"}
-PORT = 8080
+PORT = int(os.environ.get("KARA_PORT") or 8080)
+# แอป Mac (desktop/) เปิดเซิร์ฟเวอร์ด้วย KARA_APP_MODE=1: เริ่มแบบ "เฉพาะเครื่องนี้" (เครื่องอื่นเข้าไม่ได้ งานอัตโนมัติรอ)
+# จนกว่าแอปจะสั่ง POST /api/app/serve ไม่ตั้ง env นี้ (เช่น ./run.sh) = ทำงานเหมือนเดิมทุกอย่าง
+APP_MODE = os.environ.get("KARA_APP_MODE") == "1"
+APP_TOKEN = os.environ.get("KARA_APP_TOKEN", "")
+_app_serving = not APP_MODE
+_app_open_ev: asyncio.Event | None = None
 WATCHDOG_EVERY = 10.0   # วินาที — รอบกวาดงานตกหล่น/ประเมินลำดับคิวใหม่
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """เพลงเก่าที่โหลดไว้ก่อนมีฟีเจอร์นี้ -> ทยอยแยกเสียงตอนว่าง (ไม่แย่งคิวเพลงที่เพิ่งสั่ง)"""
+    global _app_open_ev
     _migrate_song_dirs()            # ทำก่อน backfill และก่อน client ต่อเข้ามา
+    _app_open_ev = asyncio.Event()
+    if _app_serving:
+        _app_open_ev.set()
 
     async def run() -> None:
+        await _app_open_ev.wait()
         await asyncio.sleep(5)          # ให้เซิร์ฟเวอร์ตั้งตัว/จอต่อเข้ามาก่อน
         if _fix_history_titles():       # ประวัติเก่าที่เก็บ "YouTube: <id>" ไว้ก่อนมีตัวดึงชื่อ
             await asyncio.to_thread(_save_history)
@@ -369,6 +380,7 @@ async def _lifespan(_app: FastAPI):
         """ตาข่ายรับของทุกไปป์ไลน์ — ของเดิม _reprioritize เดินเฉพาะตอนมีคนกดปุ่ม
         งานที่ตกหล่นระหว่างทาง (worker ตาย / คิวว่างเปล่าทั้งที่ยังไม่เสร็จ /
         จังหวะแย่งคิวติด cooldown) จึงค้างยาวจนกว่าจะมีคนแตะรีโมตอีกครั้ง"""
+        await _app_open_ev.wait()
         while True:
             await asyncio.sleep(WATCHDOG_EVERY)
             try:
@@ -384,11 +396,33 @@ async def _lifespan(_app: FastAPI):
 
     # อ่านล็อกอิน YouTube ไว้ตั้งแต่เปิดเซิร์ฟเวอร์ (ไม่รอ) — macOS ถามสิทธิ์ Keychain ตอนคนเพิ่งกดเปิดยังอยู่หน้าเครื่อง
     # ไม่ใช่ตอนแขกกดเพิ่มเพลงใหม่เพลงแรก
-    _yt_cookies(wait=0)
+    async def after_open(job) -> None:
+        await _app_open_ev.wait()
+        await job()
+
+    async def app_cookies() -> None:
+        _yt_cookies(wait=0)
+
+    async def app_parent_watch() -> None:
+        """แอปตายกะทันหัน -> ปิดตัวเองตาม ไม่ปล่อยงานหนักค้างจนเครื่องร้อน"""
+        parent = os.getppid()
+        while True:
+            await asyncio.sleep(5)
+            if os.getppid() != parent:
+                # ท่อ log ของแอปขาดไปแล้ว print ใด ๆ จะล้ม ต้องทิ้ง output ก่อนสั่งปิด ไม่งั้นค้างและงานลูกไม่ถูกเก็บ
+                sys.stdout = sys.stderr = open(os.devnull, "w", encoding="utf-8")
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    if not APP_MODE:
+        _yt_cookies(wait=0)
     _fa_mode_load()
     tasks = [asyncio.create_task(run()), asyncio.create_task(watchdog()), asyncio.create_task(_fa_reaper())]
     if WARM:                        # โหลดโมเดลหาเนื้อไว้รอ — เพลงแรกจะได้เร็วเหมือนเพลงหลัง ๆ
-        tasks.append(asyncio.create_task(_warmup()))
+        tasks.append(asyncio.create_task(after_open(_warmup)))
+    if APP_MODE:
+        tasks.append(asyncio.create_task(after_open(app_cookies)))
+        tasks.append(asyncio.create_task(app_parent_watch()))
     yield
     for t in tasks:
         t.cancel()
@@ -396,6 +430,34 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=_lifespan)
+
+
+class _AppGate:
+    """โหมดแอปก่อนกดเปิดเซิร์ฟเวอร์: กันทุกเครื่องที่ไม่ใช่เครื่องนี้ ทั้ง HTTP และ WebSocket
+    แขกผ่าน Cloudflare ก็ถูกกัน เพราะ uvicorn แทน client ด้วย IP จริงจาก X-Forwarded-For แล้ว"""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send) -> None:
+        if _app_serving or scope["type"] not in ("http", "websocket"):
+            await self.inner(scope, receive, send)
+            return
+        client = scope.get("client")
+        if _is_local(client[0] if client else None):
+            await self.inner(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1013})
+            return
+        body = "<!doctype html><meta charset=utf-8><title>PU KARAOKE</title><p>เซิร์ฟเวอร์ยังไม่เปิด</p>".encode()
+        await send({"type": "http.response.start", "status": 503,
+                    "headers": [(b"content-type", b"text/html; charset=utf-8"), (b"cache-control", b"no-store")]})
+        await send({"type": "http.response.body", "body": body})
+
+
+if APP_MODE:
+    app.add_middleware(_AppGate)
 
 
 def lan_ip() -> str:
@@ -3123,6 +3185,39 @@ def _lyr_health() -> dict:
     }
 
 
+def _app_guard(request: Request) -> None:
+    """เรียกได้เฉพาะแอปบนเครื่องนี้ที่ถือ token: หน้าเว็บอื่นตั้ง header นี้ข้ามเว็บไม่ได้"""
+    client = request.client.host if request.client else None
+    if not (APP_MODE and APP_TOKEN and _is_local(client)
+            and hmac.compare_digest(request.headers.get("x-kara-app", ""), APP_TOKEN)):
+        raise HTTPException(status_code=404)
+
+
+def _app_state() -> dict:
+    url = base_url()
+    cur = room.current
+    return {"serving": _app_serving, "playing": bool(cur), "title": (cur or {}).get("title") or "",
+            "remoteUrl": f"{url}/r", "tvUrl": f"{url}/tv/{_studio_cfg()['tv']}", "publicUrl": _studio_cfg()["publicUrl"]}
+
+
+@app.get("/api/app/state")
+def app_state(request: Request):
+    _app_guard(request)
+    return _app_state()
+
+
+@app.post("/api/app/serve")
+def app_serve(request: Request):
+    """กดเปิดเซิร์ฟเวอร์: ปล่อยเครื่องอื่นเข้า + เริ่มงานอัตโนมัติ ในโปรเซสเดิม งานที่แก้ค้างใน Studio จึงไม่หาย
+    ขากลับแอปรีสตาร์ทโปรเซสแทน เพื่อล้างคิวงานหนักทั้งหมดให้เครื่องเย็นจริง"""
+    global _app_serving
+    _app_guard(request)
+    _app_serving = True
+    if _app_open_ev:
+        _app_open_ev.set()
+    return _app_state()
+
+
 @app.get("/api/health")
 def health(search: int = 0):
     """เช็คสุขภาพระบบ — ใส่ ?search=1 ถ้าอยากทดสอบค้นหา YouTube จริง (ช้าหลายวินาที)"""
@@ -3396,6 +3491,26 @@ def song_frame(vid: str, name: str):
 
 _MV_DIR = BASE / "static" / "mv"
 _MV_TYPES = {".js": "text/javascript", ".html": "text/html", ".jpg": "image/jpeg", ".json": "application/json", ".md": "text/markdown"}
+
+
+_TVSET_DIR = BASE / "static" / "tvset"
+_TVSET_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8"}
+
+
+@app.get("/tvset", response_class=HTMLResponse)
+def tvset_page():
+    """หน้าตั้งค่าจอทีวีชุดเดียว ใช้ทั้งในแอป Mac และ Studio 📺 (API ของมันผ่าน _studio_guard เหมือนเดิม)"""
+    return HTMLResponse((_TVSET_DIR / "index.html").read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/tvset/{name:path}")
+def tvset_static(name: str):
+    from fastapi.responses import FileResponse
+    f = (_TVSET_DIR / name).resolve()
+    if not f.is_relative_to(_TVSET_DIR.resolve()) or not f.is_file() or f.suffix not in _TVSET_TYPES:
+        return JSONResponse({"error": "not found"}, 404)
+    return FileResponse(f, media_type=_TVSET_TYPES[f.suffix], headers={"Cache-Control": "no-store"})
 
 
 @app.get("/mv/{name:path}")
@@ -6540,5 +6655,7 @@ if __name__ == "__main__":
     # cloudflared ต่อเข้ามาจาก 127.0.0.1 แล้วแนบ X-Forwarded-For = IP จริงของแขก -> uvicorn แทน client.host ให้
     # ด่าน _is_local (จอหลัก / Studio ไม่ต้อง PIN / ยึดจอ) จึงไม่เห็นแขกจากเน็ตเป็น "เครื่องตัวเอง"
     # เชื่อ header นี้เฉพาะจาก loopback: เครื่องอื่นในแลนปลอม header มาก็ไม่มีผล
+    # โหมดแอป: หน้าต่าง Studio ในแอปยังต่อ WebSocket ค้างตอนสั่งปิด จึงต้องกำหนดเวลาปิด ไม่งั้นรอไม่จบและงานลูกไม่ถูกเก็บ
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning",
-                proxy_headers=True, forwarded_allow_ips="127.0.0.1")
+                proxy_headers=True, forwarded_allow_ips="127.0.0.1",
+                **({"timeout_graceful_shutdown": 3} if APP_MODE else {}))

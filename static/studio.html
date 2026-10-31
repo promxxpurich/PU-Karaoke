@@ -357,10 +357,8 @@
  .ctv.b video#ctvv2{opacity:1}
  .chint .tc{display:none}
  /* ---------- 📺 หน้าจอหลัก ---------- */
- .tvgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,560px);gap:18px;max-width:1280px;margin:0 auto;padding:18px}
- .tvside{position:sticky;top:0;align-self:start}
- .tvform fieldset{border:1px solid var(--line);border-radius:14px;padding:12px 14px 14px;margin:0 0 12px;background:var(--panel)}
- .tvform legend{padding:0 6px;font-weight:600}
+ #vtv{height:100%}
+ #tvsetframe{display:block;width:100%;height:100%;min-height:calc(100vh - 120px);border:0}
  .fr{display:flex;align-items:center;gap:10px;min-height:36px;flex-wrap:wrap}
  .fr > label:first-child{min-width:190px;color:#dcdcea}
  .fr input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
@@ -376,37 +374,6 @@
  .logobox .sq{width:96px;aspect-ratio:1;border-radius:12px;border:1px dashed var(--line);display:grid;place-items:center;
    overflow:hidden;background:repeating-conic-gradient(#1b1b29 0 25%,#232336 0 50%) 0 0/16px 16px;color:var(--dim);font-size:12px}
  .logobox .sq img{width:100%;height:100%;object-fit:cover}
- #tvsaved{font-size:12px;color:var(--dim);margin-top:8px;min-height:18px}
- /* พรีวิวจำลองจอทีวี: หน่วย cqw = % ความกว้างพรีวิว (ทีวีใช้ vw) — ใช้ตัวแปรชุดเดียวกับจอจริง */
- .tvpv{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;container-type:inline-size;
-   background:#000 center/cover no-repeat;border:1px solid var(--line)}
- .tvpv .bg{position:absolute;inset:0;background:radial-gradient(120% 90% at 30% 20%,#3a2350,#0d0d18 60%)}
- .tvpv .tnow{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:1.1cqw;padding:1.6cqw 2cqw 3.5cqw;
-   background:linear-gradient(180deg,rgba(0,0,0,.82),rgba(0,0,0,.35) 55%,transparent);transition:opacity .4s}
- .tvpv .tnow .ti{font-size:1.95cqw;font-weight:600;white-space:nowrap}
- .tvpv .tnow .by{font-size:1.3cqw;padding:.45cqw 1.2cqw;border-radius:999px;background:linear-gradient(135deg,var(--accent),var(--accent2))}
- .tvpv .tnow .gd{font-size:1.1cqw;color:#8b8ba4;padding:.4cqw .9cqw;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
- .tvpv .tlogo{position:absolute;right:1.7cqw;top:1.7cqw;width:calc(8cqw * var(--logoscale,1));aspect-ratio:1;border-radius:1.1cqw;overflow:hidden;box-shadow:0 .8cqw 2.4cqw rgba(0,0,0,.45)}
- .tvpv .tlogo img{width:100%;height:100%;object-fit:cover;display:block}
- .tvpv.logo .tnow{padding-right:calc(2cqw + 8cqw * var(--logoscale,1) + 1.1cqw)}
- .tvpv .tlyr{position:absolute;left:0;right:0;bottom:0;text-align:center;
-   padding:7.3cqw calc(7cqw * var(--qrscale,1) + 3.4cqw) calc(2.5cqw + var(--lift,0) * .5625cqw);
-   background:linear-gradient(0deg,rgba(0,0,0,calc(.9 * var(--lyrbga,1))),rgba(0,0,0,calc(.55 * var(--lyrbga,1))) 58%,transparent)}
- .tvpv.noqr .tlyr{padding-left:3.4cqw;padding-right:3.4cqw}
- .tvpv .tlyr div{font-size:calc(4.2cqw * var(--lyrscale,1));font-weight:700;line-height:1.32;color:var(--lyrdimc);
-   text-shadow:0 .25cqw 1.5cqw rgba(0,0,0,.95),0 0 .3cqw rgba(0,0,0,.9)}
- .tvpv .tlyr .on{color:var(--lyrcolor)}
- .tvpv .tlyr .s{color:var(--kara)}
- .tvpv.sh0 .tlyr div{text-shadow:none}
- .tvpv.sh1 .tlyr div{text-shadow:0 .15cqw .6cqw rgba(0,0,0,.75)}
- .tvpv.sh3 .tlyr div{-webkit-text-stroke:.07em rgba(0,0,0,.9);paint-order:stroke fill}
- .tvpv .tqr{position:absolute;right:1.7cqw;bottom:1.7cqw;width:calc(7cqw * var(--qrscale,1));aspect-ratio:1;background:#fff;border-radius:.9cqw;
-   display:grid;place-items:center;color:#111;font-size:1.2cqw;font-weight:700}
- .tvpv .ttime{position:absolute;left:1.7cqw;bottom:1.1cqw;font-size:1.15cqw;color:rgba(255,255,255,.55)}
- .tvpv .tadd{position:absolute;right:1.7cqw;top:1.7cqw;width:30cqw;padding:.8cqw 1cqw;border-radius:1.2cqw;background:rgba(12,12,22,.86);
-   border:1px solid rgba(255,255,255,.14);font-size:1.2cqw}
- .tvpv.logo .tadd{top:calc(1.7cqw + 8cqw * var(--logoscale,1) + 1cqw)}
- .tvpv .tadd b{color:var(--accent);font-size:.95cqw;letter-spacing:.06em}
 
  /* ---------- จอแคบ: รายการ -> หน้าแก้ ---------- */
  @media (max-width:999px){
@@ -489,7 +456,7 @@
       <button data-view="cut">✂️ ตัดต่อ<span class="lg"> &amp; คอมโบ</span></button>
     </nav>
     <span class="st"><span class="dot"></span><span id="ststr">กำลังเชื่อมต่อ…</span></span>
-    <button class="ghost" id="fabtn" title="Python ที่ค้างรอจับเวลาเนื้อเพลง (กิน RAM ~2.6 GB)">🐍</button>
+    <button class="ghost" id="fabtn" title="Python ที่ค้างรอจับเวลาเนื้อเพลง (กิน RAM ~2.6 GB)">Py</button>
     <button class="ghost" id="helpbtn" title="คีย์ลัด">⌨️</button>
   </header>
 
@@ -631,21 +598,7 @@
     </div>
   </div></section>
 
-  <section class="view" id="vtv"><div class="tvgrid">
-    <div class="tvform" id="tvform"><div class="empty">กำลังโหลด…</div></div>
-    <div class="tvside">
-      <div class="tvpv" id="tvpv">
-        <div class="bg"></div>
-        <div class="tnow" id="pvnow"></div>
-        <div class="tadd" id="pvadd"><b>➕ เพิ่มเข้าคิว · คิวที่ 2</b><div>ตัวอย่างการ์ดตอนมีคนสั่งเพลง</div></div>
-        <div class="tlogo hide" id="pvlogo"><img alt=""></div>
-        <div class="tlyr"><div class="on" id="pvl1"><span class="s">ร้องไปถึงตรงนี้</span> ยังไม่ถึงตรงนี้</div><div id="pvl2">บรรทัดถัดไปรออยู่</div></div>
-        <div class="tqr" id="pvqr">QR</div>
-        <div class="ttime" id="pvtime">1:23 / 4:10</div>
-      </div>
-      <div id="tvsaved">เปลี่ยนค่าแล้วบันทึกเอง · จอหลักเปลี่ยนตามทันที</div>
-    </div>
-  </div></section>
+  <section class="view" id="vtv"><iframe id="tvsetframe" title="ตั้งค่าหน้าจอหลัก"></iframe></section>
 </div>
 
 <div class="dlg hide" id="pindlg"><div class="card pin">
@@ -1484,7 +1437,7 @@ async function faMenu(){
          box.remove(); faMenu(); }catch(e){ toast('⚠️ ' + e.message); }
   };
   const opt = (m, t, d) => `<label style="display:block;margin:6px 0;cursor:pointer"><input type="radio" name="famode" value="${m}" ${fa.mode === m ? 'checked' : ''}> <b>${t}</b><br><span style="opacity:.7">${d}</span></label>`;
-  box.innerHTML = `<b>🐍 Python รอจับเวลาเนื้อ</b>
+  box.innerHTML = `<b>Python รอจับเวลาเนื้อ</b>
     <div style="margin:4px 0 8px;opacity:.8">ตอนนี้: ${fa.alive ? `<b>เปิดอยู่</b> (โมเดล ${(fa.loaded || []).length} ตัว${fa.idleSec != null ? ` · ว่าง ${Math.round(fa.idleSec / 60)} นาที` : ''})` : '<b>ปิดอยู่</b>'}</div>
     ${opt('keep', 'ค้างตลอด', 'เพลงแรกเร็ว · กิน RAM ~2.6 GB ตลอด')}
     ${opt('idle', 'ปิดเองเมื่อว่าง', `ว่างเกิน <input id="faidle" type="number" min="1" max="720" value="${fa.idleMin}" style="width:56px"> นาที แล้วปิด`)}
@@ -2681,7 +2634,7 @@ $('#vcut').addEventListener('click', async ev => {
   if(b.id === 'cwon'){
     // ตั้งตรงผ่าน API — แท็บ 📺 อาจยังไม่เคยเปิด (ฟอร์มยังไม่ถูกวาด tvSet ใช้ไม่ได้)
     try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify({custom:true})});
-         if(TV.loaded){ TV.cur = r.tv; fillTvForm(); } toast('✂️ เปิดโหมด Custom แล้ว'); }
+         TV.cur = r.tv; toast('✂️ เปิดโหมด Custom แล้ว'); }
     catch(e){ toast('⚠️ ' + e.message); }
     return;
   }
@@ -2940,181 +2893,11 @@ async function cutComboFromQueue(){
 }
 
 // ===== 16d. 📺 ตั้งค่าหน้าจอหลัก ==============================================
-// บันทึกเองทุกครั้งที่เปลี่ยน (หน่วง 300ms) -> เซิร์ฟเวอร์ broadcast -> ทีวีเปลี่ยนตามสด
-const TV = {cur: null, def: null, t: 0, pending: {}, loaded: false};
-const TV_CHIP_LB = {guide:'🎤 ไกด์เสียงร้อง %', master:'🔊 เสียงรวม %', music:'🎵 เสียงดนตรี %',
-                    key:'🎹 คีย์ (เมื่อไม่ใช่คีย์เดิม)', lyrsrc:'📝 ที่มาของเนื้อ', next:'⏭ เพลงถัดไป'};
-const SWATCH = ['#ffffff', '#fff3a8', '#ffd0e2', '#b8f1ff', '#ff6fa6', '#ffb648', '#38d39f', '#7cc7ff'];
-async function loadTv(){
-  if(TV.loaded){ renderTvPreview(); return; }
-  try{ const r = await api('/api/studio/tv'); TV.cur = r.tv; TV.def = r.default; TV.loaded = true; renderTvForm(); }
-  catch(e){ $('#tvform').innerHTML = `<div class="empty">⚠️ ${esc(e.message)}</div>`; }
-}
-const tog = (k, lb) => `<label class="tog"><input type="checkbox" data-tv="${k}"> ${lb}</label>`;
-const rng = (k, lb, a, b, st, unit) => `<div class="fr"><label>${lb}</label><input type="range" data-tv="${k}" min="${a}" max="${b}" step="${st || 1}"><span class="val" data-val="${k}"></span><span class="hint">${unit || ''}</span></div>`;
-const col = k => `<input type="color" data-tv="${k}"><span class="sw">${SWATCH.map(c => `<i style="background:${c}" data-sw="${k}" data-c="${c}"></i>`).join('')}</span>`;
-function renderTvForm(){
-  $('#tvform').innerHTML = `
-    <fieldset><legend>แถบชื่อเพลง (บนสุด)</legend>
-      <div class="fr">${tog('title', 'แสดงชื่อเพลง')} ${tog('singer', 'แสดงชื่อคนร้อง')} ${tog('countdown', '♪ ● ● ● นับถอยหลังก่อนเข้าท่อน')} ${tog('voices', '👥 แยกเสียงร้อง (คนที่ 2 คนละสี · วงเล็บตัวเล็ก)')}</div>
-      <div class="fr"><label>ซ่อนแถบเองหลังเริ่มเพลง</label><select data-tv="titleHide">
-        <option value="0">ไม่ซ่อน (โชว์ตลอด)</option>${[5, 10, 15, 20, 30, 60].map(v => `<option value="${v}">${v} วินาที</option>`).join('')}</select></div>
-      <div class="fr"><label>สถานะหลังชื่อเพลง</label><span class="chkgrid">${Object.entries(TV_CHIP_LB).map(([k, lb]) =>
-        `<label class="tog"><input type="checkbox" data-chip="${k}"> ${lb}</label>`).join('')}</span></div>
-      <div class="hint">คำเตือนของระบบ (เช่น แตะจอเพื่อเปิดเสียง / กำลังเตรียมเสียง) ขึ้นเสมอ</div>
-    </fieldset>
-    <fieldset><legend>🎬 MV จากเนื้อเพลง</legend>
-      <div class="fr">${tog('mv', '🎬 เปิด MV แทนวิดีโอ (เฉพาะเพลงที่มีบท mv.json · เสียงยังมาจากวิดีโอเดิม)')}</div>
-      <div class="hint">ปิด = จอเหมือนเดิมทุกอย่าง · เพลงที่ยังไม่มีบทจะเล่นวิดีโอ + เนื้อแบบเดิม · แขกสลับเองได้ในรีโมท ⚙️</div>
-    </fieldset>
-    <fieldset><legend>เนื้อเพลง</legend>
-      ${rng('lyrScale', 'ขนาดตัวอักษร', 60, 160, 5, '%')}
-      <div class="hint">เกิน 100% บรรทัดยาว ๆ จะขึ้นเป็น 2 บรรทัด (ตัวใหญ่อ่านง่ายขึ้น แต่กินพื้นที่จอมากขึ้น)</div>
-      <div class="fr"><label>สีตัวอักษร</label>${col('lyrColor')}</div>
-      <div class="fr"><label>สีที่ร้องไปแล้ว (โหมดคาราโอเกะ)</label>${col('karaColor')}</div>
-      <div class="fr">${tog('karaSmooth', '🌈 ไล่สีนุ่ม — ค่อย ๆ เติมสีทีละตัวอักษร (ปิด = เปลี่ยนสีทีละตัวทันที)')}</div>
-      ${rng('lyrDim', 'ความสว่างบรรทัดที่ยังไม่ถึง', 15, 100, 5, '%')}
-      ${rng('lyrBg', 'ความเข้มพื้นหลังใต้ซับ', 0, 100, 5, '%')}
-      <div class="fr"><label>เงา/ขอบตัวอักษร</label><span class="seg" data-seg="lyrShadow">
-        <button data-v="0">ไม่มี</button><button data-v="1">บาง</button><button data-v="2">ปกติ</button><button data-v="3">ขอบหนา</button></span></div>
-      ${rng('lyrLift', 'ยกซับขึ้นจากขอบล่าง', 0, 20, 1, '% ความสูงจอ')}
-      <div class="hint">รูปแบบการขึ้นเนื้อ (เลื่อนขึ้น / 2 บรรทัด / คาราโอเกะ) เลือกได้ที่รีโมท</div>
-    </fieldset>
-    <fieldset><legend>การเปลี่ยนเพลง</legend>
-      ${rng('fadeIn', 'เฟดเข้าตอนเริ่มเพลง', 0, 5, 1, 'วิ (0 = ไม่เฟด)')}
-      ${rng('fadeOut', 'เฟดออกตอนจบ / กดข้าม', 0, 5, 1, 'วิ (0 = ตัดทันที)')}
-      <div class="fr">${tog('custom', '✂️ โหมด Custom — เล่นแต่ละเพลงจากจุดเริ่มถึงจุดจบ')}</div>
-      ${rng('customLead', 'อัตโนมัติ: เริ่มก่อนท่อนแรก', 1, 10, 1, 'วิ')}
-      ${rng('customTail', 'อัตโนมัติ: จบหลังท่อนสุดท้าย', 0, 15, 1, 'วิ')}
-      ${rng('customAud', 'โหมด Custom: เฟดเสียงออก', 0, 5, 1, 'วิ (0 = ตัดเสียงทันที ภาพยังเฟด)')}
-      <div class="hint">ตั้งจุดเริ่ม/จบ/เฟดรายเพลงได้ที่แท็บ ✂️ ตัดต่อ (ไม่ได้ตั้ง = อัตโนมัติจากเวลาเนื้อ · เพลงไม่มีเนื้อเล่นเต็มคลิป) · คอมโบเล่นตามที่ตัดไว้เสมอ · กด ↺ เริ่มใหม่ที่รีโมท = ฟังตั้งแต่ต้นคลิป</div>
-      <div class="fr">${tog('skipBtn', '⏩ ปุ่มข้ามอินโทรบนรีโมท')}</div>
-      ${rng('skipMin', 'โผล่เมื่ออินโทรยาวเกิน', 5, 60, 5, 'วิ')}
-    </fieldset>
-    <fieldset><legend>มุมจอ</legend>
-      <div class="fr">${tog('qr', 'QR มุมขวาล่าง (ตอนเล่นเพลง)')}</div>
-      ${rng('qrSize', 'ขนาด QR', 60, 200, 10, '%')}
-      <div class="fr">${tog('time', 'เวลาเพลงมุมซ้ายล่าง')} ${tog('next', 'การ์ด "ต่อไป" (ตอนไม่มีเนื้อ)')} ${tog('addCard', 'การ์ด "เพิ่มเข้าคิว" ตอนมีคนสั่งเพลง')}</div>
-      <div class="hint">QR กลางจอตอนไม่มีเพลงขึ้นเสมอ (ทางเดียวที่คนเข้ามาสั่งเพลงได้)</div>
-    </fieldset>
-    <fieldset><legend>รูปมุมขวาบน (1:1)</legend>
-      <div class="logobox"><div class="sq" id="tvlogosq">ยังไม่มีรูป</div>
-        <div><div class="fr"><button id="tvlogopick">📁 เลือกรูป</button><button id="tvlogodel" class="danger">🗑 ลบรูป</button>
-          <input type="file" id="tvlogofile" accept="image/*" class="hide"></div>
-          <div class="fr">${tog('logo', 'แสดงรูปบนจอ')}</div>
-          <div class="hint">รูปไม่จัตุรัสจะถูกครอปตรงกลางให้เป็น 1:1 อัตโนมัติ (สูงสุด 10 MB)</div></div></div>
-      ${rng('logoSize', 'ขนาดรูป', 60, 200, 10, '%')}
-    </fieldset>
-    <fieldset><legend>หน้าจอว่าง (ตอนไม่มีเพลง)</legend>
-      <div class="fr"><label>ข้อความใต้หัวข้อ</label><input data-tv="idleText" maxlength="80" placeholder="เช่น ยินดีต้อนรับสู่ห้อง 5 · สั่งเพลงได้เลย" style="flex:1"></div>
-    </fieldset>
-    <div class="fr"><button id="tvreset">↺ คืนค่าเริ่มต้นทั้งหมด</button><span class="hint">รูปที่อัปไว้ไม่ถูกลบ</span></div>`;
-  fillTvForm(); renderTvPreview();
-}
-function fillTvForm(){
-  const t = TV.cur; if(!t) return;
-  const f = $('#tvform');
-  f.querySelectorAll('[data-tv]').forEach(el => {
-    const k = el.dataset.tv, v = t[k];
-    if(el.type === 'checkbox') el.checked = !!v;
-    else if(document.activeElement !== el) el.value = v;
-  });
-  f.querySelectorAll('[data-val]').forEach(el => { el.textContent = t[el.dataset.val]; });
-  f.querySelectorAll('[data-chip]').forEach(el => { el.checked = (t.chips || []).includes(el.dataset.chip); });
-  f.querySelectorAll('[data-seg]').forEach(sg => sg.querySelectorAll('button').forEach(b =>
-    b.classList.toggle('on', +b.dataset.v === t[sg.dataset.seg])));
-  const sq = $('#tvlogosq');
-  sq.innerHTML = t.logoUrl ? `<img src="${esc(t.logoUrl)}" alt="">` : 'ยังไม่มีรูป';
-  $('#tvlogodel').disabled = !t.logoUrl;
-}
-function tvSet(patch){
-  Object.assign(TV.cur, patch); Object.assign(TV.pending, patch);
-  fillTvForm(); renderTvPreview();
-  $('#tvsaved').textContent = 'กำลังบันทึก…';
-  clearTimeout(TV.t);
-  TV.t = setTimeout(async () => {
-    const body = TV.pending; TV.pending = {};
-    try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify(body)});
-         if(!Object.keys(TV.pending).length){ TV.cur = r.tv; fillTvForm(); renderTvPreview(); }
-         $('#tvsaved').textContent = '✓ บันทึกแล้ว · จอหลักเปลี่ยนตามทันที'; }
-    catch(e){ $('#tvsaved').textContent = '⚠️ ' + e.message; }
-  }, 300);
-}
-$('#tvform').addEventListener('input', e => {
-  const el = e.target, k = el.dataset.tv;
-  if(el.dataset.chip){
-    const on = [...$('#tvform').querySelectorAll('[data-chip]')].filter(x => x.checked).map(x => x.dataset.chip);
-    tvSet({chips: on}); return;
-  }
-  if(!k) return;
-  if(el.type === 'checkbox') tvSet({[k]: el.checked});
-  else if(el.type === 'range' || el.tagName === 'SELECT') tvSet({[k]: +el.value});
-  else tvSet({[k]: el.value});
-});
-$('#tvform').addEventListener('click', async e => {
-  const sw = e.target.closest('[data-sw]'); if(sw){ tvSet({[sw.dataset.sw]: sw.dataset.c}); return; }
-  const sb = e.target.closest('[data-seg] button'); if(sb){ tvSet({[sb.closest('[data-seg]').dataset.seg]: +sb.dataset.v}); return; }
-  if(e.target.id === 'tvlogopick'){ $('#tvlogofile').click(); return; }
-  if(e.target.id === 'tvlogodel'){
-    if(!confirm('ลบรูปมุมขวาบน?')) return;
-    try{ const r = await api('/api/studio/tv/logo', {method:'DELETE'}); TV.cur = r.tv; fillTvForm(); renderTvPreview(); toast('✓ ลบรูปแล้ว'); }
-    catch(err){ toast('⚠️ ' + err.message); }
-    return;
-  }
-  if(e.target.id === 'tvreset'){
-    if(!confirm('คืนค่าหน้าจอหลักเป็นค่าเริ่มต้นทั้งหมด?')) return;
-    try{ const r = await api('/api/studio/tv', {method:'POST', body:JSON.stringify({reset:true})});
-         TV.cur = r.tv; fillTvForm(); renderTvPreview(); toast('✓ คืนค่าเริ่มต้นแล้ว'); }
-    catch(err){ toast('⚠️ ' + err.message); }
-  }
-});
-$('#tvform').addEventListener('change', async e => {
-  if(e.target.id !== 'tvlogofile') return;
-  const f = e.target.files && e.target.files[0]; e.target.value = '';
-  if(!f) return;
-  if(f.size > 10 * 1024 * 1024){ toast('⚠️ รูปใหญ่เกิน 10 MB'); return; }
-  $('#tvsaved').textContent = 'กำลังอัปรูป…';
-  try{
-    const r = await fetch('/api/studio/tv/logo', {method:'PUT', credentials:'same-origin',
-      headers:{'Content-Type': f.type || 'application/octet-stream'}, body:f});
-    const j = await r.json().catch(() => ({}));
-    if(r.status === 401){ showPin(); throw new Error('ต้องใส่ PIN'); }
-    if(!r.ok) throw new Error(j.detail || ('HTTP ' + r.status));
-    TV.cur = j.tv; fillTvForm(); renderTvPreview();
-    $('#tvsaved').textContent = '✓ อัปรูปแล้ว · ขึ้นมุมขวาบนของจอหลักแล้ว';
-  }catch(err){ $('#tvsaved').textContent = '⚠️ ' + err.message; }
-});
-// พรีวิวจำลอง: ใช้ตัวแปร CSS ชุดเดียวกับทีวี + เนื้อหาของเพลงที่เล่นอยู่จริง (ถ้ามี)
-function renderTvPreview(){
-  const t = TV.cur; if(!t) return;
-  const pv = $('#tvpv'), R = pv.style;
-  const rgba = (hex, a) => { const n = parseInt(String(hex || '#ffffff').slice(1), 16) || 0xffffff;
-    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
-  R.setProperty('--lyrscale', t.lyrScale / 100); R.setProperty('--lyrcolor', t.lyrColor);
-  R.setProperty('--lyrdimc', rgba(t.lyrColor, t.lyrDim / 100)); R.setProperty('--kara', t.karaColor);
-  R.setProperty('--lyrbga', t.lyrBg / 100); R.setProperty('--lift', t.lyrLift);
-  R.setProperty('--qrscale', t.qrSize / 100); R.setProperty('--logoscale', t.logoSize / 100);
-  for(let i = 0; i < 4; i++) pv.classList.toggle('sh' + i, t.lyrShadow === i);
-  const logoOn = !!(t.logo && t.logoUrl);
-  pv.classList.toggle('logo', logoOn); pv.classList.toggle('noqr', !t.qr);
-  $('#pvlogo').classList.toggle('hide', !logoOn);
-  if(logoOn) $('#pvlogo img').src = t.logoUrl;
-  $('#pvqr').classList.toggle('hide', !t.qr);
-  $('#pvtime').classList.toggle('hide', !t.time);
-  $('#pvadd').classList.toggle('hide', !t.addCard);
-  const st = S.room || {}, c = st.current, m = st.mix || {};
-  const nx = (st.queue || [])[0];
-  const CH = {guide: `🎤 ไกด์ ${m.vocal != null ? m.vocal : 100}%`, master: `🔊 เสียงรวม ${m.master != null ? m.master : 80}%`,
-              key: `🎹 คีย์ ${(m.key || 0) > 0 ? '+' : ''}${m.key || 0}`,
-              music: `🎵 ดนตรี ${m.music != null ? m.music : 100}%`,
-              lyrsrc: '📝 ' + ((c && c.lyrKind) || 'ซับที่คนทำบน YouTube').split(' · ')[0],
-              next: '⏭ ' + (nx ? nx.title.slice(0, 30) : 'เพลงถัดไป')};
-  $('#pvnow').classList.toggle('hide', !t.title);
-  $('#pvnow').innerHTML = `<span class="ti">${esc(c ? c.title : 'ชื่อเพลงที่กำลังเล่น')}</span>`
-    + (t.singer ? `<span class="by">🎤 ${esc((c && c.singer) || 'noname')}</span>` : '')
-    + (t.chips || []).map(k => `<span class="gd">${esc(CH[k])}</span>`).join('');
-  pv.style.backgroundImage = c && (c.localThumb || c.thumb) ? `url('${c.localThumb || c.thumb}')` : '';
-  pv.querySelector('.bg').classList.toggle('hide', !!(c && (c.localThumb || c.thumb)));
+// ฟอร์มอยู่ที่ static/tvset (หน้าเดียวกับในแอป Mac) ที่นี่แค่จำค่าล่าสุดจาก websocket ไว้ให้พรีวิวเนื้อและแท็บตัดต่อ
+const TV = {cur: null};
+function loadTv(){
+  const f = $('#tvsetframe');
+  if(!f.getAttribute('src')) f.src = '/tvset?theme=classic';
 }
 
 // ===== 17. websocket: สัญญาณว่ามีอะไรเปลี่ยน -> ดึงรายการใหม่ ===========
@@ -3132,11 +2915,7 @@ function connect(){
       const sig = [m.archiveRev, m.jobsRev, m.current && m.current.id, (m.queue || []).map(q => q.id).join(',')].join('|');
       if(sig !== S.roomSig){ S.roomSig = sig; scheduleRefresh(); }
       S.room = m; updateQCount(); renderQueue(); cutRoom();
-      // Studio อีกเครื่องเปลี่ยนค่าจอ -> ตามให้ทัน (ยกเว้นตอนเรากำลังแก้/รอบันทึกเอง)
-      if(TV.loaded && m.tv && !Object.keys(TV.pending).length){
-        if(JSON.stringify(m.tv) !== JSON.stringify(TV.cur)){ TV.cur = m.tv; fillTvForm(); }
-        renderTvPreview();
-      }
+      if(m.tv) TV.cur = m.tv;
     } };
   ws.onclose = () => { document.body.classList.add('off'); $('#ststr').textContent = 'กำลังเชื่อมต่อ…';
     setTimeout(connect, retry); retry = Math.min(retry * 1.5, 8000); };

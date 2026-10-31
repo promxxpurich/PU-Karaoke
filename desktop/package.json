@@ -1,0 +1,21 @@
+{
+  "name": "purich-karaoke-desktop",
+  "productName": "Purich Karaoke",
+  "version": "1.0.0",
+  "description": "แอป Mac ของ PU KARAOKE: เปิดเซิร์ฟเวอร์ Studio รีโมท และจอทีวีในโปรแกรมเดียว",
+  "private": true,
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "sync": "cp ../static/tvset/themes.css ../static/tvset/icons.js ui/ && rm -rf ui/fonts && cp -R ../static/tvset/fonts ui/fonts",
+    "prestart": "npm run sync",
+    "prepack": "npm run sync",
+    "start": "electron .",
+    "icon": "bash scripts/build-icon.sh",
+    "pack": "electron-packager . \"Purich Karaoke\" --platform=darwin --arch=arm64 --icon=assets/icon.icns --out=dist/app --overwrite --app-bundle-id=local.purich.karaoke --ignore=^/dist --ignore=^/scripts && codesign --force --deep -s - \"dist/app/Purich Karaoke-darwin-arm64/Purich Karaoke.app\""
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.8.0"
+  }
+}

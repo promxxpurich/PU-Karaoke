@@ -1,0 +1,37 @@
+/* ฟอนต์ Mali (SIL OFL) อยู่ในแอป ใช้งานได้โดยไม่ต้องต่อเน็ต */
+@font-face{font-family:Mali;font-weight:500;src:url(fonts/mali-thai-500-normal.woff2) format("woff2");unicode-range:U+0E01-0E5B,U+200C-200D,U+25CC}
+@font-face{font-family:Mali;font-weight:500;src:url(fonts/mali-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC,U+2122}
+@font-face{font-family:Mali;font-weight:700;src:url(fonts/mali-thai-700-normal.woff2) format("woff2");unicode-range:U+0E01-0E5B,U+200C-200D,U+25CC}
+@font-face{font-family:Mali;font-weight:700;src:url(fonts/mali-latin-700-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC,U+2122}
+
+/* --w = สีฐานของเส้นและพื้นโปร่ง (ธีมสว่างใช้สีเข้ม ธีมมืดใช้สีขาว) */
+:root,:root[data-theme=peach]{color-scheme:light;--w:92,44,62;
+  --bg:#fff6f1;--panel:#ffffff;--panel2:#ffeee8;--fg:#43282f;--dim:#8a6a72;--field:#fffaf7;--hover:#ffe3da;
+  --accent:#d93a6e;--accent2:#f2785c;--on-accent:#fff;--accent-soft:rgba(217,58,110,.13);
+  --line:rgba(92,44,62,.1);--ok:#118a62;--wait:#b86a00;--bad:#cc2f5e;--off:#c9b6ba;--info:#7a5cf0;
+  --grad:linear-gradient(135deg,#d93a6e,#e0653f);--glow:radial-gradient(700px 300px at 10% -30%,rgba(255,172,147,.55),transparent 70%),radial-gradient(600px 280px at 95% -25%,rgba(255,142,178,.42),transparent 70%);
+  --now:linear-gradient(135deg,#ffe0d4,#ffd3e0);--shadow:0 6px 22px rgba(160,84,92,.1);--footer:#fff1ea;--toast:#43282f;--toast-fg:#fff;--warn-bg:#fff0d6;--warn-fg:#7c4b00}
+:root[data-theme=mint]{color-scheme:light;--w:24,70,62;
+  --bg:#f0faf6;--panel:#ffffff;--panel2:#e2f5ee;--fg:#1f3f39;--dim:#5b7a73;--field:#f8fdfb;--hover:#d4efe5;
+  --accent:#0a7f69;--accent2:#2fa98c;--on-accent:#fff;--accent-soft:rgba(10,127,105,.12);
+  --line:rgba(24,70,62,.1);--ok:#0b8a5f;--wait:#a86400;--bad:#c9365f;--off:#b3c9c3;--info:#3f6fd8;
+  --grad:linear-gradient(135deg,#0a7f69,#1b9478);--glow:radial-gradient(700px 300px at 10% -30%,rgba(133,226,196,.55),transparent 70%),radial-gradient(600px 280px at 95% -25%,rgba(160,222,244,.45),transparent 70%);
+  --now:linear-gradient(135deg,#d3f3e6,#d6eefa);--shadow:0 6px 22px rgba(44,120,100,.1);--footer:#e9f7f1;--toast:#1f3f39;--toast-fg:#fff;--warn-bg:#fff2d8;--warn-fg:#775000}
+:root[data-theme=lavender]{color-scheme:light;--w:58,44,110;
+  --bg:#f6f3ff;--panel:#ffffff;--panel2:#ece6ff;--fg:#312a52;--dim:#6f6892;--field:#fbfaff;--hover:#e2daff;
+  --accent:#6a4be0;--accent2:#b05fe0;--on-accent:#fff;--accent-soft:rgba(106,75,224,.12);
+  --line:rgba(58,44,110,.1);--ok:#0f8a66;--wait:#a96500;--bad:#c9305f;--off:#c0b9d8;--info:#6a4be0;
+  --grad:linear-gradient(135deg,#6a4be0,#a24fd0);--glow:radial-gradient(700px 300px at 10% -30%,rgba(182,160,255,.55),transparent 70%),radial-gradient(600px 280px at 95% -25%,rgba(244,170,226,.42),transparent 70%);
+  --now:linear-gradient(135deg,#e5dcff,#f6dcf2);--shadow:0 6px 22px rgba(90,70,170,.11);--footer:#efeaff;--toast:#312a52;--toast-fg:#fff;--warn-bg:#fff1d8;--warn-fg:#775000}
+:root[data-theme=sweetnight]{color-scheme:dark;--w:255,235,245;
+  --bg:#211526;--panel:#2e1f35;--panel2:#3b2943;--fg:#fbeff5;--dim:#c3aebb;--field:#261a2c;--hover:#4a3454;
+  --accent:#ff8db5;--accent2:#ffb38a;--on-accent:#3a0d21;--accent-soft:rgba(255,141,181,.18);
+  --line:rgba(255,235,245,.1);--ok:#6fe0b8;--wait:#ffc774;--bad:#ff94ae;--off:#6d5a74;--info:#bba7ff;
+  --grad:linear-gradient(135deg,#ff8db5,#ffb38a);--glow:radial-gradient(700px 300px at 10% -30%,rgba(187,120,255,.28),transparent 70%),radial-gradient(600px 280px at 95% -25%,rgba(255,141,181,.24),transparent 70%);
+  --now:linear-gradient(135deg,#513056,#5a2f48);--shadow:0 8px 24px rgba(0,0,0,.28);--footer:#1b1120;--toast:#fbeff5;--toast-fg:#2e1f35;--warn-bg:rgba(255,199,116,.14);--warn-fg:#ffd89c}
+:root[data-theme=classic]{color-scheme:dark;--w:255,255,255;
+  --bg:#06060b;--panel:#14141f;--panel2:#1b1b29;--fg:#f4f4f8;--dim:#a0a0b8;--field:#0e0e17;--hover:#26263a;
+  --accent:#ff4d8d;--accent2:#7c5cff;--on-accent:#fff;--accent-soft:rgba(255,77,141,.18);
+  --line:rgba(255,255,255,.09);--ok:#38d39f;--wait:#ffb648;--bad:#ff6b8f;--off:#5d5d74;--info:#9c86ff;
+  --grad:linear-gradient(135deg,#ff4d8d,#7c5cff);--glow:radial-gradient(700px 280px at 12% -30%,rgba(124,92,255,.3),transparent 70%),radial-gradient(600px 260px at 95% -20%,rgba(255,77,141,.24),transparent 70%);
+  --now:linear-gradient(135deg,rgba(124,92,255,.32),rgba(255,77,141,.24));--shadow:none;--footer:#0b0b13;--toast:#2a2a40;--toast-fg:#fff;--warn-bg:rgba(255,182,72,.09);--warn-fg:#ffd79a}

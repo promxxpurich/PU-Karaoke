@@ -28,3 +28,11 @@ history.json
 combos.json
 # รูปมุมขวาบนของจอหลัก (อัปโหลดจาก Studio — รูปส่วนตัว)
 .tv/
+
+# ---- แอป Mac (desktop/) ----
+desktop/node_modules/
+desktop/dist/
+# คัดลอกจาก static/tvset ตอน npm start / npm run pack
+desktop/ui/themes.css
+desktop/ui/icons.js
+desktop/ui/fonts/

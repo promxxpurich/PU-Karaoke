@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://localhost:*; frame-src http://localhost:*">
+<title>Purich Karaoke</title>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="app.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="../assets/icon.png" alt="" width="26" height="26"><b>Purich Karaoke</b></div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <div class="grow"></div>
+  <button id="power" class="power"></button>
+</header>
+<nav class="tabs" role="tablist" aria-label="หน้าหลักของแอป">
+  <button role="tab" data-tab="home" data-icon="home" data-label="หน้าแรก">หน้าแรก</button>
+  <button role="tab" data-tab="studio" data-icon="studio" data-label="Studio">Studio</button>
+  <button role="tab" data-tab="remote" data-icon="remote" data-label="รีโมท">รีโมท</button>
+  <button role="tab" data-tab="tv" data-icon="tv" data-label="จอทีวี">จอทีวี</button>
+  <button role="tab" data-tab="settings" data-icon="settings" data-label="ตั้งค่า">ตั้งค่า</button>
+</nav>
+<div id="notice"></div>
+<main id="page" tabindex="-1"></main>
+<div id="frames"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
